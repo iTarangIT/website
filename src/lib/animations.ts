@@ -1,7 +1,7 @@
 export const fadeUp = {
   initial: { opacity: 0, y: 30 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6, ease: "easeOut" },
+  transition: { duration: 0.6, ease: "easeOut" as const },
 };
 
 export const fadeIn = {
@@ -19,13 +19,13 @@ export const scaleIn = {
 export const slideInLeft = {
   initial: { opacity: 0, x: -40 },
   animate: { opacity: 1, x: 0 },
-  transition: { duration: 0.6, ease: "easeOut" },
+  transition: { duration: 0.6, ease: "easeOut" as const },
 };
 
 export const slideInRight = {
   initial: { opacity: 0, x: 40 },
   animate: { opacity: 1, x: 0 },
-  transition: { duration: 0.6, ease: "easeOut" },
+  transition: { duration: 0.6, ease: "easeOut" as const },
 };
 
 export const staggerContainer = {
