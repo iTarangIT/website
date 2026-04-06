@@ -33,7 +33,7 @@ export default function ContactPage() {
       {/* Hero */}
       <section className="pt-28 pb-16 md:pt-36 md:pb-20 relative overflow-hidden">
         <div className="absolute inset-0 bg-surface-warm" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(103,61,230,0.06),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(5,27,154,0.06),transparent_60%)]" />
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
           <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-4 font-sans">
             Contact

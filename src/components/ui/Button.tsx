@@ -19,7 +19,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       secondary: "bg-brand-100 text-brand-700 hover:bg-brand-200",
       outline: "border-2 border-brand-500 text-brand-500 hover:bg-brand-50",
       ghost: "text-brand-600 hover:bg-brand-50",
-      accent: "bg-accent-pink text-white hover:bg-accent-pink/90 shadow-lg shadow-accent-pink/25",
+      accent: "bg-accent-sky text-white hover:bg-accent-sky/90 shadow-lg shadow-accent-sky/25",
     };
 
     const sizes = {

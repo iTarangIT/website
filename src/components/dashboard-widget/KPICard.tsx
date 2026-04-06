@@ -13,7 +13,7 @@ interface KPICardProps {
 
 const trendConfig = {
   up: { Icon: TrendingUp, className: "text-accent-green" },
-  down: { Icon: TrendingDown, className: "text-accent-pink" },
+  down: { Icon: TrendingDown, className: "text-accent-sky" },
   neutral: { Icon: Minus, className: "text-gray-400" },
 };
 

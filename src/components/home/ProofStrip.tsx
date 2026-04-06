@@ -15,7 +15,7 @@ export default function ProofStrip() {
     <section className="py-20 md:py-24 relative overflow-hidden">
       {/* Rich gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(103,61,230,0.3),transparent_70%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(5,27,154,0.3),transparent_70%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(245,158,11,0.1),transparent_60%)]" />
 
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 relative z-10">

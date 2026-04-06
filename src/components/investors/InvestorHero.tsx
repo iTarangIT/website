@@ -13,7 +13,7 @@ export default function InvestorHero() {
       <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
 
       {/* Ambient glows */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-[radial-gradient(ellipse,rgba(103,61,230,0.2),transparent_70%)] pointer-events-none" />
+      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-[radial-gradient(ellipse,rgba(5,27,154,0.2),transparent_70%)] pointer-events-none" />
       <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-[radial-gradient(ellipse,rgba(252,81,133,0.08),transparent_70%)] pointer-events-none" />
 
       <GridPattern

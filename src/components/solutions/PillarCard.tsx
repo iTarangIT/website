@@ -41,7 +41,7 @@ const colorMap = {
     benefitBorder: "border-pink-200",
     benefitText: "text-pink-700",
     check: "text-pink-500",
-    accentBar: "bg-accent-pink",
+    accentBar: "bg-accent-sky",
   },
 };
 

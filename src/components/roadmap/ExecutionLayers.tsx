@@ -18,7 +18,7 @@ const layerConfig = [
   },
   {
     icon: Landmark,
-    gradient: "from-accent-pink to-pink-600",
+    gradient: "from-accent-sky to-pink-600",
     bg: "bg-pink-50",
     border: "border-pink-200",
     iconBg: "bg-pink-100",

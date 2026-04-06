@@ -26,9 +26,9 @@ export default function Footer() {
   return (
     <footer className="relative overflow-hidden">
       {/* Main footer area */}
-      <div className="bg-gradient-to-b from-brand-950 to-[#0c0720] pt-20 pb-12">
+      <div className="bg-gradient-to-b from-brand-950 to-[#030d33] pt-20 pb-12">
         {/* Ambient glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-[radial-gradient(ellipse,rgba(103,61,230,0.12),transparent_70%)] pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-[radial-gradient(ellipse,rgba(5,27,154,0.15),transparent_70%)] pointer-events-none" />
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
@@ -132,7 +132,7 @@ export default function Footer() {
       </div>
 
       {/* Bottom bar */}
-      <div className="bg-[#0c0720] border-t border-brand-800/30">
+      <div className="bg-[#030d33] border-t border-brand-800/30">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-brand-400/30 font-sans">

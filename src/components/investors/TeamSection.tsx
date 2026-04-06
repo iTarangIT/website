@@ -141,7 +141,7 @@ export default function TeamSection() {
                     className="flex items-center gap-4 rounded-xl bg-gray-50 border border-gray-100 p-4"
                   >
                     {/* Placeholder avatar */}
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-accent-pink shrink-0">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-accent-sky shrink-0">
                       <span className="text-sm font-bold text-white">
                         {advisor.title[0]}
                       </span>

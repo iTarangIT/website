@@ -21,7 +21,7 @@ export default function HomeCTA() {
     <section className="py-24 md:py-32 relative overflow-hidden">
       {/* Rich gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(103,61,230,0.3),transparent_60%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(5,27,154,0.3),transparent_60%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(252,81,133,0.1),transparent_50%)]" />
 
       {/* Subtle grid */}

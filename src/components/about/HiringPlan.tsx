@@ -13,7 +13,7 @@ export default function HiringPlan() {
         <FadeInOnScroll key={hire.role} delay={idx * 0.12}>
           <Card className="h-full hover:shadow-md transition-shadow relative overflow-hidden group">
             {/* Top accent */}
-            <div className="h-1 bg-gradient-to-r from-accent-pink to-brand-500" />
+            <div className="h-1 bg-gradient-to-r from-accent-sky to-brand-500" />
             <CardContent className="pt-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">

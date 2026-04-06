@@ -22,10 +22,10 @@ const tabs = [
     id: "nbfc",
     label: "For NBFCs",
     icon: BarChart3,
-    color: "from-violet-50 to-purple-50/50",
+    color: "from-blue-50 to-indigo-50/50",
     activeColor: "bg-brand-500",
     iconActiveColor: "text-white",
-    borderColor: "border-violet-200/40",
+    borderColor: "border-blue-200/40",
     headline: "See inside every battery you finance.",
     description:
       "SOH, location, charge patterns, driver behaviour — all in real-time. If a payment is late, the battery tells us before the collection team finds out.",
@@ -34,8 +34,8 @@ const tabs = [
         icon: Eye,
         title: "Full Asset Visibility",
         text: "Real-time SOH, SOC, GPS, temperature, and charge cycle data for every financed battery.",
-        iconBg: "bg-violet-100",
-        iconColor: "text-violet-600",
+        iconBg: "bg-blue-100",
+        iconColor: "text-blue-600",
       },
       {
         icon: Shield,

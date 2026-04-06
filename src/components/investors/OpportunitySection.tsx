@@ -22,7 +22,7 @@ const opportunities = [
     label: "Informal Financing",
     description:
       "The vast majority of EV battery purchases are financed through informal channels at 30-60% interest rates.",
-    gradient: "from-accent-pink to-brand-600",
+    gradient: "from-accent-sky to-brand-600",
   },
   {
     icon: IndianRupee,
@@ -30,7 +30,7 @@ const opportunities = [
     label: "Annual Replacement TAM",
     description:
       "With 2-3 year replacement cycles and 30 Lakh+ installed base, the addressable market is enormous and recurring.",
-    gradient: "from-brand-600 to-accent-pink",
+    gradient: "from-brand-600 to-accent-sky",
   },
   {
     icon: ShieldCheck,

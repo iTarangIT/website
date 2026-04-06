@@ -19,9 +19,9 @@ const stages = [
     description:
       "Drivers get a lithium battery on EMI. NBFCs get IoT-backed risk data before they approve.",
     stat: "₹49K avg loan, 18-month tenure",
-    gradient: "from-violet-500/20 to-blue-500/20",
-    iconBg: "bg-violet-500/10",
-    iconColor: "text-violet-500",
+    gradient: "from-blue-500/20 to-indigo-500/20",
+    iconBg: "bg-blue-500/10",
+    iconColor: "text-blue-600",
   },
   {
     icon: Truck,

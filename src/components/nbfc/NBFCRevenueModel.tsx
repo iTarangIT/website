@@ -43,7 +43,7 @@ export default function NBFCRevenueModel() {
               <div className="px-6 py-4 text-sm font-semibold text-gray-600">
                 Metric
               </div>
-              <div className="px-6 py-4 text-sm font-semibold text-accent-pink text-center flex items-center justify-center gap-1.5">
+              <div className="px-6 py-4 text-sm font-semibold text-accent-sky text-center flex items-center justify-center gap-1.5">
                 <TrendingDown className="h-4 w-4" />
                 Before iTarang
               </div>

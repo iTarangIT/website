@@ -12,7 +12,7 @@ export default function HowItWorksHero() {
       <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
 
       {/* Ambient glows */}
-      <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[radial-gradient(ellipse,rgba(103,61,230,0.2),transparent_70%)] pointer-events-none" />
+      <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[radial-gradient(ellipse,rgba(5,27,154,0.2),transparent_70%)] pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-[radial-gradient(ellipse,rgba(245,158,11,0.08),transparent_70%)] pointer-events-none" />
 
       {/* Grid pattern */}

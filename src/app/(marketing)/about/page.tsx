@@ -22,7 +22,7 @@ export default function AboutPage() {
       {/* Hero */}
       <section className="pt-28 pb-16 md:pt-36 md:pb-20 relative overflow-hidden">
         <div className="absolute inset-0 bg-surface-warm" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(103,61,230,0.06),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(5,27,154,0.06),transparent_60%)]" />
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
           <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-4 font-sans">
             Our Story
@@ -94,7 +94,7 @@ export default function AboutPage() {
       {/* Traction */}
       <section className="py-20 md:py-24 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(103,61,230,0.2),transparent_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(5,27,154,0.2),transparent_70%)]" />
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 relative z-10">
           <FadeInOnScroll>
             <h2 className="text-3xl md:text-4xl text-white text-center mb-14 tracking-tight">

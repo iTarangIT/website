@@ -11,7 +11,7 @@ import {
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
 const stageColors = [
-  { bg: "from-violet-50 to-purple-50/50", border: "border-violet-200/40", iconBg: "bg-violet-100", iconColor: "text-violet-600", stepColor: "text-violet-400", statBg: "bg-violet-50", statText: "text-violet-700" },
+  { bg: "from-blue-50 to-indigo-50/50", border: "border-blue-200/40", iconBg: "bg-blue-100", iconColor: "text-blue-600", stepColor: "text-blue-400", statBg: "bg-blue-50", statText: "text-blue-700" },
   { bg: "from-blue-50 to-indigo-50/50", border: "border-blue-200/40", iconBg: "bg-blue-100", iconColor: "text-blue-600", stepColor: "text-blue-400", statBg: "bg-blue-50", statText: "text-blue-700" },
   { bg: "from-cyan-50 to-teal-50/50", border: "border-cyan-200/40", iconBg: "bg-cyan-100", iconColor: "text-cyan-600", stepColor: "text-cyan-400", statBg: "bg-cyan-50", statText: "text-cyan-700" },
   { bg: "from-amber-50 to-orange-50/50", border: "border-amber-200/40", iconBg: "bg-amber-100", iconColor: "text-amber-600", stepColor: "text-amber-400", statBg: "bg-amber-50", statText: "text-amber-700" },

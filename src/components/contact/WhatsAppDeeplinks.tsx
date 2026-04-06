@@ -23,7 +23,7 @@ const deeplinks = [
     description: "Explore investment and lending partnership opportunities",
     icon: TrendingUp,
     color: "bg-pink-50 border-pink-200 hover:bg-pink-100",
-    iconColor: "text-accent-pink",
+    iconColor: "text-accent-sky",
     message: "Hi, I'm interested in exploring investment/NBFC partnership opportunities with iTarang.",
   },
 ];

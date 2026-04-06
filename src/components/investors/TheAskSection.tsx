@@ -25,7 +25,7 @@ const allocationItems = [
 
 const allocationColors = [
   "from-brand-500 to-brand-600",
-  "from-accent-pink to-brand-500",
+  "from-accent-sky to-brand-500",
   "from-brand-400 to-brand-500",
   "from-accent-green to-brand-500",
   "from-brand-300 to-brand-400",

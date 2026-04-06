@@ -123,9 +123,9 @@ export default function DataFlywheelAnimation() {
                   x2="100%"
                   y2="100%"
                 >
-                  <stop offset="0%" stopColor="#673de6" />
-                  <stop offset="50%" stopColor="#00b090" />
-                  <stop offset="100%" stopColor="#673de6" />
+                  <stop offset="0%" stopColor="#051b9a" />
+                  <stop offset="50%" stopColor="#38bdf8" />
+                  <stop offset="100%" stopColor="#051b9a" />
                 </linearGradient>
               </defs>
             </svg>
@@ -163,8 +163,8 @@ export default function DataFlywheelAnimation() {
                   <motion.div
                     animate={
                       isActive
-                        ? { scale: 1.1, boxShadow: "0 0 24px rgba(103,61,230,0.4)" }
-                        : { scale: 1, boxShadow: "0 0 0px rgba(103,61,230,0)" }
+                        ? { scale: 1.1, boxShadow: "0 0 24px rgba(5,27,154,0.4)" }
+                        : { scale: 1, boxShadow: "0 0 0px rgba(5,27,154,0)" }
                     }
                     transition={{ duration: 0.4 }}
                     className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-600 border-2 border-brand-400"

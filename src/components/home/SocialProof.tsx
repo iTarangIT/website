@@ -39,7 +39,7 @@ export default function SocialProof() {
   return (
     <section className="py-24 md:py-32 bg-white relative overflow-hidden">
       {/* Soft gradient accent */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[radial-gradient(ellipse,rgba(103,61,230,0.05),transparent_70%)] pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[radial-gradient(ellipse,rgba(5,27,154,0.05),transparent_70%)] pointer-events-none" />
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
         <FadeInOnScroll>

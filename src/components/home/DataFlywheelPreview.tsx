@@ -25,8 +25,8 @@ const nodes: FlywheelNode[] = [
   {
     label: "Smarter Risk Engine",
     icon: Brain,
-    color: "text-purple-600",
-    bgColor: "bg-purple-100",
+    color: "text-blue-600",
+    bgColor: "bg-blue-100",
   },
   {
     label: "Lower NPAs",
@@ -125,18 +125,18 @@ export default function DataFlywheelPreview() {
                         >
                           <path
                             d="M0,0 L8,3 L0,6"
-                            fill={isActive ? "#a78bfa" : "#4b3b80"}
+                            fill={isActive ? "#5b7bff" : "#041580"}
                           />
                         </marker>
                       </defs>
                       <motion.path
                         d={getArrowPath(i, nextIdx)}
-                        stroke={isActive ? "#a78bfa" : "#4b3b80"}
+                        stroke={isActive ? "#5b7bff" : "#041580"}
                         strokeWidth={isActive ? 2.5 : 1.5}
                         strokeDasharray="6 4"
                         markerEnd={`url(#arrowhead-${i})`}
                         animate={{
-                          stroke: isActive ? "#a78bfa" : "#4b3b80",
+                          stroke: isActive ? "#5b7bff" : "#041580",
                           strokeWidth: isActive ? 2.5 : 1.5,
                         }}
                         transition={{ duration: 0.5 }}

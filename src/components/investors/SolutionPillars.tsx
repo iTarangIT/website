@@ -94,7 +94,7 @@ export default function SolutionPillars() {
                 className="relative flex flex-col h-full rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg transition-shadow duration-300 overflow-hidden"
               >
                 {/* Top gradient bar */}
-                <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 to-accent-pink" />
+                <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 to-accent-sky" />
 
                 <div className="p-8 flex flex-col flex-1">
                   {/* Pillar number + icon */}

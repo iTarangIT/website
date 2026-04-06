@@ -1,30 +1,30 @@
 @import "tailwindcss";
 
 @theme inline {
-  /* Core brand palette — deep purple to warm amber spectrum */
-  --color-brand-50: #f5f0ff;
-  --color-brand-100: #ebe4ff;
-  --color-brand-200: #d5cfff;
-  --color-brand-300: #b8a8ff;
-  --color-brand-400: #8c85ff;
-  --color-brand-500: #673de6;
-  --color-brand-600: #5025d1;
-  --color-brand-700: #4318a0;
-  --color-brand-800: #2f1c6a;
-  --color-brand-900: #1f1346;
-  --color-brand-950: #110a2e;
+  /* Core brand palette — deep blue spectrum built from #051b9a */
+  --color-brand-50: #eef1ff;
+  --color-brand-100: #dae3ff;
+  --color-brand-200: #b8c8ff;
+  --color-brand-300: #8aa4ff;
+  --color-brand-400: #5b7bff;
+  --color-brand-500: #1e42d9;
+  --color-brand-600: #051b9a;
+  --color-brand-700: #041580;
+  --color-brand-800: #071165;
+  --color-brand-900: #0a0e4a;
+  --color-brand-950: #06082e;
 
-  /* Warm accent palette */
-  --color-accent-pink: #fc5185;
-  --color-accent-green: #00b090;
-  --color-accent-yellow: #ffcd35;
+  /* Accent palette — blue-complementary spectrum */
+  --color-accent-sky: #38bdf8;
+  --color-accent-green: #10b981;
+  --color-accent-yellow: #fbbf24;
   --color-accent-amber: #f59e0b;
-  --color-accent-coral: #ff6b6b;
+  --color-accent-cyan: #06b6d4;
 
-  /* Surface palette — warm grays, not blue-grays */
-  --color-surface-warm: #faf8f5;
-  --color-surface-cream: #f7f3ee;
-  --color-surface-mist: #f0ece5;
+  /* Surface palette — cool-toned grays for blue harmony */
+  --color-surface-warm: #f8fafc;
+  --color-surface-cream: #f1f5f9;
+  --color-surface-mist: #e2e8f0;
 
   /* Typography */
   --font-display: var(--font-display);
@@ -48,19 +48,19 @@
   --card-foreground: 30 10% 10%;
   --popover: 0 0% 100%;
   --popover-foreground: 30 10% 10%;
-  --primary: 260 72% 57%;
+  --primary: 228 95% 31%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 35 30% 96%;
-  --secondary-foreground: 260 72% 40%;
-  --muted: 35 14% 95%;
-  --muted-foreground: 30 9% 46%;
-  --accent: 35 30% 96%;
-  --accent-foreground: 260 72% 40%;
+  --secondary: 214 32% 96%;
+  --secondary-foreground: 228 95% 25%;
+  --muted: 214 20% 95%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 214 32% 96%;
+  --accent-foreground: 228 95% 25%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 30 13% 89%;
-  --input: 30 13% 89%;
-  --ring: 260 72% 57%;
+  --border: 214 20% 88%;
+  --input: 214 20% 88%;
+  --ring: 228 95% 31%;
   --radius: 0.75rem;
 }
 
@@ -124,8 +124,8 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #2d2a24;
-  background-color: #fffcf9;
+  color: #1e293b;
+  background-color: #f8fafc;
 }
 
 /* Display font for headings */
@@ -175,9 +175,9 @@ h1, h2, h3 {
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-/* Warm gradient text */
+/* Blue gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #673de6 0%, #fc5185 50%, #f59e0b 100%);
+  background: linear-gradient(135deg, #051b9a 0%, #1e42d9 40%, #38bdf8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -191,7 +191,7 @@ h1, h2, h3 {
   content: "";
   position: absolute;
   inset: -20%;
-  background: radial-gradient(circle, rgba(103, 61, 230, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(5, 27, 154, 0.15) 0%, transparent 70%);
   border-radius: 50%;
   pointer-events: none;
   animation: glow-pulse 4s ease-in-out infinite;
@@ -199,9 +199,9 @@ h1, h2, h3 {
 
 /* Stat card styling */
 .stat-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(245, 240, 255, 0.7) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(238, 241, 255, 0.7) 100%);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(103, 61, 230, 0.1);
+  border: 1px solid rgba(5, 27, 154, 0.1);
   border-radius: 1rem;
   padding: 1.5rem;
 }
@@ -211,18 +211,18 @@ h1, h2, h3 {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #faf8f5;
+  background: #f8fafc;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d5cfff;
+  background: #b8c8ff;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #b8a8ff;
+  background: #8aa4ff;
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(103, 61, 230, 0.2);
-  color: #1f1346;
+  background: rgba(5, 27, 154, 0.2);
+  color: #0a0e4a;
 }

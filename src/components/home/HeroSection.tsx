@@ -16,7 +16,7 @@ export default function HeroSection() {
         {/* Warm gradient layer */}
         <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900/90 to-brand-950" />
 
-        {/* Ambient glow — top left purple */}
+        {/* Ambient glow — top left blue */}
         <div className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-brand-500/10 blur-[120px]" />
 
         {/* Ambient glow — bottom right amber */}
@@ -63,7 +63,7 @@ export default function HeroSection() {
           >
             Every Battery.
             <br />
-            <span className="bg-gradient-to-r from-brand-300 via-accent-amber to-accent-pink bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-brand-300 via-accent-amber to-accent-sky bg-clip-text text-transparent">
               From First Charge to Last.
             </span>
           </motion.h1>

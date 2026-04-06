@@ -22,7 +22,7 @@ export default function FounderVideoPlaceholder() {
 
         {/* Gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-brand-950/90 via-brand-900/50 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-br from-brand-800/30 via-transparent to-accent-pink/10" />
+        <div className="absolute inset-0 bg-gradient-to-br from-brand-800/30 via-transparent to-accent-sky/10" />
 
         {/* Content */}
         <div className="relative flex flex-col items-center justify-center h-full px-6 text-center">

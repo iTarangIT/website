@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 const lifecycleSteps = [
-  { icon: Banknote, label: "Finance", color: "from-violet-50 to-purple-50/50", iconColor: "text-violet-600", borderColor: "border-violet-200/40" },
+  { icon: Banknote, label: "Finance", color: "from-blue-50 to-indigo-50/50", iconColor: "text-blue-600", borderColor: "border-blue-200/40" },
   { icon: Truck, label: "Deploy", color: "from-blue-50 to-indigo-50/50", iconColor: "text-blue-600", borderColor: "border-blue-200/40" },
   { icon: Activity, label: "Monitor", color: "from-cyan-50 to-teal-50/50", iconColor: "text-cyan-600", borderColor: "border-cyan-200/40" },
   { icon: Wrench, label: "Maintain", color: "from-amber-50 to-orange-50/50", iconColor: "text-amber-600", borderColor: "border-amber-200/40" },
@@ -45,7 +45,7 @@ export default function ForInvestorsPage() {
       <section className="py-20 md:py-28 bg-white">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
           <FadeInOnScroll>
-            <span className="inline-block text-sm font-semibold text-accent-coral tracking-widest uppercase mb-4 font-sans">
+            <span className="inline-block text-sm font-semibold text-accent-cyan tracking-widest uppercase mb-4 font-sans">
               The Problem
             </span>
             <h2 className="text-3xl md:text-4xl text-gray-900 tracking-tight mb-6">
@@ -102,7 +102,7 @@ export default function ForInvestorsPage() {
       {/* Traction */}
       <section className="py-20 md:py-24 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(103,61,230,0.2),transparent_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(5,27,154,0.2),transparent_70%)]" />
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 relative z-10">
           <FadeInOnScroll>
             <h2 className="text-3xl md:text-4xl text-white text-center mb-14 tracking-tight">
@@ -155,7 +155,7 @@ export default function ForInvestorsPage() {
       <section className="py-20 md:py-28 relative overflow-hidden grain-overlay">
         <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(252,81,133,0.1),transparent_60%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(103,61,230,0.15),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(5,27,154,0.15),transparent_60%)]" />
 
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 relative z-10">
           <FadeInOnScroll>
@@ -171,7 +171,7 @@ export default function ForInvestorsPage() {
                   borderRadius={20}
                   borderWidth={2}
                   duration={8}
-                  color={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+                  color={["#051b9a", "#38bdf8", "#5b7bff"]}
                   className="w-full min-w-0 bg-white/5 backdrop-blur-sm"
                 >
                   <div className="space-y-4 text-brand-200 text-lg p-5 font-sans">

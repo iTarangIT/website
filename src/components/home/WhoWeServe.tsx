@@ -41,7 +41,7 @@ export default function WhoWeServe() {
   return (
     <section className="py-24 md:py-32 bg-surface-warm relative overflow-hidden">
       {/* Subtle background pattern */}
-      <div className="absolute top-0 right-0 w-1/2 h-full bg-[radial-gradient(ellipse_at_top_right,rgba(103,61,230,0.04),transparent_60%)]" />
+      <div className="absolute top-0 right-0 w-1/2 h-full bg-[radial-gradient(ellipse_at_top_right,rgba(5,27,154,0.04),transparent_60%)]" />
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
         <FadeInOnScroll>

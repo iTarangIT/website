@@ -13,7 +13,7 @@ export default function BlogCard({ post }: BlogCardProps) {
     post.category === "Industry Insights"
       ? "from-brand-600 to-brand-800"
       : post.category === "Vision"
-        ? "from-accent-pink to-brand-600"
+        ? "from-accent-sky to-brand-600"
         : "from-brand-700 to-accent-green";
 
   return (
