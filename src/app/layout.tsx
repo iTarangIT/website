@@ -1,25 +1,32 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { DM_Serif_Display, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+const dmSerif = DM_Serif_Display({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: "400",
+});
+
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-body",
   subsets: ["latin"],
 });
 
 const jetbrains = JetBrains_Mono({
-  variable: "--font-jetbrains",
+  variable: "--font-mono",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.itarang.com"),
-  title: "iTarang Technologies | The Intelligence Layer for India's EV Battery Economy",
+  title: "iTarang | Every Battery. From First Charge to Last.",
   description:
-    "India's 1st EV Battery Financing & Lifecycle Management Ecosystem. Turning batteries into programmable financial assets through smart telemetry, behavioral risk scoring, and lifecycle intelligence.",
+    "We finance, track, maintain, and recycle EV batteries across India. Drivers get affordable EMIs. Lenders get visibility. Nothing falls through the cracks.",
   openGraph: {
     title: "iTarang Technologies",
-    description: "The Intelligence Layer for India's EV Battery Economy",
+    description:
+      "Every Battery. From First Charge to Last. EV battery lifecycle management across India.",
     url: "https://www.itarang.com",
     siteName: "iTarang Technologies",
     type: "website",
@@ -32,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
+    <html lang="en" className={`${dmSerif.variable} ${jakarta.variable} ${jetbrains.variable}`}>
       <body className="min-h-screen flex flex-col antialiased">{children}</body>
     </html>
   );

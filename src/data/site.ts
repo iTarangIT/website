@@ -1,15 +1,15 @@
 export const siteConfig = {
   name: "iTarang Technologies",
-  tagline: "The Intelligence Layer for India's EV Battery Economy",
+  tagline: "Every Battery. From First Charge to Last.",
   description:
-    "India's 1st EV Battery Financing & Lifecycle Management Ecosystem. Turning batteries into programmable financial assets through smart telemetry, behavioral risk scoring, and lifecycle intelligence.",
+    "We finance, track, maintain, and recycle EV batteries across India. Drivers get affordable EMIs. Lenders get visibility. Nothing falls through the cracks.",
   url: "https://www.itarang.com",
   email: "founders@itarang.in",
   supportEmail: "care@itarang.com",
   phone: "+91-8076841497",
   whatsapp: "+91-8920828425",
   address: "Unitech Business Zone, Sector 50, Gurugram, Haryana",
-  hours: "Mon–Fri 9am–6pm",
+  hours: "Mon-Fri 9am-6pm",
   social: {
     facebook: "https://www.facebook.com/itarang",
     instagram: "https://www.instagram.com/itarang",
@@ -17,7 +17,7 @@ export const siteConfig = {
     linkedin: "https://www.linkedin.com/company/itarang",
   },
   legal: {
-    cin: "", // To be filled
+    cin: "",
     dpiit: "DPIIT Recognised Startup",
   },
 } as const;

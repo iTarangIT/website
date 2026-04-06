@@ -1,0 +1,358 @@
+You are given a task to integrate an existing React component in the codebase
+
+The codebase should support:
+- shadcn project structure  
+- Tailwind CSS
+- Typescript
+
+If it doesn't, provide instructions on how to setup project via shadcn CLI, install Tailwind or Typescript.
+
+Determine the default path for components and styles. 
+If default path for components is not /components/ui, provide instructions on why it's important to create this folder
+Copy-paste this component to /components/ui folder:
+```tsx
+dialog.tsx
+"use client";
+
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import * as React from "react";
+
+import { cn } from "@/lib/utils";
+import { Cross2Icon } from "@radix-ui/react-icons";
+
+const Dialog = DialogPrimitive.Root;
+
+const DialogTrigger = DialogPrimitive.Trigger;
+
+const DialogPortal = DialogPrimitive.Portal;
+
+const DialogClose = DialogPrimitive.Close;
+
+const DialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      "fixed inset-0 z-[101] bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      className,
+    )}
+    {...props}
+  />
+));
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
+
+const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed left-1/2 top-1/2 z-[101] grid max-h-[calc(100%-4rem)] w-full -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto border bg-background p-6 shadow-lg shadow-black/5 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:max-w-[400px] sm:rounded-xl",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <DialogPrimitive.Close className="group absolute right-3 top-3 flex size-7 items-center justify-center rounded-lg outline-offset-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 disabled:pointer-events-none">
+        <Cross2Icon
+          width={16}
+          height={16}
+          strokeWidth={2}
+          className="opacity-60 transition-opacity group-hover:opacity-100"
+        />
+        <span className="sr-only">Close</span>
+      </DialogPrimitive.Close>
+    </DialogPrimitive.Content>
+  </DialogPortal>
+));
+DialogContent.displayName = DialogPrimitive.Content.displayName;
+
+const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)} {...props} />
+);
+DialogHeader.displayName = "DialogHeader";
+
+const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3", className)}
+    {...props}
+  />
+);
+DialogFooter.displayName = "DialogFooter";
+
+const DialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn("text-lg font-semibold tracking-tight", className)}
+    {...props}
+  />
+));
+DialogTitle.displayName = DialogPrimitive.Title.displayName;
+
+const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+));
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+};
+
+
+demo.tsx
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+function Component() {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline">Scrollable (sticky footer)</Button>
+      </DialogTrigger>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-h-[min(640px,80vh)] sm:max-w-lg [&>button:last-child]:hidden">
+        <div className="overflow-y-auto">
+          <DialogHeader className="contents space-y-0 text-left">
+            <DialogTitle className="px-6 pt-6 text-base">
+              Frequently Asked Questions (FAQ)
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="p-6">
+                <div className="space-y-4 [&_strong]:font-semibold [&_strong]:text-foreground">
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Account Management</strong>
+                    </p>
+                    <p>
+                      Navigate to the registration page, provide required information, and verify
+                      your email address. You can sign up using your email or through social media
+                      platforms.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Password Reset Process</strong>
+                    </p>
+                    <p>
+                      Users can reset their password through the account settings page. Click
+                      &quot;Forgot Password&quot; and follow the email verification steps to regain
+                      account access quickly and securely.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Service Pricing Tiers</strong>
+                    </p>
+                    <p>
+                      We offer three primary subscription levels designed to meet diverse user
+                      needs: Basic (free with limited features), Professional (monthly fee with
+                      comprehensive access), and Enterprise (custom pricing with full platform
+                      capabilities).
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Technical Support Channels</strong>
+                    </p>
+                    <p>
+                      Customer support is accessible through multiple communication methods
+                      including email support, live chat during business hours, an integrated
+                      support ticket system, and phone support specifically for enterprise-level
+                      customers.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Data Protection Strategies</strong>
+                    </p>
+                    <p>
+                      Our platform implements rigorous security measures including 256-bit SSL
+                      encryption, regular comprehensive security audits, strict data access
+                      controls, and compliance with international privacy protection standards.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Platform Compatibility</strong>
+                    </p>
+                    <p>
+                      The service supports multiple device and operating system environments,
+                      including web browsers like Chrome and Firefox, mobile applications for iOS
+                      and Android, and desktop applications compatible with Windows and macOS.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Subscription Management</strong>
+                    </p>
+                    <p>
+                      Subscriptions can be cancelled at any time through account settings, with
+                      pro-rated refunds available within 30 days of payment. Both monthly and annual
+                      billing options are provided, with special discounts offered for annual
+                      commitments.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Payment Method Options</strong>
+                    </p>
+                    <p>
+                      We accept a wide range of payment methods including major credit cards such as
+                      Visa, MasterCard, and American Express, digital payment platforms like PayPal,
+                      and direct bank transfers. Regional payment options may also be available
+                      depending on user location.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Customer Support</strong>
+                    </p>
+                    <p>
+                      Our dedicated customer support team is available 24/7, providing quick and
+                      efficient assistance to address any inquiries or issues you may have.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>
+                      <strong>Privacy Policy</strong>
+                    </p>
+                    <p>
+                      Our privacy policy outlines how we collect, use, and protect your personal
+                      data, ensuring your privacy is protected at all times.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+        <DialogFooter className="border-t border-border px-6 py-4">
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
+            </Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button type="button">Okay</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export { Component };
+
+```
+
+Copy-paste these files for dependencies:
+```tsx
+originui/button
+import { Slot } from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import * as React from "react";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium transition-colors outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground shadow-sm shadow-black/5 hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground shadow-sm shadow-black/5 hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background shadow-sm shadow-black/5 hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground shadow-sm shadow-black/5 hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-9 px-4 py-2",
+        sm: "h-8 rounded-lg px-3 text-xs",
+        lg: "h-10 rounded-lg px-8",
+        icon: "h-9 w-9",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button";
+    return (
+      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+    );
+  },
+);
+Button.displayName = "Button";
+
+export { Button, buttonVariants };
+
+```
+
+Install NPM dependencies:
+```bash
+@radix-ui/react-icons, @radix-ui/react-dialog, @radix-ui/react-slot, class-variance-authority
+```
+
+Implementation Guidelines
+ 1. Analyze the component structure and identify all required dependencies
+ 2. Review the component's argumens and state
+ 3. Identify any required context providers or hooks and install them
+ 4. Questions to Ask
+ - What data/props will be passed to this component?
+ - Are there any specific state management requirements?
+ - Are there any required assets (images, icons, etc.)?
+ - What is the expected responsive behavior?
+ - What is the best place to use this component in the app?
+
+Steps to integrate
+ 0. Copy paste all the code above in the correct directories
+ 1. Install external dependencies
+ 2. Fill image assets with Unsplash stock images you know exist
+ 3. Use lucide-react icons for svgs or logos if component requires them

@@ -1,132 +1,50 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Battery, ChevronDown, Menu } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Battery, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { mainNavItems, type NavItem } from "@/data/navigation";
+import { mainNavItems } from "@/data/navigation";
 import Button from "@/components/ui/Button";
-import MobileMenu from "./MobileMenu";
-
-function DropdownMenu({ items }: { items: NavItem[] }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className="absolute top-full left-0 mt-2 w-56 rounded-xl bg-white shadow-xl border border-gray-100 py-2 z-50"
-    >
-      {items.map((child) => (
-        <Link
-          key={child.href}
-          href={child.href}
-          className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-brand-50 hover:text-brand-600 transition-colors"
-        >
-          {child.label}
-        </Link>
-      ))}
-    </motion.div>
-  );
-}
-
-function NavItemWithDropdown({ item }: { item: NavItem }) {
-  const [open, setOpen] = useState(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const handleMouseEnter = () => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setOpen(true);
-  };
-
-  const handleMouseLeave = () => {
-    timeoutRef.current = setTimeout(() => setOpen(false), 150);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  if (!item.children) {
-    return (
-      <Link
-        href={item.href}
-        className="text-sm font-medium text-gray-700 hover:text-brand-600 transition-colors px-3 py-2"
-      >
-        {item.label}
-      </Link>
-    );
-  }
-
-  return (
-    <div
-      className="relative"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      <Link
-        href={item.href}
-        className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-brand-600 transition-colors px-3 py-2"
-      >
-        {item.label}
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 transition-transform duration-200",
-            open && "rotate-180"
-          )}
-        />
-      </Link>
-      <AnimatePresence>
-        {open && <DropdownMenu items={item.children} />}
-      </AnimatePresence>
-    </div>
-  );
-}
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
+    const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll, { passive: true });
     handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Lock body scroll when mobile menu is open
   useEffect(() => {
-    if (mobileMenuOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [mobileMenuOpen]);
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileOpen]);
 
   return (
     <>
       <header
         className={cn(
-          "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
+          "fixed top-0 left-0 right-0 z-50 transition-all duration-500",
           scrolled
-            ? "bg-white/90 backdrop-blur-md border-b border-gray-200 shadow-sm"
+            ? "bg-white/80 backdrop-blur-xl border-b border-gray-200/50 shadow-[0_1px_20px_rgba(0,0,0,0.04)]"
             : "bg-transparent"
         )}
       >
         <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-2 shrink-0">
-              <Battery className="h-7 w-7 text-brand-500" />
-              <span className="text-xl font-bold text-brand-500">
+            <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-shadow">
+                <Battery className="h-4 w-4 text-white" />
+              </div>
+              <span className={cn(
+                "text-lg font-bold tracking-tight transition-colors font-sans",
+                scrolled ? "text-gray-900" : "text-white"
+              )}>
                 iTarang
               </span>
             </Link>
@@ -134,34 +52,128 @@ export default function Navbar() {
             {/* Desktop Navigation */}
             <div className="hidden lg:flex items-center gap-1">
               {mainNavItems.map((item) => (
-                <NavItemWithDropdown key={item.href} item={item} />
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "text-sm font-medium transition-all px-4 py-2 rounded-lg font-sans",
+                    scrolled
+                      ? "text-gray-600 hover:text-brand-600 hover:bg-brand-50"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  )}
+                >
+                  {item.label}
+                </Link>
               ))}
+              <Link
+                href="/for-investors"
+                className={cn(
+                  "text-sm font-medium transition-colors px-3 py-2 font-sans",
+                  scrolled
+                    ? "text-gray-400 hover:text-brand-600"
+                    : "text-white/40 hover:text-white/70"
+                )}
+              >
+                For Investors
+              </Link>
             </div>
 
-            {/* CTA + Mobile Toggle */}
+            {/* CTA + Mobile */}
             <div className="flex items-center gap-3">
               <div className="hidden lg:block">
-                <Button href="/contact" size="sm">
-                  Get Started
+                <Button href="/contact" size="sm" className={cn(
+                  !scrolled && "bg-white/10 border border-white/20 text-white hover:bg-white/20 shadow-none"
+                )}>
+                  Talk to Us
                 </Button>
               </div>
               <button
-                onClick={() => setMobileMenuOpen(true)}
-                className="lg:hidden p-2 text-gray-700 hover:text-brand-600 transition-colors"
+                onClick={() => setMobileOpen(true)}
+                className={cn(
+                  "lg:hidden p-2 rounded-lg transition-colors",
+                  scrolled ? "text-gray-700 hover:bg-gray-100" : "text-white hover:bg-white/10"
+                )}
                 aria-label="Open menu"
               >
-                <Menu className="h-6 w-6" />
+                <Menu className="h-5 w-5" />
               </button>
             </div>
           </div>
         </nav>
       </header>
 
-      {/* Mobile Menu */}
-      <MobileMenu
-        isOpen={mobileMenuOpen}
-        onClose={() => setMobileMenuOpen(false)}
-      />
+      {/* Mobile menu */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm lg:hidden"
+              onClick={() => setMobileOpen(false)}
+            />
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed right-0 top-0 bottom-0 z-50 w-80 bg-white shadow-2xl lg:hidden"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                <Link href="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
+                    <Battery className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <span className="text-lg font-bold text-gray-900 font-sans">iTarang</span>
+                </Link>
+                <button onClick={() => setMobileOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="p-4 space-y-1">
+                {mainNavItems.map((item, i) => (
+                  <motion.div
+                    key={item.href}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                  >
+                    <Link
+                      href={item.href}
+                      onClick={() => setMobileOpen(false)}
+                      className="block px-4 py-3 text-base font-medium text-gray-700 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-colors font-sans"
+                    >
+                      {item.label}
+                    </Link>
+                  </motion.div>
+                ))}
+                <div className="pt-4 border-t border-gray-100 mt-4 space-y-2">
+                  <Link
+                    href="/for-investors"
+                    onClick={() => setMobileOpen(false)}
+                    className="block px-4 py-3 text-sm font-medium text-gray-500 hover:text-brand-600 rounded-xl font-sans"
+                  >
+                    For Investors
+                  </Link>
+                  <Link
+                    href="/blog"
+                    onClick={() => setMobileOpen(false)}
+                    className="block px-4 py-3 text-sm font-medium text-gray-500 hover:text-brand-600 rounded-xl font-sans"
+                  >
+                    Blog
+                  </Link>
+                </div>
+                <div className="pt-4">
+                  <Button href="/contact" size="md" className="w-full justify-center">
+                    Talk to Us
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </>
   );
 }

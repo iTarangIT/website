@@ -1,158 +1,154 @@
 import type { Metadata } from "next";
-import { createMetadata } from "@/lib/metadata";
-import SectionHeading from "@/components/shared/SectionHeading";
+import { Shield } from "lucide-react";
+import AnimatedCounter from "@/components/shared/AnimatedCounter";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
-import CTASection from "@/components/shared/CTASection";
-import FounderCard from "@/components/about/FounderCard";
-import HiringPlan from "@/components/about/HiringPlan";
-import AdvisoryBoard from "@/components/about/AdvisoryBoard";
-import CompanyDetails from "@/components/about/CompanyDetails";
-import FounderVideoPlaceholder from "@/components/about/FounderVideoPlaceholder";
 
-export const metadata: Metadata = createMetadata({
-  title: "About",
+export const metadata: Metadata = {
+  title: "About | iTarang",
   description:
-    "Meet the iTarang team building India's first EV battery financing and lifecycle management platform. Our mission, founders, and vision for the future.",
-  path: "/about",
-});
+    "The team behind iTarang — building India's first full-lifecycle EV battery management platform.",
+};
+
+const traction = [
+  { value: 150, suffix: "+", label: "Batteries monitored" },
+  { value: 20, suffix: "+", label: "Dealer partners" },
+  { value: 98, suffix: "%", label: "Recovery rate" },
+  { value: 2, suffix: "", label: "NBFC LOIs" },
+] as const;
 
 export default function AboutPage() {
   return (
     <>
       {/* Hero */}
-      <section className="relative overflow-hidden bg-brand-900 py-24 md:py-32">
-        <div
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.3) 1px, transparent 0)",
-            backgroundSize: "32px 32px",
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-brand-900 via-brand-900 to-brand-800" />
-
-        <div className="relative mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
-          <FadeInOnScroll>
-            <SectionHeading
-              badge="Our Story"
-              title="About iTarang"
-              subtitle="We are building the intelligence layer for India's EV battery economy -- making batteries bankable, trackable, and sustainable."
-              dark
-            />
-          </FadeInOnScroll>
+      <section className="pt-28 pb-16 md:pt-36 md:pb-20 relative overflow-hidden">
+        <div className="absolute inset-0 bg-surface-warm" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(103,61,230,0.06),transparent_60%)]" />
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
+          <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-4 font-sans">
+            Our Story
+          </span>
+          <h1 className="text-5xl md:text-7xl text-gray-900 tracking-tight leading-[1.05]">
+            About iTarang
+          </h1>
+          <p className="mt-6 text-xl text-gray-500 max-w-2xl leading-relaxed font-sans">
+            We&apos;re building the infrastructure that makes EV batteries
+            bankable, trackable, and recyclable across India.
+          </p>
+          <div className="mt-6 flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-lg bg-brand-500/10 flex items-center justify-center">
+              <Shield className="h-3.5 w-3.5 text-brand-500" />
+            </div>
+            <span className="text-sm text-brand-600 font-semibold font-sans">
+              DPIIT Recognised Startup &middot; Gurugram, India
+            </span>
+          </div>
         </div>
       </section>
 
-      {/* Company Story */}
+      {/* Founder */}
       <section className="py-20 md:py-28 bg-white">
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <FadeInOnScroll>
-            <SectionHeading
-              badge="Why We Exist"
-              title="The Problem We Saw"
-            />
-          </FadeInOnScroll>
+            <div className="flex flex-col md:flex-row gap-12 items-center">
+              {/* Photo placeholder */}
+              <div className="w-full md:w-1/3">
+                <div className="rounded-3xl bg-gradient-to-br from-brand-100 to-surface-cream aspect-square flex items-center justify-center border border-brand-200/30">
+                  <span className="text-sm text-gray-400 font-sans">
+                    PHOTO: Founder headshot
+                  </span>
+                </div>
+              </div>
 
-          <FadeInOnScroll delay={0.15}>
-            <div className="prose prose-lg mx-auto text-gray-600 max-w-3xl text-center space-y-5">
-              <p>
-                India&apos;s electric three-wheeler revolution is real -- over 1.2 million
-                new vehicles expected by FY27, with 30 lakh already on the road.
-                But behind this growth lies a hidden crisis: <strong className="text-gray-900">90% of EV battery
-                financing happens informally</strong>, at predatory interest rates of
-                30--60%.
-              </p>
-              <p>
-                Drivers and fleet operators -- the backbone of India&apos;s last-mile
-                economy -- are trapped in cycles of expensive, unregulated debt
-                for their most critical asset. NBFCs want to lend, but without
-                real-time battery health data, they cannot underwrite the risk.
-              </p>
-              <p>
-                <strong className="text-gray-900">iTarang bridges this gap.</strong> We
-                combine IoT telemetry, behavioral risk scoring, and lifecycle
-                management to turn every EV battery into a programmable financial
-                asset -- enabling formal credit, reducing NPAs, and unlocking a
-                sustainable battery economy from first charge to second life.
-              </p>
+              {/* Bio */}
+              <div className="w-full md:w-2/3">
+                <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-3 font-sans">
+                  The Founder
+                </span>
+                <h2 className="text-3xl md:text-4xl text-gray-900 tracking-tight">
+                  Building from the ground up
+                </h2>
+                <p className="mt-5 text-lg text-gray-500 leading-relaxed font-sans">
+                  Vision and strategy leader driving iTarang&apos;s mission to
+                  bring formal financing and lifecycle intelligence to
+                  India&apos;s EV battery market. Previously worked across
+                  fintech and clean-energy sectors.
+                </p>
+
+                {/* Video placeholder */}
+                <div className="mt-8 rounded-2xl bg-gradient-to-br from-gray-50 to-surface-cream border border-gray-200/50 aspect-video flex items-center justify-center max-w-lg overflow-hidden group cursor-pointer hover:border-brand-300 transition-colors">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-full bg-brand-500/10 flex items-center justify-center mx-auto mb-3 group-hover:bg-brand-500/20 transition-colors">
+                      <span className="text-brand-500 text-2xl ml-1">&#9654;</span>
+                    </div>
+                    <span className="text-sm text-gray-400 font-sans">
+                      60-second founder intro
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </FadeInOnScroll>
         </div>
       </section>
 
-      {/* Founder Video Placeholder */}
-      <section className="py-16 md:py-20 bg-gray-50">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <FounderVideoPlaceholder />
-        </div>
-      </section>
-
-      {/* Founders */}
-      <section className="py-20 md:py-28 bg-white">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      {/* Traction */}
+      <section className="py-20 md:py-24 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(103,61,230,0.2),transparent_70%)]" />
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 relative z-10">
           <FadeInOnScroll>
-            <SectionHeading
-              badge="Leadership"
-              title="Meet Our Founders"
-              subtitle="The driving force behind iTarang's mission to formalize EV battery financing in India."
-            />
+            <h2 className="text-3xl md:text-4xl text-white text-center mb-14 tracking-tight">
+              Where We Are Today
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {traction.map((stat, i) => (
+                <div key={i} className="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                  <AnimatedCounter
+                    value={stat.value}
+                    suffix={stat.suffix}
+                    label={stat.label}
+                  />
+                </div>
+              ))}
+            </div>
           </FadeInOnScroll>
-
-          <FounderCard />
         </div>
       </section>
 
-      {/* Hiring */}
-      <section className="py-20 md:py-28 bg-gray-50">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {/* Field Photos Grid */}
+      <section className="py-20 md:py-28 bg-surface-warm">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <FadeInOnScroll>
-            <SectionHeading
-              badge="Join Us"
-              title="We're Hiring"
-              subtitle="Building a world-class team to execute on our vision. These are the roles we are actively looking to fill."
-            />
+            <div className="text-center mb-14">
+              <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-4 font-sans">
+                From the Field
+              </span>
+              <h2 className="text-3xl md:text-4xl text-gray-900 tracking-tight">
+                Real work, real impact
+              </h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                "Team at work",
+                "Dealer visit",
+                "Battery warehouse",
+                "E-rickshaw with battery",
+                "IoT device installation",
+                "Driver interaction",
+              ].map((label) => (
+                <div
+                  key={label}
+                  className="rounded-2xl bg-gradient-to-br from-gray-100 to-surface-cream aspect-[4/3] flex items-center justify-center border border-gray-200/40 hover:border-brand-200 transition-colors group overflow-hidden"
+                >
+                  <span className="text-xs text-gray-400 font-sans group-hover:text-gray-500 transition-colors">
+                    PHOTO: {label}
+                  </span>
+                </div>
+              ))}
+            </div>
           </FadeInOnScroll>
-
-          <HiringPlan />
         </div>
       </section>
-
-      {/* Advisory Board */}
-      <section className="py-20 md:py-28 bg-white">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <FadeInOnScroll>
-            <SectionHeading
-              badge="Advisors"
-              title="Advisory Board"
-              subtitle="Industry leaders guiding iTarang's strategy across lending, EV markets, and growth."
-            />
-          </FadeInOnScroll>
-
-          <AdvisoryBoard />
-        </div>
-      </section>
-
-      {/* Company Details */}
-      <section className="py-20 md:py-28 bg-gray-50">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <FadeInOnScroll>
-            <SectionHeading
-              badge="Company Info"
-              title="Company Details"
-            />
-          </FadeInOnScroll>
-
-          <CompanyDetails />
-        </div>
-      </section>
-
-      {/* CTA */}
-      <CTASection
-        title="Want to Work With Us?"
-        subtitle="Whether you're a potential partner, investor, or future team member -- we'd love to hear from you."
-        primaryCTA={{ label: "Get in Touch", href: "/contact" }}
-        secondaryCTA={{ label: "View Open Roles", href: "/about#hiring" }}
-      />
     </>
   );
 }
