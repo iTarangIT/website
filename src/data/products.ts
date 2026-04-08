@@ -364,3 +364,18 @@ export const leadAcidComparison = {
     ["Environmental Impact", "Recyclable, EPR compliant", "Toxic lead, disposal issues"],
   ],
 };
+
+export const productFaqs = [
+  {
+    question: "What is the price of lithium battery in India?",
+    answer: "The lithium battery price depends on voltage and capacity. To know more about prices visit the nearest itarang dealer, or connect through whatsapp.",
+  },
+  {
+    question: "Why is lithium battery better for e rickshaw?",
+    answer: "Lithium batteries are better for e rickshaws because they offer longer lifespan, lightweight design, fast charging and improved vehicle range.",
+  },
+  {
+    question: "How long does an lithium battery last?",
+    answer: "A good quality lithium battery can last 3 to 6 years* depending on usage and charging conditions.",
+  },
+];

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Battery, Menu, X } from "lucide-react";
+import Image from "next/image";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { mainNavItems } from "@/data/navigation";
 import Button from "@/components/ui/Button";
@@ -37,16 +38,15 @@ export default function Navbar() {
         <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-shadow">
-                <Battery className="h-4 w-4 text-white" />
-              </div>
-              <span className={cn(
-                "text-lg font-bold tracking-tight transition-colors font-sans",
-                scrolled ? "text-gray-900" : "text-white"
-              )}>
-                iTarang
-              </span>
+            <Link href="/" className="flex items-center shrink-0 group">
+              <Image
+                src="/images/logo-transparent.png"
+                alt="iTarang"
+                width={120}
+                height={40}
+                className="h-8 w-auto object-contain"
+                priority
+              />
             </Link>
 
             {/* Desktop Navigation */}
@@ -121,11 +121,14 @@ export default function Navbar() {
               className="fixed right-0 top-0 bottom-0 z-50 w-80 bg-white shadow-2xl lg:hidden"
             >
               <div className="flex items-center justify-between p-4 border-b border-gray-100">
-                <Link href="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
-                    <Battery className="h-3.5 w-3.5 text-white" />
-                  </div>
-                  <span className="text-lg font-bold text-gray-900 font-sans">iTarang</span>
+                <Link href="/" className="flex items-center" onClick={() => setMobileOpen(false)}>
+                  <Image
+                    src="/images/logo-transparent.png"
+                    alt="iTarang"
+                    width={100}
+                    height={32}
+                    className="h-7 w-auto object-contain"
+                  />
                 </Link>
                 <button onClick={() => setMobileOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg">
                   <X className="h-5 w-5" />

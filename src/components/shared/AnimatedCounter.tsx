@@ -25,7 +25,7 @@ export default function AnimatedCounter({
 
   return (
     <div ref={ref} className="text-center">
-      <div className="text-3xl sm:text-4xl lg:text-5xl font-bold">
+      <div className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white">
         {inView ? (
           <CountUp
             start={0}
@@ -41,7 +41,7 @@ export default function AnimatedCounter({
           </span>
         )}
       </div>
-      <p className="mt-2 text-sm sm:text-base opacity-80">{label}</p>
+      <p className="mt-2 text-sm sm:text-base text-white/80">{label}</p>
     </div>
   );
 }

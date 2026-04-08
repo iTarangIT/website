@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Battery, Mail, Phone, MessageCircle } from "lucide-react";
+import Image from "next/image";
+import { Mail, Phone, MessageCircle } from "lucide-react";
 import { siteConfig } from "@/data/site";
 
 const siteLinks = [
@@ -34,11 +35,14 @@ export default function Footer() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
             {/* Brand */}
             <div className="lg:col-span-1">
-              <Link href="/" className="flex items-center gap-2.5 mb-5">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center">
-                  <Battery className="h-4 w-4 text-white" />
-                </div>
-                <span className="text-lg font-bold text-white font-sans">iTarang</span>
+              <Link href="/" className="flex items-center mb-5">
+                <Image
+                  src="/images/logo-transparent.png"
+                  alt="iTarang"
+                  width={120}
+                  height={40}
+                  className="h-10 w-auto object-contain"
+                />
               </Link>
               <p className="text-brand-300/50 text-sm leading-relaxed mb-6 max-w-xs font-sans">
                 {siteConfig.tagline}

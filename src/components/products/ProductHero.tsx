@@ -51,15 +51,10 @@ export default function ProductHero({ title, subtitle, breadcrumb }: ProductHero
           </nav>
         )}
 
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 border border-brand-400/20">
-            <Battery className="h-7 w-7 text-brand-300" />
-          </div>
-          <div>
-            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white tracking-tight">
-              {title}
-            </h1>
-          </div>
+        <div className="mb-6">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white tracking-tight">
+            {title}
+          </h1>
         </div>
 
         <p className="text-lg md:text-xl text-brand-200/70 max-w-2xl leading-relaxed font-sans">

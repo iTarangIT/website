@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Serif_Display, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import ChatWidget from "@/components/chatbot/ChatWidget";
 
 const dmSerif = DM_Serif_Display({
   variable: "--font-display",
@@ -40,7 +41,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${dmSerif.variable} ${jakarta.variable} ${jetbrains.variable}`}>
-      <body className="min-h-screen flex flex-col antialiased">{children}</body>
+      <body className="min-h-screen flex flex-col antialiased">
+        {children}
+        <ChatWidget />
+      </body>
     </html>
   );
 }
