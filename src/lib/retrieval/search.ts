@@ -1,28 +1,33 @@
-import { embedText } from "@/lib/embeddings/localEmbedding";
+import { embedText } from "@/lib/openai/embeddings";
 import { queryVectors } from "@/lib/pinecone/client";
-import type { SearchResult } from "@/lib/embeddings/types";
-import { filterByVisibility } from "./safety";
+import type { SearchResult, Visibility } from "@/lib/embeddings/types";
+import { filterByVisibility, getAllowedVisibilities } from "./safety";
 
 /**
- * Embed a user query locally and retrieve the most relevant chunks
- * from Pinecone, filtered by visibility.
+ * Embed a user query via OpenAI and retrieve the most relevant chunks
+ * from Pinecone, filtered by the caller's role-based visibility.
  */
 export async function searchRelevantChunks(
   query: string,
   options: {
     topK?: number;
-    visibility?: ("public" | "internal" | "restricted")[];
+    userRole?: Visibility;
+    visibility?: Visibility[];
   } = {}
 ): Promise<SearchResult[]> {
   const topK = options.topK ?? (Number(process.env.TOP_K_RETRIEVAL) || 5);
 
-  // Step 1: Embed the user query locally
+  // Determine allowed visibility levels from role hierarchy
+  const allowed =
+    options.visibility ?? getAllowedVisibilities(options.userRole ?? "public");
+
+  // Step 1: Embed the user query via OpenAI
   const queryVector = await embedText(query);
 
   // Step 2: Build Pinecone filter
   const filter: Record<string, unknown> = {};
-  if (options.visibility && options.visibility.length > 0) {
-    filter.visibility = { $in: options.visibility };
+  if (allowed.length > 0) {
+    filter.visibility = { $in: allowed };
   }
 
   // Step 3: Query Pinecone
@@ -39,6 +44,6 @@ export async function searchRelevantChunks(
     metadata: m.metadata,
   }));
 
-  // Step 5: Apply visibility safety filter
-  return filterByVisibility(results);
+  // Step 5: Apply visibility safety filter (defence in depth)
+  return filterByVisibility(results, allowed);
 }

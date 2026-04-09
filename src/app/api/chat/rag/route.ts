@@ -4,13 +4,19 @@ import { buildSystemPrompt, buildUserMessage } from "@/lib/retrieval/prompt";
 import { sanitizeOutput, validateUserInput } from "@/lib/retrieval/safety";
 import { generateAnswerStream } from "@/lib/groq/client";
 import { insertChatLog } from "@/lib/supabase/client";
+import type { Visibility } from "@/lib/embeddings/types";
 
 export async function POST(request: Request) {
   const startTime = Date.now();
 
   try {
     const body = await request.json();
-    const { message, sessionId, userId } = body;
+    const { message, sessionId, userId, userRole } = body as {
+      message: string;
+      sessionId?: string;
+      userId?: string;
+      userRole?: Visibility;
+    };
 
     // Validate input
     const validation = validateUserInput(message);
@@ -19,11 +25,34 @@ export async function POST(request: Request) {
     }
 
     const currentSessionId = sessionId || uuidv4();
+    const role: Visibility = userRole ?? "public";
 
-    // Step 1: Retrieve relevant chunks
-    const chunks = await searchRelevantChunks(message, {
-      visibility: ["public"],
-    });
+    // Step 1: Retrieve relevant chunks filtered by role
+    const chunks = await searchRelevantChunks(message, { userRole: role });
+
+    // If no chunks found, return a safe fallback
+    if (chunks.length === 0) {
+      const fallback =
+        "I don't have enough information to answer that question. Please contact iTarang at founders@itarang.in or +91-8920828425.";
+
+      insertChatLog({
+        session_id: currentSessionId,
+        user_id: userId,
+        user_role: role,
+        user_message: message,
+        assistant_message: fallback,
+        retrieved_sources_json: [],
+        latency_ms: Date.now() - startTime,
+      }).catch(() => {});
+
+      return new Response(fallback, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-Session-Id": currentSessionId,
+          "X-Sources": "[]",
+        },
+      });
+    }
 
     // Step 2: Build grounded prompt
     const systemPrompt = buildSystemPrompt(chunks);
@@ -55,7 +84,6 @@ export async function POST(request: Request) {
           // Safety check on final output
           const safety = sanitizeOutput(fullResponse);
           if (!safety.safe) {
-            // If blocked, clear stream and send safe message
             controller.enqueue(
               new TextEncoder().encode(
                 "\n\n[Response filtered for safety reasons]"
@@ -69,10 +97,12 @@ export async function POST(request: Request) {
           insertChatLog({
             session_id: currentSessionId,
             user_id: userId,
+            user_role: role,
             user_message: message,
             assistant_message: safety.safe ? fullResponse : safety.text,
-            sources,
+            retrieved_sources_json: sources,
             latency_ms: Date.now() - startTime,
+            blocked_reason: safety.safe ? undefined : safety.blocked,
           }).catch(() => {});
         } catch (err) {
           controller.error(err);

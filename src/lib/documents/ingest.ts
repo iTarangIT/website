@@ -1,18 +1,25 @@
-import { v4 as uuidv4 } from "uuid";
 import { fetchFileFromS3 } from "@/lib/aws/s3";
-import { upsertVectors } from "@/lib/pinecone/client";
+import { upsertVectors, deleteByDocumentId } from "@/lib/pinecone/client";
 import {
   insertDocument,
   updateDocumentStatus,
   insertChunks,
+  getDocumentByS3Key,
+  deleteDocumentAndChunks,
 } from "@/lib/supabase/client";
-import { embedBatch } from "@/lib/embeddings/localEmbedding";
+import { embedBatch } from "@/lib/openai/embeddings";
 import { extractPdfText } from "./extractors/pdf";
 import { extractDocxText } from "./extractors/docx";
 import { extractPlainText } from "./extractors/text";
 import { cleanText } from "./cleaner";
 import { chunkText } from "./chunker";
-import type { ChunkMetadata, IngestResult } from "@/lib/embeddings/types";
+import type { ChunkMetadata, IngestResult, Visibility } from "@/lib/embeddings/types";
+
+const MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  text: "text/plain",
+};
 
 /**
  * Detect file type from extension.
@@ -38,26 +45,58 @@ async function extractText(buffer: Buffer, fileType: string): Promise<string> {
   }
 }
 
+export interface IngestOptions {
+  visibility?: Visibility;
+  sourceType?: string;
+  /** If true, delete existing document with same s3Key before re-ingesting */
+  reindex?: boolean;
+}
+
 /**
  * Full ingestion pipeline for a single document:
  * 1. Fetch from S3
  * 2. Extract text
  * 3. Clean text
  * 4. Chunk text
- * 5. Generate embeddings locally
+ * 5. Generate embeddings via OpenAI
  * 6. Store vectors in Pinecone
  * 7. Store metadata in Supabase
  */
 export async function ingestDocument(
   s3Key: string,
-  visibility: "public" | "internal" | "restricted" = "public"
+  options: IngestOptions = {}
 ): Promise<IngestResult> {
+  const {
+    visibility = "internal",
+    sourceType = "upload",
+    reindex = false,
+  } = options;
+
   const fileName = s3Key.split("/").pop() || s3Key;
   const fileType = getFileType(fileName);
   let documentId = "";
 
   try {
-    // Step 1: Register document in Supabase
+    // Check for existing document with same s3Key
+    const existing = await getDocumentByS3Key(s3Key);
+    if (existing && !reindex) {
+      console.log(`[Ingest] ${fileName}: already ingested (id=${existing.id}). Use reindex=true to re-ingest.`);
+      return {
+        documentId: existing.id,
+        fileName,
+        totalChunks: existing.total_chunks ?? 0,
+        status: "completed",
+      };
+    }
+
+    // If reindexing, clean up old data first
+    if (existing && reindex) {
+      console.log(`[Ingest] ${fileName}: reindexing — removing old data`);
+      await deleteByDocumentId(existing.id);
+      await deleteDocumentAndChunks(existing.id);
+    }
+
+    // Step 1: Fetch from S3 and register in Supabase
     console.log(`[Ingest] Starting: ${fileName}`);
     const buffer = await fetchFileFromS3(s3Key);
 
@@ -67,6 +106,9 @@ export async function ingestDocument(
       file_type: fileType,
       file_size_bytes: buffer.length,
       visibility,
+      s3_bucket: process.env.AWS_S3_BUCKET,
+      mime_type: MIME_TYPES[fileType] || "application/octet-stream",
+      source_type: sourceType,
     });
 
     // Step 2: Extract text
@@ -85,7 +127,7 @@ export async function ingestDocument(
     }
     console.log(`[Ingest] ${fileName}: ${chunks.length} chunks created`);
 
-    // Step 5: Generate embeddings locally
+    // Step 5: Generate embeddings via OpenAI
     const texts = chunks.map((c) => c.text);
     const embeddings = await embedBatch(texts);
     console.log(`[Ingest] ${fileName}: embeddings generated`);
@@ -101,18 +143,20 @@ export async function ingestDocument(
         text: chunk.text.slice(0, 1000), // Pinecone metadata limit
         s3Key,
         visibility,
+        sourceType,
       } satisfies ChunkMetadata,
     }));
     await upsertVectors(vectors);
 
     // Step 7: Store chunk metadata in Supabase
     await insertChunks(
-      chunks.map((chunk, i) => ({
+      chunks.map((chunk) => ({
         document_id: documentId,
         chunk_index: chunk.index,
         text: chunk.text,
         token_count: chunk.tokenEstimate,
         pinecone_vector_id: `${documentId}_chunk_${chunk.index}`,
+        visibility,
       }))
     );
 
@@ -152,11 +196,11 @@ export async function ingestDocument(
  */
 export async function ingestMultipleDocuments(
   s3Keys: string[],
-  visibility: "public" | "internal" | "restricted" = "public"
+  options: IngestOptions = {}
 ): Promise<IngestResult[]> {
   const results: IngestResult[] = [];
   for (const key of s3Keys) {
-    const result = await ingestDocument(key, visibility);
+    const result = await ingestDocument(key, options);
     results.push(result);
   }
   return results;

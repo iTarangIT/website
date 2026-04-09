@@ -1,20 +1,20 @@
 # RAG Pipeline Setup Guide
 
-Document-to-chatbot pipeline for iTarang Technologies using S3, Pinecone, Supabase, Groq, and local embeddings.
+Document-to-chatbot pipeline for iTarang Technologies using S3, Pinecone, Supabase, Groq, and OpenAI embeddings.
 
 ---
 
 ## Architecture
 
 ```
-S3 (documents) → Extract text → Clean → Chunk → Local Embedding → Pinecone (vectors)
-                                                                  ↓
-User query → Local Embedding → Pinecone search → Build prompt → Groq → Grounded answer
-                                                                  ↓
-                                                          Supabase (logs)
+S3 (documents) → Extract text → Clean → Chunk → OpenAI Embedding → Pinecone (vectors)
+                                                                    ↓
+User query → OpenAI Embedding → Pinecone search → Build prompt → Groq → Grounded answer
+                                                                    ↓
+                                                            Supabase (logs)
 ```
 
-**Embeddings run 100% locally** using `@xenova/transformers` with the `all-MiniLM-L6-v2` model (384 dimensions). No external embedding API is called.
+**Embeddings use the OpenAI `text-embedding-3-small` model** (1536 dimensions). Both document chunks and user queries are embedded using the same model for consistent similarity search.
 
 ---
 
@@ -45,6 +45,7 @@ Open `.env.local` and fill in your real keys:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API (service_role) |
 | `GROQ_API_KEY` | Groq Console → API Keys |
+| `OPENAI_API_KEY` | OpenAI Dashboard → API Keys |
 
 ---
 
@@ -53,7 +54,7 @@ Open `.env.local` and fill in your real keys:
 1. Go to [Pinecone Dashboard](https://app.pinecone.io/)
 2. Create a new index:
    - **Name**: `itarang-index`
-   - **Dimensions**: `384`
+   - **Dimensions**: `1536`
    - **Metric**: `cosine`
    - **Cloud**: Choose your preferred provider
 
@@ -92,7 +93,7 @@ This will:
 1. Fetch the file from S3
 2. Extract text (PDF/DOCX/TXT)
 3. Clean and chunk the text
-4. Generate embeddings **locally** (first run downloads the model ~30MB)
+4. Generate embeddings via OpenAI API
 5. Store vectors in Pinecone
 6. Store metadata in Supabase
 
@@ -105,7 +106,7 @@ npx tsx scripts/test-chat.ts "What products does iTarang offer?"
 ```
 
 This will:
-1. Embed your query locally
+1. Embed your query via OpenAI
 2. Search Pinecone for relevant chunks
 3. Build a grounded prompt
 4. Call Groq for the answer
@@ -147,8 +148,9 @@ src/lib/
   pinecone/client.ts             — Pinecone upsert/query/delete
   supabase/client.ts             — Supabase CRUD operations
   groq/client.ts                 — Groq chat completions
+  openai/
+    embeddings.ts                — OpenAI text-embedding-3-small
   embeddings/
-    localEmbedding.ts            — Local MiniLM embedding (singleton)
     types.ts                     — Shared TypeScript types
   documents/
     extractors/pdf.ts            — PDF text extraction
@@ -172,9 +174,9 @@ supabase/migrations/             — Database schema
 
 ## Key Notes
 
-- **Embeddings are 100% local** — no OpenAI or external API needed
-- First embedding call downloads the model (~30MB) and caches it
-- Subsequent calls reuse the loaded model (singleton pattern)
+- **Embeddings use OpenAI `text-embedding-3-small`** — requires `OPENAI_API_KEY`
+- Both document ingestion and query embedding use the same model for consistency
+- Batch embedding is supported natively by the OpenAI API
 - The existing `/api/chat` route is untouched — it still uses static context
 - The new `/api/chat/rag` route uses the full RAG pipeline
 - All chat interactions are logged to Supabase for auditing
@@ -184,8 +186,8 @@ supabase/migrations/             — Database schema
 
 ## Known Limitations
 
-1. **First embedding call is slow** (~5-10s) while the model downloads and loads into memory
-2. **Large documents** may take time to process due to sequential embedding
+1. **OpenAI API required** — embedding calls need internet connectivity and a valid API key (~$0.02/1M tokens)
+2. **Large documents** may take time to process, but batch embedding is used for efficiency
 3. **Pinecone free tier** has limits on vector count and queries
 4. **No authentication** on the RAG endpoint yet — add auth middleware for production
 5. **No document management UI** — ingestion is done via scripts

@@ -1,8 +1,28 @@
-import type { SearchResult } from "@/lib/embeddings/types";
+import type { SearchResult, Visibility } from "@/lib/embeddings/types";
 
 /**
- * Filter search results by visibility. Remove restricted chunks
- * unless explicitly requested.
+ * Visibility hierarchy: each role can see its own level and all levels below.
+ *   public < dealer < partner < internal < admin
+ */
+const VISIBILITY_HIERARCHY: Visibility[] = [
+  "public",
+  "dealer",
+  "partner",
+  "internal",
+  "admin",
+];
+
+/**
+ * Return the set of visibility levels a given role is allowed to access.
+ */
+export function getAllowedVisibilities(role: Visibility): Visibility[] {
+  const idx = VISIBILITY_HIERARCHY.indexOf(role);
+  if (idx === -1) return ["public"];
+  return VISIBILITY_HIERARCHY.slice(0, idx + 1);
+}
+
+/**
+ * Filter search results so only chunks the user's role can access are returned.
  */
 export function filterByVisibility(
   results: SearchResult[],
@@ -15,7 +35,6 @@ export function filterByVisibility(
 
 /**
  * Check if LLM output contains patterns that should be blocked.
- * Returns the sanitized output or flags issues.
  */
 export function sanitizeOutput(output: string): {
   safe: boolean;
@@ -29,13 +48,15 @@ export function sanitizeOutput(output: string): {
     /(?:DROP\s+TABLE|DELETE\s+FROM|ALTER\s+TABLE)/gi,
     // Block attempts to output base64-encoded secrets
     /(?:eyJ[A-Za-z0-9_-]{20,})/g,
+    // Block internal pricing / margin / cost structures
+    /(?:internal\s+(?:cost|margin|pricing|markup))\s*[:=]/gi,
   ];
 
   for (const pattern of blockedPatterns) {
     if (pattern.test(output)) {
       return {
         safe: false,
-        text: "I'm unable to provide that information. Please contact iTarang support.",
+        text: "I'm unable to provide that information. Please contact iTarang support at founders@itarang.in.",
         blocked: `Output matched blocked pattern: ${pattern.source}`,
       };
     }

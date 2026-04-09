@@ -14,7 +14,7 @@ export function getSupabaseServer(): SupabaseClient {
 
   if (!url || !key) {
     throw new Error(
-      "[Supabase] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local"
+      "[Supabase] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env"
     );
   }
 
@@ -49,6 +49,9 @@ export async function insertDocument(doc: {
   file_type: string;
   file_size_bytes: number;
   visibility: string;
+  s3_bucket?: string;
+  mime_type?: string;
+  source_type?: string;
 }) {
   const supabase = getSupabaseServer();
   const { data, error } = await supabase
@@ -75,6 +78,7 @@ export async function updateDocumentStatus(
       total_chunks: totalChunks ?? 0,
       error_message: errorMessage ?? null,
       processed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq("id", documentId);
 
@@ -88,6 +92,10 @@ export async function insertChunks(
     text: string;
     token_count: number;
     pinecone_vector_id: string;
+    visibility?: string;
+    page_number?: number;
+    section_name?: string;
+    metadata_json?: object;
   }[]
 ) {
   const supabase = getSupabaseServer();
@@ -98,12 +106,55 @@ export async function insertChunks(
 export async function insertChatLog(log: {
   session_id: string;
   user_id?: string;
+  user_role?: string;
   user_message: string;
   assistant_message: string;
-  sources: object;
+  retrieved_sources_json: object;
   latency_ms: number;
+  blocked_reason?: string;
 }) {
   const supabase = getSupabaseServer();
   const { error } = await supabase.from("chat_logs").insert(log);
   if (error) console.error(`[Supabase] Insert chat log failed: ${error.message}`);
+}
+
+// ── Query operations ──────────────────────────────────
+
+export async function listDocuments(status?: string) {
+  const supabase = getSupabaseServer();
+  let query = supabase
+    .from("knowledge_documents")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (status) {
+    query = query.eq("status", status);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`[Supabase] List documents failed: ${error.message}`);
+  return data;
+}
+
+export async function getDocumentByS3Key(s3Key: string) {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("knowledge_documents")
+    .select("*")
+    .eq("s3_key", s3Key)
+    .maybeSingle();
+
+  if (error) throw new Error(`[Supabase] Get document failed: ${error.message}`);
+  return data;
+}
+
+export async function deleteDocumentAndChunks(documentId: string) {
+  const supabase = getSupabaseServer();
+  // Chunks cascade on delete from the FK constraint
+  const { error } = await supabase
+    .from("knowledge_documents")
+    .delete()
+    .eq("id", documentId);
+
+  if (error) throw new Error(`[Supabase] Delete document failed: ${error.message}`);
 }

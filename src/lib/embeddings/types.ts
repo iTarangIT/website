@@ -1,3 +1,5 @@
+export type Visibility = "public" | "dealer" | "partner" | "internal" | "admin";
+
 export interface EmbeddingResult {
   text: string;
   vector: number[];
@@ -17,6 +19,7 @@ export interface ChunkMetadata {
   text: string;
   s3Key: string;
   visibility: string;
+  sourceType: string;
 }
 
 export interface SearchResult {
@@ -29,6 +32,7 @@ export interface ChatRequest {
   message: string;
   sessionId?: string;
   userId?: string;
+  userRole?: Visibility;
 }
 
 export interface ChatResponse {
