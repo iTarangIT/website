@@ -4,10 +4,10 @@ import AnimatedCounter from "@/components/shared/AnimatedCounter";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
 const proofStats = [
-  { value: 150, suffix: "+", label: "Batteries monitored live", accent: "text-brand-500" },
-  { value: 20, suffix: "+", label: "Dealer partners", accent: "text-blue-500" },
-  { value: 98, suffix: "%", label: "Recovery rate", accent: "text-emerald-500" },
-  { value: 2, suffix: "", label: "NBFC partnerships in pipeline", accent: "text-amber-500" },
+  { value: 1000, suffix: "+", label: "Batteries monitored live", accent: "text-brand-500" },
+  { value: 50, suffix: "+", label: "Dealer partners", accent: "text-blue-500" },
+  { value: 99, suffix: "%", label: "Recovery rate", accent: "text-emerald-500" },
+  { value: 5, suffix: "", label: "Financiers tie-up", accent: "text-amber-500" },
 ] as const;
 
 export default function ProofStrip() {

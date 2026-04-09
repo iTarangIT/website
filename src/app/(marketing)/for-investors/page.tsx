@@ -30,10 +30,10 @@ const lifecycleSteps = [
 ];
 
 const traction = [
-  { value: 150, suffix: "+", label: "Pilot batteries" },
-  { value: 20, suffix: "+", label: "Dealers" },
-  { value: 98, suffix: "%", label: "Recovery rate" },
-  { value: 2, suffix: "", label: "NBFC LOIs" },
+  { value: 1000, suffix: "+", label: "Pilot batteries" },
+  { value: 50, suffix: "+", label: "Dealers" },
+  { value: 99, suffix: "%", label: "Recovery rate" },
+  { value: 5, suffix: "", label: "Financier tie-ups" },
 ] as const;
 
 export default function ForInvestorsPage() {

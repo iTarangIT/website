@@ -10,10 +10,10 @@ export const metadata: Metadata = {
 };
 
 const traction = [
-  { value: 150, suffix: "+", label: "Batteries monitored" },
-  { value: 20, suffix: "+", label: "Dealer partners" },
-  { value: 98, suffix: "%", label: "Recovery rate" },
-  { value: 2, suffix: "", label: "NBFC LOIs" },
+  { value: 1000, suffix: "+", label: "Batteries monitored" },
+  { value: 50, suffix: "+", label: "Dealer partners" },
+  { value: 99, suffix: "%", label: "Recovery rate" },
+  { value: 5, suffix: "", label: "Financier tie-ups" },
 ] as const;
 
 export default function AboutPage() {
