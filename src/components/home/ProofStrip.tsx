@@ -7,7 +7,7 @@ const proofStats = [
   { value: 1000, suffix: "+", label: "Batteries monitored live", accent: "text-brand-500" },
   { value: 50, suffix: "+", label: "Dealer partners", accent: "text-blue-500" },
   { value: 99, suffix: "%", label: "Recovery rate", accent: "text-emerald-500" },
-  { value: 5, suffix: "", label: "NBFC partnerships in pipeline", accent: "text-amber-500" },
+  { value: 5, suffix: "", label: "Financer tie-ups", accent: "text-amber-500" },
 ] as const;
 
 export default function ProofStrip() {
