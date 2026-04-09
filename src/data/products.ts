@@ -103,10 +103,22 @@ export interface ProductCategory {
 
 export const productCategories: ProductCategory[] = [
   {
-    slug: "e-rickshaw-lithium-battery",
-    name: "E-Rickshaw Lithium Battery",
-    description: "LiFePO4 batteries engineered for Indian e-rickshaws — longer lifespan, faster charging, and lower maintenance compared to lead-acid.",
+    slug: "3-wheeler-batteries",
+    name: "3-Wheeler Batteries",
+    description: "LiFePO4 batteries engineered for Indian e-rickshaws and 3-wheelers — longer lifespan, faster charging, and lower maintenance.",
     icon: "battery",
+  },
+  {
+    slug: "inverters",
+    name: "Inverters",
+    description: "Pure sine wave inverters with smart monitoring, solar-ready architecture, and robust overload protection.",
+    icon: "power",
+  },
+  {
+    slug: "chargers",
+    name: "Chargers",
+    description: "Smart EV chargers with multi-voltage support, fast-charge capability, and intelligent safety cutoff.",
+    icon: "plug",
   },
 ];
 
@@ -377,5 +389,215 @@ export const productFaqs = [
   {
     question: "How long does an lithium battery last?",
     answer: "A good quality lithium battery can last 3 to 6 years* depending on usage and charging conditions.",
+  },
+];
+
+/* ──────────────────────────────────────────────
+   Inverter Products
+   ────────────────────────────────────────────── */
+
+export interface InverterProduct {
+  id: string;
+  label: string;
+  outputWattage: number;
+  inputVoltage: string;
+  outputVoltage: string;
+  waveform: string;
+  efficiency: string;
+  transferTime: string;
+  weight: string;
+  dimensions: string;
+  protections: string[];
+  price: number;
+  warranty: string;
+  badge?: string;
+}
+
+export const inverterProducts: InverterProduct[] = [
+  {
+    id: "inv-1kw",
+    label: "iTarang 1kW Inverter",
+    outputWattage: 1000,
+    inputVoltage: "12V DC",
+    outputVoltage: "230V AC",
+    waveform: "Pure Sine Wave",
+    efficiency: "≥ 90%",
+    transferTime: "< 10ms",
+    weight: "5.2 kg",
+    dimensions: "300 × 200 × 120 mm",
+    protections: ["Overload", "Short Circuit", "Over Temperature", "Low Battery Cutoff"],
+    price: 8500,
+    warranty: "2 Years",
+  },
+  {
+    id: "inv-2kw",
+    label: "iTarang 2kW Inverter",
+    outputWattage: 2000,
+    inputVoltage: "24V DC",
+    outputVoltage: "230V AC",
+    waveform: "Pure Sine Wave",
+    efficiency: "≥ 92%",
+    transferTime: "< 10ms",
+    weight: "8.4 kg",
+    dimensions: "380 × 250 × 140 mm",
+    protections: ["Overload", "Short Circuit", "Over Temperature", "Low Battery Cutoff", "Surge Protection"],
+    price: 14500,
+    warranty: "2 Years",
+    badge: "Best Seller",
+  },
+  {
+    id: "inv-3kw",
+    label: "iTarang 3kW Inverter",
+    outputWattage: 3000,
+    inputVoltage: "48V DC",
+    outputVoltage: "230V AC",
+    waveform: "Pure Sine Wave",
+    efficiency: "≥ 93%",
+    transferTime: "< 8ms",
+    weight: "12.6 kg",
+    dimensions: "440 × 300 × 160 mm",
+    protections: ["Overload", "Short Circuit", "Over Temperature", "Low Battery Cutoff", "Surge Protection", "Solar MPPT Ready"],
+    price: 22000,
+    warranty: "2 Years",
+    badge: "Premium",
+  },
+];
+
+export const inverterFeatures = [
+  {
+    title: "Pure Sine Wave Output",
+    description: "Clean 230V AC output safe for sensitive electronics, fans, refrigerators, and medical equipment.",
+  },
+  {
+    title: "Solar-Ready Architecture",
+    description: "Compatible with MPPT charge controllers for seamless solar panel integration and hybrid operation.",
+  },
+  {
+    title: "Smart Monitoring",
+    description: "LED/LCD display with real-time load, battery voltage, and fault status. IoT-ready for remote monitoring.",
+  },
+  {
+    title: "Overload Protection",
+    description: "Automatic shutdown and recovery on overload, short circuit, and over-temperature conditions.",
+  },
+];
+
+export const inverterFaqs = [
+  {
+    question: "What appliances can I run on an iTarang inverter?",
+    answer: "Our pure sine wave inverters support fans, lights, TVs, refrigerators, computers, and other household electronics. The 1kW model handles basic loads, the 2kW handles medium homes, and the 3kW supports larger setups including AC units.",
+  },
+  {
+    question: "Can I use the inverter with solar panels?",
+    answer: "Yes. Our 3kW inverter is solar MPPT-ready and works with standard solar panel setups. The 1kW and 2kW models can be paired with external MPPT controllers for solar integration.",
+  },
+  {
+    question: "What warranty do iTarang inverters come with?",
+    answer: "All iTarang inverters come with a 2-year manufacturer warranty covering defects in materials and workmanship.",
+  },
+];
+
+/* ──────────────────────────────────────────────
+   Charger Products
+   ────────────────────────────────────────────── */
+
+export interface ChargerProduct {
+  id: string;
+  label: string;
+  inputVoltage: string;
+  outputVoltage: string;
+  outputCurrent: string;
+  chargingTime: string;
+  efficiency: string;
+  weight: string;
+  dimensions: string;
+  compatibility: string[];
+  protections: string[];
+  price: number;
+  warranty: string;
+  badge?: string;
+}
+
+export const chargerProducts: ChargerProduct[] = [
+  {
+    id: "chg-48v-15a",
+    label: "iTarang 48V 15A Charger",
+    inputVoltage: "170–270V AC",
+    outputVoltage: "48V DC",
+    outputCurrent: "15A",
+    chargingTime: "3–4 hours (100Ah)",
+    efficiency: "≥ 92%",
+    weight: "2.8 kg",
+    dimensions: "240 × 160 × 80 mm",
+    compatibility: ["E-Rickshaw", "E-Cart", "48V Battery Packs"],
+    protections: ["Over Voltage", "Over Current", "Short Circuit", "Reverse Polarity", "Temperature Cutoff"],
+    price: 4500,
+    warranty: "1 Year",
+  },
+  {
+    id: "chg-60v-20a",
+    label: "iTarang 60V 20A Charger",
+    inputVoltage: "170–270V AC",
+    outputVoltage: "60V DC",
+    outputCurrent: "20A",
+    chargingTime: "3–4 hours (130Ah)",
+    efficiency: "≥ 93%",
+    weight: "3.5 kg",
+    dimensions: "260 × 170 × 90 mm",
+    compatibility: ["E-Auto", "E-Loader", "60V Battery Packs"],
+    protections: ["Over Voltage", "Over Current", "Short Circuit", "Reverse Polarity", "Temperature Cutoff", "Auto Cutoff"],
+    price: 6500,
+    warranty: "1 Year",
+    badge: "Best Seller",
+  },
+  {
+    id: "chg-72v-25a",
+    label: "iTarang 72V 25A Charger",
+    inputVoltage: "170–270V AC",
+    outputVoltage: "72V DC",
+    outputCurrent: "25A",
+    chargingTime: "3–5 hours (232Ah)",
+    efficiency: "≥ 94%",
+    weight: "4.2 kg",
+    dimensions: "280 × 180 × 100 mm",
+    compatibility: ["E-Auto", "L5 Category", "72V Battery Packs", "Fleet Vehicles"],
+    protections: ["Over Voltage", "Over Current", "Short Circuit", "Reverse Polarity", "Temperature Cutoff", "Auto Cutoff", "Fan Cooling"],
+    price: 9000,
+    warranty: "1 Year",
+    badge: "Fleet Grade",
+  },
+];
+
+export const chargerFeatures = [
+  {
+    title: "Smart Charging Algorithm",
+    description: "CC-CV charging profile with automatic cutoff ensures optimal charging and maximum battery lifespan.",
+  },
+  {
+    title: "Multi-Voltage Support",
+    description: "Available in 48V, 60V, and 72V variants matching all iTarang battery packs and common EV platforms.",
+  },
+  {
+    title: "Safety Cutoff System",
+    description: "5-layer protection including over-voltage, over-current, short circuit, reverse polarity, and thermal cutoff.",
+  },
+  {
+    title: "Fast Charge Capability",
+    description: "High-current output (up to 25A) enables full charge in 3–5 hours, minimizing vehicle downtime.",
+  },
+];
+
+export const chargerFaqs = [
+  {
+    question: "Which charger do I need for my e-rickshaw?",
+    answer: "Match the charger voltage to your battery voltage. Most e-rickshaws use 48V or 60V batteries. Check your battery label or contact us via WhatsApp for a recommendation.",
+  },
+  {
+    question: "Can I use the charger with non-iTarang batteries?",
+    answer: "Yes. Our chargers work with any LiFePO4 battery pack of the matching voltage. However, we recommend pairing with iTarang batteries for optimal BMS communication.",
+  },
+  {
+    question: "How long does it take to fully charge a battery?",
+    answer: "Charging time depends on battery capacity and charger current. Typical times: 48V/100Ah battery with 15A charger takes 3–4 hours. 60V/130Ah with 20A charger takes 3–4 hours.",
   },
 ];

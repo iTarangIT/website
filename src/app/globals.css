@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 @theme inline {
-  /* Core brand palette — deep blue spectrum built from #051b9a */
-  --color-brand-50: #eef1ff;
-  --color-brand-100: #dae3ff;
-  --color-brand-200: #b8c8ff;
-  --color-brand-300: #8aa4ff;
-  --color-brand-400: #5b7bff;
-  --color-brand-500: #1e42d9;
-  --color-brand-600: #051b9a;
-  --color-brand-700: #041580;
-  --color-brand-800: #071165;
-  --color-brand-900: #0a0e4a;
-  --color-brand-950: #06082e;
+  /* Core brand palette — iTarang teal-blue spectrum */
+  --color-brand-50: #e8f6fc;
+  --color-brand-100: #c9eaf7;
+  --color-brand-200: #90d4ef;
+  --color-brand-300: #50b8e2;
+  --color-brand-400: #1ea3d4;
+  --color-brand-500: #138fc6;
+  --color-brand-600: #2e68b2;
+  --color-brand-700: #165e73;
+  --color-brand-800: #0d4a5e;
+  --color-brand-900: #02314e;
+  --color-brand-950: #011a2a;
 
   /* Accent palette — blue-complementary spectrum */
   --color-accent-sky: #38bdf8;
@@ -24,7 +24,7 @@
   /* Surface palette — cool-toned grays for blue harmony */
   --color-surface-warm: #f8fafc;
   --color-surface-cream: #f1f5f9;
-  --color-surface-mist: #e2e8f0;
+  --color-surface-mist: #cecccd;
 
   /* Typography */
   --font-display: var(--font-display);
@@ -48,19 +48,19 @@
   --card-foreground: 30 10% 10%;
   --popover: 0 0% 100%;
   --popover-foreground: 30 10% 10%;
-  --primary: 228 95% 31%;
+  --primary: 199 83% 42%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 214 32% 96%;
-  --secondary-foreground: 228 95% 25%;
-  --muted: 214 20% 95%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 214 32% 96%;
-  --accent-foreground: 228 95% 25%;
+  --secondary: 199 30% 96%;
+  --secondary-foreground: 199 83% 35%;
+  --muted: 199 20% 95%;
+  --muted-foreground: 199 16% 47%;
+  --accent: 199 30% 96%;
+  --accent-foreground: 199 83% 35%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 214 20% 88%;
   --input: 214 20% 88%;
-  --ring: 228 95% 31%;
+  --ring: 199 83% 42%;
   --radius: 0.75rem;
 }
 
@@ -177,7 +177,7 @@ h1, h2, h3 {
 
 /* Blue gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #051b9a 0%, #1e42d9 40%, #38bdf8 100%);
+  background: linear-gradient(135deg, #02314e 0%, #138fc6 40%, #38bdf8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -191,7 +191,7 @@ h1, h2, h3 {
   content: "";
   position: absolute;
   inset: -20%;
-  background: radial-gradient(circle, rgba(5, 27, 154, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(19, 143, 198, 0.15) 0%, transparent 70%);
   border-radius: 50%;
   pointer-events: none;
   animation: glow-pulse 4s ease-in-out infinite;
@@ -199,9 +199,9 @@ h1, h2, h3 {
 
 /* Stat card styling */
 .stat-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(238, 241, 255, 0.7) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(232, 246, 252, 0.7) 100%);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(5, 27, 154, 0.1);
+  border: 1px solid rgba(19, 143, 198, 0.1);
   border-radius: 1rem;
   padding: 1.5rem;
 }
@@ -214,15 +214,15 @@ h1, h2, h3 {
   background: #f8fafc;
 }
 ::-webkit-scrollbar-thumb {
-  background: #b8c8ff;
+  background: #90d4ef;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #8aa4ff;
+  background: #50b8e2;
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(5, 27, 154, 0.2);
-  color: #0a0e4a;
+  background: rgba(19, 143, 198, 0.2);
+  color: #02314e;
 }

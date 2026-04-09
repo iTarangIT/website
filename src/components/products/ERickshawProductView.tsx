@@ -1,30 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { eRickshawBatteries } from "@/data/products";
-import VariantSelector from "./VariantSelector";
+import { getBatterySpecGroups } from "@/data/product-specs-grouped";
+import GenericVariantSelector from "./GenericVariantSelector";
 import TabHero from "./TabHero";
 import SafetyFeatures from "./SafetyFeatures";
 import KeyAdvantages from "./KeyAdvantages";
-import SpecsSpotlight from "./SpecsSpotlight";
+import GroupedSpecDisplay from "./GroupedSpecDisplay";
 
-export default function ERickshawProductView() {
-  const [selectedId, setSelectedId] = useState(eRickshawBatteries[0].id);
+export default function ERickshawProductView({ initialVariantId }: { initialVariantId?: string | null }) {
+  const initial = (initialVariantId && eRickshawBatteries.find((b) => b.id === initialVariantId)) ? initialVariantId : eRickshawBatteries[0].id;
+  const [selectedId, setSelectedId] = useState(initial);
   const selected = eRickshawBatteries.find((b) => b.id === selectedId) ?? eRickshawBatteries[0];
+
+  useEffect(() => {
+    if (initialVariantId && eRickshawBatteries.find((b) => b.id === initialVariantId)) {
+      setSelectedId(initialVariantId);
+    }
+  }, [initialVariantId]);
+
+  const variants = eRickshawBatteries.map((b) => ({ id: b.id, label: b.label }));
 
   return (
     <section className="py-12 md:py-20 bg-[#f4f7fb]">
       <div className="mx-auto max-w-[1100px] px-4 sm:px-6 lg:px-8">
         {/* TOP TAB NAVIGATION */}
         <div className="mb-10">
-          <VariantSelector
-            variants={eRickshawBatteries}
+          <GenericVariantSelector
+            variants={variants}
             selectedId={selectedId}
             onSelect={setSelectedId}
           />
         </div>
 
-        {/* TAB PANEL CONTAINER (Matches HTML .page border-radius and shadow) */}
+        {/* TAB PANEL CONTAINER */}
         <div className="rounded-2xl overflow-hidden border border-[#dde3ef] bg-white shadow-[0_4px_60px_rgba(10,37,64,0.08)]">
           {/* HERO SECTION */}
           <TabHero battery={selected} />
@@ -39,9 +49,14 @@ export default function ERickshawProductView() {
             <KeyAdvantages />
           </div>
 
-          {/* SPECS SPOTLIGHT GRID */}
+          {/* GROUPED SPECIFICATIONS */}
           <div className="border-t border-[#eaeff8] bg-white">
-            <SpecsSpotlight battery={selected} />
+            <GroupedSpecDisplay
+              title={selected.label}
+              subtitle={`Full technical specifications for the iTarang ${selected.label} — engineered for efficiency and long-range performance.`}
+              groups={getBatterySpecGroups(selected)}
+              image={`/images/${selected.label}.png`}
+            />
           </div>
         </div>
       </div>

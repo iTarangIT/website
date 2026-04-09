@@ -5,7 +5,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown } from "lucide-react";
 import { productFaqs } from "@/data/products";
 
-export default function FAQAccordion() {
+interface FAQAccordionProps {
+    faqs?: { question: string; answer: string }[];
+}
+
+export default function FAQAccordion({ faqs }: FAQAccordionProps) {
+    const items = faqs ?? productFaqs;
     const [openIndex, setOpenIndex] = useState<number | null>(null);
 
     const toggleFAQ = (index: number) => {
@@ -20,7 +25,7 @@ export default function FAQAccordion() {
                 </h2>
 
                 <div className="space-y-4">
-                    {productFaqs.map((faq, index) => {
+                    {items.map((faq, index) => {
                         const isOpen = openIndex === index;
                         return (
                             <div
