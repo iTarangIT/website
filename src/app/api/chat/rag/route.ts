@@ -7,6 +7,8 @@ import { generateAnswerStream } from "@/lib/groq/client";
 import { insertChatLog, insertLead } from "@/lib/supabase/client";
 import type { Visibility } from "@/lib/embeddings/types";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const startTime = Date.now();
 
