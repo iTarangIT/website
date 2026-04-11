@@ -213,13 +213,12 @@ async function main() {
   console.log("📡 Mapping trontek.com site...");
   try {
     const siteMap = await mapSite("https://trontek.com");
-    const links = (siteMap as Record<string, unknown>)?.links;
+    const links = siteMap?.links;
     if (Array.isArray(links)) {
       console.log(`   Found ${links.length} URLs on trontek.com`);
-      const productLinks = links.filter((l: unknown) => {
-        const url = typeof l === "string" ? l : (l as Record<string, unknown>)?.url;
-        return typeof url === "string" && /\/products?\//.test(url);
-      });
+      const productLinks = links.filter((l) =>
+        typeof l.url === "string" && /\/products?\//.test(l.url)
+      );
       console.log(`   ${productLinks.length} are product-related`);
     }
   } catch (err) {
@@ -268,13 +267,13 @@ async function main() {
   // Also append raw markdown from pages if available
   md += `---\n\n## Raw Page Content\n\n`;
   md += `<details>\n<summary>Battery page markdown</summary>\n\n`;
-  md += (batteryResult as Record<string, unknown>)?.markdown || "_No markdown captured_";
+  md += batteryResult?.markdown || "_No markdown captured_";
   md += `\n\n</details>\n\n`;
   md += `<details>\n<summary>Inverter page markdown</summary>\n\n`;
-  md += (inverterResult as Record<string, unknown>)?.markdown || "_No markdown captured_";
+  md += inverterResult?.markdown || "_No markdown captured_";
   md += `\n\n</details>\n\n`;
   md += `<details>\n<summary>Charger page markdown</summary>\n\n`;
-  md += (chargerResult as Record<string, unknown>)?.markdown || "_No markdown captured_";
+  md += chargerResult?.markdown || "_No markdown captured_";
   md += `\n\n</details>\n`;
 
   // Step 5: Write output
