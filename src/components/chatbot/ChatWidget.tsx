@@ -10,6 +10,11 @@ interface Message {
     content: string;
 }
 
+/** Strip the [LEAD: ...] marker so the user never sees it */
+function stripLeadMarker(text: string): string {
+    return text.replace(/\[LEAD:\s*name="[^"]*",\s*phone="[^"]*"\]/g, "").trimEnd();
+}
+
 export default function ChatWidget() {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
@@ -64,9 +69,10 @@ export default function ChatWidget() {
                     const chunkValue = decoder.decode(value, { stream: true });
                     setMessages((prev) => {
                         const lastMessage = prev[prev.length - 1];
+                        const updatedContent = stripLeadMarker(lastMessage.content + chunkValue);
                         return [
                             ...prev.slice(0, -1),
-                            { ...lastMessage, content: lastMessage.content + chunkValue },
+                            { ...lastMessage, content: updatedContent },
                         ];
                     });
                 }
@@ -88,7 +94,7 @@ export default function ChatWidget() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.95 }}
                         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed bottom-24 right-4 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[400px] h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden"
+                        className="fixed bottom-24 right-4 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[440px] h-[70vh] max-h-[600px] min-h-[400px] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden"
                     >
                         {/* Header */}
                         <div className="bg-gradient-to-r from-brand-600 to-brand-800 p-4 flex items-center justify-between text-white shadow-md">

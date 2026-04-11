@@ -36,7 +36,7 @@ export const mainNavItems: NavItem[] = [
         href: "/products#3-wheeler-batteries",
         description: "LiFePO4 batteries for e-rickshaws and 3-wheelers",
         icon: "battery",
-        image: "/images/51V 132AH.png",
+        image: "/images/itarang battery.png",
         placeholderType: "battery",
         subCategories: [
           {

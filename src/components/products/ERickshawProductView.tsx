@@ -55,7 +55,7 @@ export default function ERickshawProductView({ initialVariantId }: { initialVari
               title={selected.label}
               subtitle={`Full technical specifications for the iTarang ${selected.label} — engineered for efficiency and long-range performance.`}
               groups={getBatterySpecGroups(selected)}
-              image={`/images/${selected.label}.png`}
+              image="/images/itarang battery.png"
             />
           </div>
         </div>

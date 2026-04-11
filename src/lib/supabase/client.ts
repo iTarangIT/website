@@ -118,6 +118,20 @@ export async function insertChatLog(log: {
   if (error) console.error(`[Supabase] Insert chat log failed: ${error.message}`);
 }
 
+// ── Lead operations ──────────────────────────────────
+
+export async function insertLead(lead: {
+  session_id?: string;
+  name: string;
+  phone: string;
+  interest?: string;
+  source_message?: string;
+}) {
+  const supabase = getSupabaseServer();
+  const { error } = await supabase.from("leads").insert(lead);
+  if (error) console.error(`[Supabase] Insert lead failed: ${error.message}`);
+}
+
 // ── Query operations ──────────────────────────────────
 
 export async function listDocuments(status?: string) {

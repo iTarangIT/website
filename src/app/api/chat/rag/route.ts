@@ -2,8 +2,9 @@ import { v4 as uuidv4 } from "uuid";
 import { searchRelevantChunks } from "@/lib/retrieval/search";
 import { buildSystemPrompt, buildUserMessage } from "@/lib/retrieval/prompt";
 import { sanitizeOutput, validateUserInput } from "@/lib/retrieval/safety";
+import { extractLead } from "@/lib/retrieval/leadCapture";
 import { generateAnswerStream } from "@/lib/groq/client";
-import { insertChatLog } from "@/lib/supabase/client";
+import { insertChatLog, insertLead } from "@/lib/supabase/client";
 import type { Visibility } from "@/lib/embeddings/types";
 
 export async function POST(request: Request) {
@@ -81,8 +82,11 @@ export async function POST(request: Request) {
             }
           }
 
+          // Extract lead data and strip marker from response
+          const { cleanedResponse, lead } = extractLead(fullResponse);
+
           // Safety check on final output
-          const safety = sanitizeOutput(fullResponse);
+          const safety = sanitizeOutput(cleanedResponse);
           if (!safety.safe) {
             controller.enqueue(
               new TextEncoder().encode(
@@ -93,13 +97,24 @@ export async function POST(request: Request) {
 
           controller.close();
 
+          // Save lead if captured (fire-and-forget)
+          if (lead) {
+            insertLead({
+              session_id: currentSessionId,
+              name: lead.name,
+              phone: lead.phone,
+              interest: message,
+              source_message: cleanedResponse,
+            }).catch(() => {});
+          }
+
           // Log the interaction (fire-and-forget)
           insertChatLog({
             session_id: currentSessionId,
             user_id: userId,
             user_role: role,
             user_message: message,
-            assistant_message: safety.safe ? fullResponse : safety.text,
+            assistant_message: safety.safe ? cleanedResponse : safety.text,
             retrieved_sources_json: sources,
             latency_ms: Date.now() - startTime,
             blocked_reason: safety.safe ? undefined : safety.blocked,

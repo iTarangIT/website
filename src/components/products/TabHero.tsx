@@ -38,7 +38,7 @@ export default function TabHero({ battery }: { battery: ERickshawBattery }) {
             {/* Hero Image / Icon (Right) */}
             <div className="shrink-0 w-[240px] md:w-[320px] aspect-square flex items-center justify-center relative z-10 transition-transform duration-400 hover:-translate-y-2 hover:scale-105 group">
                 <Image
-                    src={`/images/${battery.label}.png`}
+                    src="/images/itarang battery.png"
                     alt={`iTarang ${battery.label} Battery`}
                     width={320}
                     height={320}
