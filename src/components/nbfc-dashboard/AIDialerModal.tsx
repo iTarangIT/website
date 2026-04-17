@@ -46,6 +46,7 @@ export default function AIDialerModal({
   const [elapsed, setElapsed] = useState(0);
   const [toast, setToast] = useState<ToastState>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!lead) return;
@@ -54,6 +55,10 @@ export default function AIDialerModal({
     setTyping(true);
     setElapsed(0);
     setToast(null);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
 
     const timeouts: ReturnType<typeof setTimeout>[] = [];
 
@@ -77,6 +82,10 @@ export default function AIDialerModal({
     return () => {
       timeouts.forEach(clearTimeout);
       clearInterval(elapsedTimer);
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
     };
   }, [lead]);
 
@@ -87,8 +96,12 @@ export default function AIDialerModal({
   }, [visibleLines, typing]);
 
   const showToast = (text: string, tone: "success" | "error") => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
     setToast({ text, tone });
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
       setToast(null);
       onClose();
     }, 1400);
