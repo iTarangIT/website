@@ -492,10 +492,22 @@ export default function Navbar() {
                   </Link>
                 </div>
                 <div className="pt-4 space-y-2">
-                  <Button href="/login" size="md" variant="primary" className="w-full justify-center">
+                  <Button
+                    href="/login"
+                    size="md"
+                    variant="primary"
+                    className="w-full justify-center"
+                    onClick={() => setMobileOpen(false)}
+                  >
                     NBFC Login
                   </Button>
-                  <Button href="/contact" size="md" variant="outline" className="w-full justify-center">
+                  <Button
+                    href="/contact"
+                    size="md"
+                    variant="outline"
+                    className="w-full justify-center"
+                    onClick={() => setMobileOpen(false)}
+                  >
                     Talk to Us
                   </Button>
                 </div>
