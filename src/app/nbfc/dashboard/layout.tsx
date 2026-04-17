@@ -30,11 +30,12 @@ export default function DashboardLayout({
   const authed = session === "nbfc";
 
   useEffect(() => {
-    if (session !== null && session !== "nbfc") {
+    // useSyncExternalStore returns the real client-side value on the first
+    // client render, so any non-"nbfc" value (including null) means the
+    // visitor is not signed in.
+    if (session !== "nbfc") {
       router.replace("/login");
     }
-    // session === null => still hydrating on client after SSR; defer
-    // session === "nbfc" => authorized; no-op
   }, [session, router]);
 
   if (!authed) {
