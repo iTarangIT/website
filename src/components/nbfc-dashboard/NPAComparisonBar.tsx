@@ -5,9 +5,11 @@ export default function NPAComparisonBar({
   itarang: number;
   industry: number;
 }) {
-  const scale = Math.max(itarang, industry) * 1.25;
-  const pctITarang = (itarang / scale) * 100;
-  const pctIndustry = (industry / scale) * 100;
+  const maxValue = Math.max(itarang, industry, 0);
+  const scale = maxValue === 0 ? 1 : maxValue * 1.25;
+  const toPct = (v: number) => Math.max(0, Math.min(100, (v / scale) * 100));
+  const pctITarang = toPct(itarang);
+  const pctIndustry = toPct(industry);
 
   return (
     <div className="space-y-3">
