@@ -3,8 +3,9 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { dialerStats } from "@/lib/nbfc-mock-data";
 
+// callsMade is the aggregate; the three outcomes below partition it.
+// Keep callsMade for the donut's centre total and plot only the outcomes.
 const data = [
-  { name: "Calls Made", value: dialerStats.callsMade, color: "#138fc6" },
   { name: "Qualified", value: dialerStats.qualified, color: "#10b981" },
   { name: "Hot Leads", value: dialerStats.hotLeads, color: "#f59e0b" },
   { name: "Disqualified", value: dialerStats.disqualified, color: "#94a3b8" },
