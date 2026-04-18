@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { mainNavItems, type NavProductCategory, type NavSubCategory } from "@/data/navigation";
 import Button from "@/components/ui/Button";
 import ProductPlaceholder from "@/components/products/ProductPlaceholder";
+import LoginButton from "@/components/auth/LoginButton";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   NavigationMenu,
@@ -264,9 +265,7 @@ export default function Navbar() {
             {/* CTA + Mobile toggle */}
             <div className="flex items-center gap-3">
               <div className="hidden lg:flex items-center gap-2">
-                <Button href="/login" size="sm" variant="primary">
-                  NBFC Login
-                </Button>
+                <LoginButton scrolled={scrolled} />
                 <Button href="/contact" size="sm" variant="outline" className={cn(
                   !scrolled && "bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white"
                 )}>
@@ -492,15 +491,7 @@ export default function Navbar() {
                   </Link>
                 </div>
                 <div className="pt-4 space-y-2">
-                  <Button
-                    href="/login"
-                    size="md"
-                    variant="primary"
-                    className="w-full justify-center"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    NBFC Login
-                  </Button>
+                  <LoginButton variant="mobile" fullWidth onClick={() => setMobileOpen(false)} />
                   <Button
                     href="/contact"
                     size="md"
