@@ -4,17 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  Megaphone,
+  Brain,
   Battery,
-  FileText,
-  Store,
-  Package,
-  ReceiptIndianRupee,
-  Wrench,
-  Shield,
-  Phone,
-  Activity,
-  TrendingDown,
+  Recycle,
+  ScrollText,
   Cog,
+  UserPlus,
+  BarChart3,
+  Gavel,
+  Package,
+  Bell,
+  SlidersHorizontal,
   LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,22 +31,22 @@ interface NavItem {
 const NAV: Record<PortalRole, NavItem[]> = {
   nbfc: [
     { label: "Overview", href: "/nbfc", icon: LayoutDashboard },
-    { label: "Assets", href: "/nbfc/assets", icon: Battery },
-    { label: "Reports", href: "/nbfc?tab=reports", icon: FileText, disabled: true },
-    { label: "Settings", href: "/nbfc?tab=settings", icon: Cog, disabled: true },
-  ],
-  dealer: [
-    { label: "Overview", href: "/dealer", icon: Store },
-    { label: "Inventory", href: "/dealer?tab=inventory", icon: Package, disabled: true },
-    { label: "EMI", href: "/dealer?tab=emi", icon: ReceiptIndianRupee, disabled: true },
-    { label: "Service", href: "/dealer?tab=service", icon: Wrench, disabled: true },
+    { label: "Lead Intelligence", href: "/nbfc/leads", icon: Megaphone },
+    { label: "Risk Intelligence", href: "/nbfc/risk", icon: Brain },
+    { label: "Battery Monitoring", href: "/nbfc/batteries", icon: Battery },
+    { label: "Recovery & Auction", href: "/nbfc/recovery", icon: Recycle },
+    { label: "Audit Log", href: "/nbfc/audit", icon: ScrollText },
+    { label: "Settings", href: "/nbfc/settings", icon: Cog },
   ],
   itarang: [
-    { label: "Control Tower", href: "/itarang", icon: Shield },
-    { label: "Leads", href: "/itarang/leads", icon: Phone },
-    { label: "Fleet", href: "/itarang?tab=fleet", icon: Activity, disabled: true },
-    { label: "Risk", href: "/itarang?tab=risk", icon: TrendingDown, disabled: true },
-    { label: "Service", href: "/itarang?tab=service", icon: Wrench, disabled: true },
+    { label: "Ecosystem Overview", href: "/itarang", icon: LayoutDashboard },
+    { label: "Partner Network", href: "/itarang/network", icon: UserPlus, disabled: true },
+    { label: "NBFC Portfolio", href: "/itarang/monitoring", icon: BarChart3, disabled: true },
+    { label: "Auction Control", href: "/itarang/auction", icon: Gavel },
+    { label: "Inventory", href: "/itarang/inventory", icon: Package, disabled: true },
+    { label: "Alerts Config", href: "/itarang/alerts", icon: Bell, disabled: true },
+    { label: "Risk Rule Engine", href: "/itarang/risk-engine", icon: SlidersHorizontal },
+    { label: "Audit Log", href: "/itarang/audit", icon: ScrollText },
   ],
 };
 
@@ -53,22 +54,27 @@ interface SidebarProps {
   role: PortalRole;
 }
 
+const ROLE_LABEL: Record<PortalRole, { heading: string; subheading: string }> = {
+  nbfc: { heading: "NBFC Intelligence", subheading: "Risk Manager · Kosh Lending" },
+  itarang: { heading: "Platform Admin", subheading: "iTarang · Ecosystem Control" },
+};
+
 export default function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname();
   const items = NAV[role];
+  const meta = ROLE_LABEL[role];
 
   return (
-    <aside className="hidden lg:flex w-60 shrink-0 flex-col border-r border-white/10 bg-black/20 backdrop-blur-sm">
+    <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/20 backdrop-blur-sm">
       <div className="px-4 pt-6 pb-4">
-        <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-3 px-2">
-          {role === "nbfc" ? "NBFC Portal" : role === "dealer" ? "Dealer Portal" : "iTarang Admin"}
-        </p>
+        <p className="text-[11px] uppercase tracking-wider text-gray-500 font-bold">{meta.heading}</p>
+        <p className="text-[10px] text-gray-600 mb-4">{meta.subheading}</p>
         <nav className="space-y-0.5">
           {items.map((item) => {
-            const isActive = !item.disabled && (pathname === item.href || (item.href !== "/nbfc" && item.href !== "/dealer" && item.href !== "/itarang" && pathname.startsWith(item.href.split("?")[0])));
             const baseHref = item.href.split("?")[0];
-            const pathActive = pathname === baseHref;
-            const active = isActive || pathActive;
+            const active =
+              pathname === baseHref ||
+              (baseHref !== "/nbfc" && baseHref !== "/itarang" && pathname.startsWith(baseHref + "/"));
             const Icon = item.icon;
 
             if (item.disabled) {
@@ -80,7 +86,7 @@ export default function Sidebar({ role }: SidebarProps) {
                 >
                   <Icon className="h-4 w-4" />
                   <span>{item.label}</span>
-                  <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-gray-600">
+                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-gray-600">
                     soon
                   </span>
                 </span>
@@ -94,7 +100,7 @@ export default function Sidebar({ role }: SidebarProps) {
                 className={cn(
                   "flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors",
                   active
-                    ? "bg-brand-500/15 text-white font-medium"
+                    ? "bg-brand-500/15 text-white font-semibold border border-brand-500/30"
                     : "text-gray-400 hover:text-white hover:bg-white/5",
                 )}
               >
@@ -105,9 +111,11 @@ export default function Sidebar({ role }: SidebarProps) {
           })}
         </nav>
       </div>
-      <div className="mt-auto p-4 border-t border-white/10">
-        <p className="text-[10px] text-gray-600 leading-relaxed px-2">
-          Demo environment · Mock data · Not connected to production
+      <div className="mt-auto p-4 border-t border-white/10 space-y-1">
+        <p className="text-[10px] text-gray-600 leading-relaxed">Last data sync: Today, 6:00 AM IST</p>
+        <p className="text-[10px] text-accent-green leading-relaxed flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent-green animate-pulse" />
+          System status · operational
         </p>
       </div>
     </aside>

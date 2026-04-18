@@ -2,14 +2,14 @@
 
 import { useSyncExternalStore } from "react";
 
-export type PortalRole = "nbfc" | "dealer" | "itarang";
+export type PortalRole = "nbfc" | "itarang";
 
 const STORAGE_KEY = "itarang:role";
 
 export function getRole(): PortalRole | null {
   if (typeof window === "undefined") return null;
   const v = window.localStorage.getItem(STORAGE_KEY);
-  if (v === "nbfc" || v === "dealer" || v === "itarang") return v;
+  if (v === "nbfc" || v === "itarang") return v;
   return null;
 }
 
@@ -42,12 +42,10 @@ export function useRole(): { role: PortalRole | null; ready: boolean } {
 
 export const ROLE_HOME: Record<PortalRole, string> = {
   nbfc: "/nbfc",
-  dealer: "/dealer",
   itarang: "/itarang",
 };
 
 export const DEMO_CREDS: Record<PortalRole, { email: string; password: string; label: string }> = {
-  nbfc: { email: "nbfc@demo", password: "demo", label: "NBFC Partner" },
-  dealer: { email: "dealer@demo", password: "demo", label: "Dealer" },
-  itarang: { email: "admin@itarang", password: "demo", label: "iTarang Admin" },
+  nbfc: { email: "risk@nbfc.demo", password: "demo", label: "NBFC Risk Manager" },
+  itarang: { email: "admin@itarang.demo", password: "demo", label: "iTarang Platform Admin" },
 };

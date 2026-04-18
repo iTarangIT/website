@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart3, Store, Shield, LogIn } from "lucide-react";
+import { ShieldCheck, Settings2, LogIn } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,24 +20,28 @@ interface LoginModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const ROLES: { id: PortalRole; icon: typeof BarChart3; title: string; subtitle: string }[] = [
+const ROLES: { id: PortalRole; icon: typeof ShieldCheck; title: string; subtitle: string; capabilities: string[] }[] = [
   {
     id: "nbfc",
-    icon: BarChart3,
-    title: "NBFC",
-    subtitle: "Portfolio, risk & collections",
-  },
-  {
-    id: "dealer",
-    icon: Store,
-    title: "Dealer",
-    subtitle: "Inventory, EMIs & service",
+    icon: ShieldCheck,
+    title: "NBFC Risk Manager",
+    subtitle: "Portfolio health, risk intel & recovery",
+    capabilities: [
+      "Monitor 4,800+ financed batteries in real time",
+      "Investigate at-risk borrowers with full evidence",
+      "Approve compliance-gated recovery actions",
+    ],
   },
   {
     id: "itarang",
-    icon: Shield,
-    title: "iTarang",
-    subtitle: "Control tower & leads",
+    icon: Settings2,
+    title: "iTarang Platform Admin",
+    subtitle: "Ecosystem, auctions & risk rules",
+    capabilities: [
+      "Oversee partner NBFCs & platform health",
+      "Control live auctions & reserve prices",
+      "Tune CDS/PCI thresholds with dual approval",
+    ],
   },
 ];
 
@@ -67,20 +71,20 @@ export default function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] bg-white">
+      <DialogContent className="sm:max-w-[480px] bg-white">
         <DialogHeader>
-          <DialogTitle className="text-xl text-gray-900">Log in to iTarang</DialogTitle>
+          <DialogTitle className="text-xl text-gray-900">Enter the iTarang NBFC Intelligence Platform</DialogTitle>
           <DialogDescription className="text-gray-500">
-            Pick a role to explore the demo portal. All credentials are hardcoded.
+            Pick a role to explore the demo. No authentication — all data is synthetic.
           </DialogDescription>
         </DialogHeader>
 
         <Tabs value={activeRole} onValueChange={onTabChange} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full h-auto bg-gray-100">
+          <TabsList className="grid grid-cols-2 w-full h-auto bg-gray-100">
             {ROLES.map((r) => (
-              <TabsTrigger key={r.id} value={r.id} className="flex flex-col gap-1 py-2.5">
+              <TabsTrigger key={r.id} value={r.id} className="flex items-center gap-2 py-2.5">
                 <r.icon className="h-4 w-4" />
-                <span className="text-xs">{r.title}</span>
+                <span className="text-xs font-semibold">{r.title}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -89,6 +93,15 @@ export default function LoginModal({ open, onOpenChange }: LoginModalProps) {
             const creds = DEMO_CREDS[r.id];
             return (
               <TabsContent key={r.id} value={r.id} className="mt-5 space-y-4">
+                <ul className="space-y-1.5 text-xs text-gray-600">
+                  {r.capabilities.map((c) => (
+                    <li key={c} className="flex items-start gap-2">
+                      <span className="mt-1 h-1 w-1 rounded-full bg-brand-500 shrink-0" />
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+
                 <div className="rounded-lg bg-brand-50 border border-brand-100 px-3 py-2.5 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-brand-700">
@@ -134,9 +147,13 @@ export default function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   </div>
                   <Button type="submit" size="md" className="w-full justify-center">
                     <LogIn className="h-4 w-4 mr-2" />
-                    Log in as {r.title}
+                    Enter as {r.title}
                   </Button>
                 </form>
+
+                <p className="text-[10px] text-gray-400 text-center border-t border-gray-100 pt-3">
+                  Prototype v1.0 · Demo data only · Not connected to production NBFC systems
+                </p>
               </TabsContent>
             );
           })}
