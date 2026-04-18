@@ -1,5 +1,6 @@
 import AuditLogTable from "@/components/portal/shared/AuditLogTable";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 
 export default function NBFCAuditPage() {
   return (
@@ -12,9 +13,10 @@ export default function NBFCAuditPage() {
         <DataFreshnessBadge label="Live" timestamp="updates instantly" />
       </header>
       <AuditLogTable />
-      <p className="text-[10px] text-gray-500 border-t border-white/10 pt-4">
-        All entries are immutable, timestamped, and include requester + approver chain + reason code. Meets RBI DL Directions 2025 audit trail requirements.
+      <p className="text-[10px] text-gray-500 leading-relaxed">
+        All entries are immutable, timestamped, and include requester + approver chain + reason code.
       </p>
+      <RegulatoryFooter />
     </div>
   );
 }

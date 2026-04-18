@@ -122,13 +122,13 @@ export default function AuditLogTable() {
           <caption className="sr-only">All privileged actions across the platform.</caption>
           <thead className="bg-black/30 text-gray-500">
             <tr>
-              <th scope="col" className="text-left px-4 py-2.5 font-semibold">Timestamp</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Entity</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Action</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Reason</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Requested by</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Approved by</th>
-              <th scope="col" className="text-left px-4 py-2.5 font-semibold">Status</th>
+              <th scope="col" aria-sort="descending" className="text-left px-4 py-2.5 font-semibold">Timestamp</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Entity</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Action</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Reason</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Requested by</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Approved by</th>
+              <th scope="col" aria-sort="none" className="text-left px-4 py-2.5 font-semibold">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">

@@ -4,8 +4,10 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import BatteryRiskTable from "@/components/portal/nbfc/batteries/BatteryRiskTable";
 import CaseWorkspace from "@/components/portal/nbfc/batteries/CaseWorkspace";
+import RealTimeAlertPanel from "@/components/portal/nbfc/batteries/RealTimeAlertPanel";
 import ScoreExplainer from "@/components/portal/shared/ScoreExplainer";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 import { allBatteryRows, type BatteryRow } from "@/data/portal/loans";
 
 function BatteriesContent() {
@@ -35,6 +37,8 @@ function BatteriesContent() {
         <DataFreshnessBadge />
       </div>
 
+      <RealTimeAlertPanel />
+
       <BatteryRiskTable
         onRowClick={setSelected}
         onBadgeClick={(r, type) => {
@@ -59,6 +63,8 @@ function BatteriesContent() {
           confidence={scoreRow.isInsufficientHistory ? "low" : "medium"}
         />
       )}
+
+      <RegulatoryFooter />
     </div>
   );
 }

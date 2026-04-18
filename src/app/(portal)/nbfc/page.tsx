@@ -7,7 +7,10 @@ import PriorityQueue from "@/components/portal/nbfc/overview/PriorityQueue";
 import RegionalRiskChart from "@/components/portal/nbfc/overview/RegionalRiskChart";
 import NarrativeTile from "@/components/portal/shared/NarrativeTile";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
+import MethodologyTooltip from "@/components/portal/shared/MethodologyTooltip";
 import { useExecutiveMode } from "@/components/portal/shared/ExecutiveSummaryToggle";
+import { methodologyNotes } from "@/data/portal/portfolio";
 import Link from "next/link";
 
 export default function NBFCOverviewPage() {
@@ -68,30 +71,44 @@ export default function NBFCOverviewPage() {
         <section className="rounded-xl bg-white/5 border border-white/10 p-5">
           <h4 className="text-sm font-semibold text-gray-200 mb-3">Outcome summary</h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Outcome label="Delinquency" from="12.0%" to="9.2%" delta="-2.8 pp" positive />
-            <Outcome label="Collection efficiency" from="79%" to="91.4%" delta="+12.4 pp" positive />
-            <Outcome label="Recovery rate" from="50%" to="64.2%" delta="+14.2 pp" positive />
+            <Outcome label="Delinquency" from="12.0%" to="9.2%" delta="-2.8 pp" positive methodology={methodologyNotes.delinquency} />
+            <Outcome label="Collection efficiency" from="79%" to="91.4%" delta="+12.4 pp" positive methodology={methodologyNotes.collectionEfficiency} />
+            <Outcome label="Recovery rate" from="50%" to="64.2%" delta="+14.2 pp" positive methodology={methodologyNotes.recoveryRate} />
           </div>
           <p className="text-[10px] text-gray-500 mt-4 border-t border-white/10 pt-3">
-            Every outcome is measured over last 90 days against industry or pre-telemetry baseline. Hover any KPI card for methodology.
+            Every outcome is measured over last 90 days against industry or pre-telemetry baseline. Click the info icon for methodology.
           </p>
         </section>
       )}
 
-      <p className="text-[10px] text-gray-500 border-t border-white/10 pt-4">
-        This view complies with RBI Digital Lending Directions 2025 and the Fair Practices Code.
-      </p>
+      <RegulatoryFooter />
     </div>
   );
 }
 
-function Outcome({ label, from, to, delta, positive }: { label: string; from: string; to: string; delta: string; positive: boolean }) {
+function Outcome({
+  label,
+  from,
+  to,
+  delta,
+  positive,
+  methodology,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  delta: string;
+  positive: boolean;
+  methodology: string;
+}) {
   return (
     <div className="rounded-lg bg-black/20 border border-white/10 p-4">
       <p className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">{label}</p>
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-xs text-gray-500 line-through tabular-nums">{from}</span>
-        <span className="text-lg font-bold text-white tabular-nums">{to}</span>
+        <MethodologyTooltip methodology={methodology} label={label}>
+          <span className="text-lg font-bold text-white tabular-nums">{to}</span>
+        </MethodologyTooltip>
       </div>
       <p className={"text-xs font-semibold " + (positive ? "text-accent-green" : "text-red-400")}>{delta}</p>
     </div>

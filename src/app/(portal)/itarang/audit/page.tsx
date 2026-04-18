@@ -1,5 +1,6 @@
 import AuditLogTable from "@/components/portal/shared/AuditLogTable";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 
 export default function ITarangAuditPage() {
   return (
@@ -12,6 +13,7 @@ export default function ITarangAuditPage() {
         <DataFreshnessBadge label="Live" timestamp="updates instantly" />
       </header>
       <AuditLogTable />
+      <RegulatoryFooter />
     </div>
   );
 }

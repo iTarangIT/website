@@ -5,6 +5,7 @@ import { Network, Activity, Wifi, Bell, ArrowRight } from "lucide-react";
 import { ecosystemKPIs, nbfcPartners } from "@/data/portal/ecosystem";
 import KPIHeroCard from "@/components/portal/shared/KPIHeroCard";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 
 export default function ITarangEcosystemPage() {
   return (
@@ -92,6 +93,8 @@ export default function ITarangEcosystemPage() {
           <ArrowRight className="h-5 w-5 text-accent-amber group-hover:translate-x-0.5 transition-transform" />
         </Link>
       </div>
+
+      <RegulatoryFooter />
     </div>
   );
 }

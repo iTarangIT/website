@@ -3,6 +3,8 @@
 import { type BatteryRow } from "@/data/portal/loans";
 import { type Driver } from "@/data/portal/drivers";
 import { Battery, Zap, Thermometer, Clock } from "lucide-react";
+import PurposeStrip from "@/components/portal/shared/PurposeStrip";
+import ChartWithTableFallback from "@/components/portal/shared/ChartWithTableFallback";
 
 interface Props {
   row: BatteryRow;
@@ -28,51 +30,78 @@ export default function TelemetryTab({ row, driver }: Props) {
   const max = Math.max(...series);
   const range = max - min || 1;
 
+  const chart = (
+    <section className="rounded-lg bg-black/20 border border-white/10 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+          <Battery className="h-3.5 w-3.5" /> SOH · 30-day trend
+        </p>
+        <p className="text-[10px] text-gray-500">
+          Range {min.toFixed(1)}% – {max.toFixed(1)}% · latest {row.sohPct}%
+        </p>
+      </div>
+      <svg viewBox="0 0 300 90" className="w-full h-24" preserveAspectRatio="none" role="img" aria-label="State-of-Health 30-day trend line chart">
+        <defs>
+          <linearGradient id="sohGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={row.sohTrend === "down" ? "#ef4444" : "#10b981"} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={row.sohTrend === "down" ? "#ef4444" : "#10b981"} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        {(() => {
+          const pts = series.map((v, i) => {
+            const x = (i / (series.length - 1)) * 300;
+            const y = 90 - ((v - min) / range) * 76 - 4;
+            return [x, y] as const;
+          });
+          const line = pts.map(([x, y]) => `${x},${y.toFixed(1)}`).join(" ");
+          const area = `0,90 ${line} 300,90`;
+          return (
+            <>
+              <polyline points={area} fill="url(#sohGrad)" stroke="none" />
+              <polyline
+                points={line}
+                fill="none"
+                stroke={row.sohTrend === "down" ? "#ef4444" : "#10b981"}
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </>
+          );
+        })()}
+      </svg>
+    </section>
+  );
+
+  const table = (
+    <div className="rounded-lg bg-black/20 border border-white/10 overflow-x-auto max-h-56">
+      <table className="w-full text-[11px]">
+        <caption className="sr-only">SOH by day for the last 30 days.</caption>
+        <thead className="bg-black/30 text-gray-500 sticky top-0">
+          <tr>
+            <th scope="col" className="text-left px-3 py-2 font-semibold">Day (d-)</th>
+            <th scope="col" className="text-right px-3 py-2 font-semibold">SOH %</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5">
+          {series.map((v, i) => (
+            <tr key={i}>
+              <td className="px-3 py-1 text-gray-400 font-mono">d-{29 - i}</td>
+              <td className="px-3 py-1 text-gray-200 tabular-nums text-right">{v.toFixed(2)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const summary = `30-day SOH ${row.sohTrend === "down" ? "declining" : row.sohTrend === "up" ? "recovering" : "stable"} — ranges ${min.toFixed(1)}% to ${max.toFixed(1)}%, latest ${row.sohPct}%.`;
+
   return (
     <div className="space-y-4">
-      <section className="rounded-lg bg-black/20 border border-white/10 p-5">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
-            <Battery className="h-3.5 w-3.5" /> SOH · 30-day trend
-          </p>
-          <p className="text-[10px] text-gray-500">
-            Range {min.toFixed(1)}% – {max.toFixed(1)}% · latest {row.sohPct}%
-          </p>
-        </div>
-        <svg viewBox="0 0 300 90" className="w-full h-24" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="sohGrad" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={row.sohTrend === "down" ? "#ef4444" : "#10b981"} stopOpacity={0.35} />
-              <stop offset="100%" stopColor={row.sohTrend === "down" ? "#ef4444" : "#10b981"} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          {(() => {
-            const pts = series.map((v, i) => {
-              const x = (i / (series.length - 1)) * 300;
-              const y = 90 - ((v - min) / range) * 76 - 4;
-              return [x, y] as const;
-            });
-            const line = pts.map(([x, y]) => `${x},${y.toFixed(1)}`).join(" ");
-            const area = `0,90 ${line} 300,90`;
-            return (
-              <>
-                <polyline points={area} fill="url(#sohGrad)" stroke="none" />
-                <polyline
-                  points={line}
-                  fill="none"
-                  stroke={row.sohTrend === "down" ? "#ef4444" : "#10b981"}
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </>
-            );
-          })()}
-        </svg>
-        <p className="sr-only">
-          State-of-Health over 30 days: ranges from {min.toFixed(1)} to {max.toFixed(1)} percent, ending at {row.sohPct} percent.
-        </p>
-      </section>
+      <PurposeStrip loanId={row.loanId} consentDate={driver?.onboardingDate ?? "2024-08-14"} />
+
+      <ChartWithTableFallback chart={chart} table={table} summary={summary} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
         <Tile icon={Zap} label="SOC" value={`${40 + Math.round(Math.abs(Math.sin(row.sohPct * 0.3) * 50))}%`} />

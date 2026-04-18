@@ -13,11 +13,11 @@ export default function CohortTable() {
           <caption className="sr-only">Default rate and recovery rate by region and vehicle type segment.</caption>
           <thead className="bg-black/30 text-gray-500">
             <tr>
-              <th scope="col" className="text-left px-4 py-2 font-semibold">Segment</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Accounts</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Default rate</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Recovery rate</th>
-              <th scope="col" className="text-right px-4 py-2 font-semibold">Avg SOH</th>
+              <th scope="col" aria-sort="none" className="text-left px-4 py-2 font-semibold">Segment</th>
+              <th scope="col" aria-sort="none" className="text-right px-3 py-2 font-semibold">Accounts</th>
+              <th scope="col" aria-sort="ascending" className="text-right px-3 py-2 font-semibold">Default rate</th>
+              <th scope="col" aria-sort="none" className="text-right px-3 py-2 font-semibold">Recovery rate</th>
+              <th scope="col" aria-sort="none" className="text-right px-4 py-2 font-semibold">Avg SOH</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">

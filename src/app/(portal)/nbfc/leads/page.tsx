@@ -1,6 +1,6 @@
 "use client";
 
-import { PhoneCall, Flame, Target, TrendingUp } from "lucide-react";
+import { PhoneCall, Flame, Target } from "lucide-react";
 import { useExecutiveMode } from "@/components/portal/shared/ExecutiveSummaryToggle";
 import KPIHeroCard from "@/components/portal/shared/KPIHeroCard";
 import LeadFunnel from "@/components/portal/nbfc/leads/LeadFunnel";
@@ -9,7 +9,8 @@ import LeadTable from "@/components/portal/nbfc/leads/LeadTable";
 import CallScheduler from "@/components/portal/nbfc/leads/CallScheduler";
 import NarrativeTile from "@/components/portal/shared/NarrativeTile";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
-import { leadKPIs } from "@/data/portal/leads";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
+import { leadKPIs, leadFunnel } from "@/data/portal/leads";
 
 export default function LeadIntelligencePage() {
   const { executiveMode } = useExecutiveMode();
@@ -19,7 +20,9 @@ export default function LeadIntelligencePage() {
       <header className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight">Lead Intelligence</h1>
-          <p className="text-sm text-gray-400 mt-1">Act 1 · how your loan book is growing</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Act 1 · how your loan book is growing · {(leadFunnel.cold + leadFunnel.warm + leadFunnel.hot + leadFunnel.converted).toLocaleString("en-IN")} leads in pipeline
+          </p>
         </div>
         <DataFreshnessBadge />
       </header>
@@ -51,10 +54,11 @@ export default function LeadIntelligencePage() {
 
       {!executiveMode && <CallScheduler />}
 
-      <p className="text-[10px] text-gray-500 border-t border-white/10 pt-4 flex items-center gap-2">
-        <TrendingUp className="h-3 w-3" />
-        Intent-Score model is v0.2-demo. All scores clickable for inputs + confidence. RBI DL fair-practice compliant.
+      <p className="text-[10px] text-gray-500 leading-relaxed">
+        Intent-Score model is v0.2-demo. All scores clickable for inputs + confidence.
       </p>
+
+      <RegulatoryFooter />
     </div>
   );
 }

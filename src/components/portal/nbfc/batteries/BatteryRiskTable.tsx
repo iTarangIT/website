@@ -114,17 +114,17 @@ export default function BatteryRiskTable({ onRowClick, onBadgeClick, initialRisk
           <caption className="sr-only">All financed batteries with risk signals. Click a row to open the case workspace.</caption>
           <thead className="bg-black/40 text-gray-500 sticky top-0 z-10">
             <tr>
-              <th scope="col" className="text-left px-4 py-2.5 font-semibold">Battery</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold hidden xl:table-cell">IMEI</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Customer</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold hidden lg:table-cell">Dealer</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">SOH</th>
-              <th scope="col" className="text-right px-3 py-2.5 font-semibold hidden md:table-cell">KM/d 30d</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">EMI</th>
-              <th scope="col" className="text-right px-3 py-2.5 font-semibold">DPD</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">CDS</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">PCI</th>
-              <th scope="col" className="text-left px-3 py-2.5 font-semibold">Risk</th>
+              <th scope="col" aria-sort="none" className="text-left px-4 py-2.5 font-semibold">Battery</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold hidden xl:table-cell">IMEI</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Customer</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold hidden lg:table-cell">Dealer</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">SOH</th>
+              <th scope="col" aria-sort="none" className="text-right px-3 py-2.5 font-semibold hidden md:table-cell">KM/d 30d</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">EMI</th>
+              <th scope="col" aria-sort="descending" className="text-right px-3 py-2.5 font-semibold">DPD</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">CDS</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">PCI</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2.5 font-semibold">Risk</th>
               <th scope="col" className="text-right px-4 py-2.5 font-semibold"></th>
             </tr>
           </thead>
@@ -144,6 +144,7 @@ export default function BatteryRiskTable({ onRowClick, onBadgeClick, initialRisk
                     {r.isRecentlyRestructured && <FlagChip label="Restructured" />}
                     {r.isForceMajeure && <FlagChip label="Force majeure" />}
                     {r.immobilized && <FlagChip label="Immobilized" variant="danger" />}
+                    {r.rejectedAction && <FlagChip label={`${r.rejectedAction.type.replace("Request ", "")} rejected`} variant="danger" />}
                   </td>
                   <td className="px-3 py-2 text-gray-400 font-mono hidden xl:table-cell">{r.imei}</td>
                   <td className="px-3 py-2 text-gray-200">{r.customer}</td>

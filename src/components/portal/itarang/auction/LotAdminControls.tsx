@@ -67,8 +67,18 @@ export default function LotAdminControls({ lot }: Props) {
         <div className="grid grid-cols-2 gap-2 text-[11px]">
           <Tile label="Current bid" value={`₹${lot.currentBid.toLocaleString("en-IN")}`} accent />
           <Tile label="Time remaining" value={expired ? "Ended" : formatted} icon={Clock} warn={!expired && lot.status === "closing-soon"} />
-          <Tile label="Unique bidders" value={String(lot.bidderCount)} />
-          <Tile label="Bid velocity" value={`${Math.max(1, Math.round(lot.bidHistory.length * 1.2))}/hr`} />
+          <Tile label={`Bids · ${lot.bidderCount} bidders`} value={String(lot.bidHistory.length)} />
+          <Tile label="Bid velocity" value={`${computeVelocity(lot)}/hr`} />
+          <Tile
+            label="Expected closing"
+            value={formatExpectedClosing(lot.endsAtIsoOffsetMinutes)}
+            warn={lot.endsAtIsoOffsetMinutes < 60}
+          />
+          <Tile
+            label="Reserve status"
+            value={lot.currentBid >= lot.basePrice * 1.15 ? "Met" : "Below reserve"}
+            accent={lot.currentBid >= lot.basePrice * 1.15}
+          />
         </div>
 
         <div className="space-y-1.5">
@@ -124,6 +134,37 @@ export default function LotAdminControls({ lot }: Props) {
       )}
     </>
   );
+}
+
+function computeVelocity(lot: AuctionLot): number {
+  // Assume bidHistory spans the time from the earliest bid to "now".
+  // Most recent bid in mock data is timeAgo strings like "3 min ago", "1 hr ago".
+  // Heuristic: convert any entries containing "hr" to 60+ mins; "min" entries use their number.
+  const minutesFromTimeAgo = lot.bidHistory
+    .map((b) => {
+      if (b.timeAgo.includes("hr")) {
+        const n = parseFloat(b.timeAgo) || 1;
+        return n * 60;
+      }
+      return parseFloat(b.timeAgo) || 60;
+    })
+    .reduce((a, b) => Math.max(a, b), 0);
+  const minutesElapsed = Math.max(minutesFromTimeAgo, 1);
+  return Math.max(1, Math.round((lot.bidHistory.length / minutesElapsed) * 60));
+}
+
+function formatExpectedClosing(offsetMinutes: number): string {
+  const closing = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).format(closing);
+  } catch {
+    return closing.toISOString();
+  }
 }
 
 function Tile({ label, value, icon: Icon, accent, warn }: { label: string; value: string; icon?: typeof Clock; accent?: boolean; warn?: boolean }) {

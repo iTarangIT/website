@@ -40,11 +40,11 @@ const NAV: Record<PortalRole, NavItem[]> = {
   ],
   itarang: [
     { label: "Ecosystem Overview", href: "/itarang", icon: LayoutDashboard },
-    { label: "Partner Network", href: "/itarang/network", icon: UserPlus, disabled: true },
+    { label: "Partner Network", href: "/itarang/network", icon: UserPlus },
     { label: "NBFC Portfolio", href: "/itarang/monitoring", icon: BarChart3, disabled: true },
     { label: "Auction Control", href: "/itarang/auction", icon: Gavel },
-    { label: "Inventory", href: "/itarang/inventory", icon: Package, disabled: true },
-    { label: "Alerts Config", href: "/itarang/alerts", icon: Bell, disabled: true },
+    { label: "Inventory", href: "/itarang/inventory", icon: Package },
+    { label: "Alerts Config", href: "/itarang/alerts", icon: Bell },
     { label: "Risk Rule Engine", href: "/itarang/risk-engine", icon: SlidersHorizontal },
     { label: "Audit Log", href: "/itarang/audit", icon: ScrollText },
   ],
@@ -111,7 +111,7 @@ export default function Sidebar({ role }: SidebarProps) {
           })}
         </nav>
       </div>
-      <div className="mt-auto p-4 border-t border-white/10 space-y-1">
+      <div className="mt-auto p-4 border-t border-white/10 space-y-1" role="status" aria-live="polite">
         <p className="text-[10px] text-gray-600 leading-relaxed">Last data sync: Today, 6:00 AM IST</p>
         <p className="text-[10px] text-accent-green leading-relaxed flex items-center gap-1">
           <span className="h-1.5 w-1.5 rounded-full bg-accent-green animate-pulse" />

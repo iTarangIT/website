@@ -4,9 +4,11 @@ import { Lightbulb } from "lucide-react";
 import InsightCards from "@/components/portal/nbfc/risk/InsightCards";
 import CohortTable from "@/components/portal/nbfc/risk/CohortTable";
 import RiskDistributionDonut from "@/components/portal/nbfc/risk/RiskDistributionDonut";
+import HeroPersonasSection from "@/components/portal/nbfc/risk/HeroPersonasSection";
 import { preDisbursementRecs } from "@/data/portal/insights";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
 import ConfidenceBadge from "@/components/portal/shared/ConfidenceBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 
 export default function RiskIntelligencePage() {
   return (
@@ -31,6 +33,8 @@ export default function RiskIntelligencePage() {
         </h4>
         <InsightCards />
       </section>
+
+      <HeroPersonasSection />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
@@ -64,9 +68,11 @@ export default function RiskIntelligencePage() {
         </ul>
       </section>
 
-      <p className="text-[10px] text-gray-500 border-t border-white/10 pt-4">
-        Why we use this data: portfolio-level risk modelling per NBFC underwriting purpose. No individual borrower PII shown on this page. RBI DL Directions 2025 compliant.
+      <p className="text-[10px] text-gray-500 leading-relaxed">
+        Why we use this data: portfolio-level risk modelling per NBFC underwriting purpose. No individual borrower PII shown on this page.
       </p>
+
+      <RegulatoryFooter />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { auctionLots } from "@/data/portal/auction";
 import LotAdminControls from "@/components/portal/itarang/auction/LotAdminControls";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 
 export default function AuctionControlPage() {
   const liveLots = auctionLots.filter((l) => l.status !== "settled");
@@ -23,9 +24,11 @@ export default function AuctionControlPage() {
         ))}
       </div>
 
-      <p className="text-[10px] text-gray-500 border-t border-white/10 pt-4">
+      <p className="text-[10px] text-gray-500 leading-relaxed">
         Admin privileged actions are role-restricted and logged to the shared audit trail visible to both NBFC and Admin roles.
       </p>
+
+      <RegulatoryFooter />
     </div>
   );
 }

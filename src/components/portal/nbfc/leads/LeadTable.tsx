@@ -57,14 +57,14 @@ export default function LeadTable() {
           <caption className="sr-only">50 representative leads sorted by intent score.</caption>
           <thead className="bg-black/40 text-gray-500 sticky top-0">
             <tr>
-              <th scope="col" className="text-left px-4 py-2 font-semibold">Name</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Business</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Location</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Intent</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Status</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Next action</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Source</th>
-              <th scope="col" className="text-left px-3 py-2 font-semibold">Last contact</th>
+              <th scope="col" aria-sort="none" className="text-left px-4 py-2 font-semibold">Name</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2 font-semibold">Business</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2 font-semibold">Location</th>
+              <th scope="col" aria-sort="descending" className="text-left px-3 py-2 font-semibold">Intent</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2 font-semibold">Status</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2 font-semibold">Next action</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2 font-semibold">Source</th>
+              <th scope="col" aria-sort="none" className="text-left px-3 py-2 font-semibold">Last contact</th>
               <th scope="col" className="text-right px-4 py-2 font-semibold"></th>
             </tr>
           </thead>

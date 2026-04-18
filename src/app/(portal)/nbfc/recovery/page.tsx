@@ -2,6 +2,7 @@
 
 import { useExecutiveMode } from "@/components/portal/shared/ExecutiveSummaryToggle";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
+import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 import RecoveryPipelineStrip from "@/components/portal/nbfc/recovery/RecoveryPipelineStrip";
 import EvaluationForm from "@/components/portal/nbfc/recovery/EvaluationForm";
 import AuctionMarketplace from "@/components/portal/nbfc/recovery/AuctionMarketplace";
@@ -36,9 +37,11 @@ export default function RecoveryPage() {
 
       {!executiveMode && <BuybackRequests />}
 
-      <p className="text-[10px] text-gray-500 border-t border-white/10 pt-4">
-        Recovery workflows comply with RBI Digital Lending Directions 2025. Every auction action + bid is logged to the audit trail.
+      <p className="text-[10px] text-gray-500 leading-relaxed">
+        Every auction action and bid is logged to the shared audit trail.
       </p>
+
+      <RegulatoryFooter />
     </div>
   );
 }
