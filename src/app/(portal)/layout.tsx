@@ -4,10 +4,10 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useRole, type PortalRole } from "@/lib/session";
 import PortalShell from "@/components/portal/PortalShell";
+import { ExecutiveSummaryProvider } from "@/components/portal/shared/ExecutiveSummaryToggle";
 
 const PATH_ROLE: { prefix: string; role: PortalRole }[] = [
   { prefix: "/nbfc", role: "nbfc" },
-  { prefix: "/dealer", role: "dealer" },
   { prefix: "/itarang", role: "itarang" },
 ];
 
@@ -41,5 +41,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     );
   }
 
-  return <PortalShell role={role}>{children}</PortalShell>;
+  return (
+    <ExecutiveSummaryProvider>
+      <PortalShell role={role}>{children}</PortalShell>
+    </ExecutiveSummaryProvider>
+  );
 }
