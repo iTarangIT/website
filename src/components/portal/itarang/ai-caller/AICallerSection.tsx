@@ -6,14 +6,18 @@ import AICallerSettings from "./AICallerSettings";
 import AddLeadForm, { type NewLeadPayload } from "./AddLeadForm";
 import LeadRow, { type AICallerLead } from "./LeadRow";
 import CallDialog, { type CallDialogLead } from "./CallDialog";
-import { readElevenLabsSettings, subscribeToElevenLabsSettings } from "@/lib/elevenlabs";
+import {
+  readElevenLabsSettings,
+  readElevenLabsServerSnapshot,
+  subscribeToElevenLabsSettings,
+} from "@/lib/elevenlabs";
 
 export default function AICallerSection() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settings = useSyncExternalStore(
     subscribeToElevenLabsSettings,
     readElevenLabsSettings,
-    () => ({ agentId: "", phoneNumberId: "", fromName: "", provider: "sip-trunk" as const }),
+    readElevenLabsServerSnapshot,
   );
   const configured = Boolean(settings.agentId && settings.phoneNumberId);
   const [leads, setLeads] = useState<AICallerLead[]>([]);

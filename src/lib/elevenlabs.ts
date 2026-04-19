@@ -95,23 +95,41 @@ export interface ElevenLabsSettings {
   provider: "sip-trunk" | "twilio";
 }
 
-const EMPTY_SETTINGS: ElevenLabsSettings = {
+const EMPTY_SETTINGS: ElevenLabsSettings = Object.freeze({
   agentId: "",
   phoneNumberId: "",
   fromName: "",
   provider: "sip-trunk",
-};
+}) as ElevenLabsSettings;
 
 const SETTINGS_EVENT = "itarang:elevenlabs-settings-updated";
 
+// Cache the snapshot so useSyncExternalStore gets a stable reference when values haven't changed.
+// Without this, every render returns a new object and React enters an infinite re-render loop.
+let cachedSnapshot: ElevenLabsSettings = EMPTY_SETTINGS;
+
 export function readElevenLabsSettings(): ElevenLabsSettings {
   if (typeof window === "undefined") return EMPTY_SETTINGS;
-  return {
+  const next: ElevenLabsSettings = {
     agentId: localStorage.getItem(EL_KEYS.agentId) ?? "",
     phoneNumberId: localStorage.getItem(EL_KEYS.phoneNumberId) ?? "",
     fromName: localStorage.getItem(EL_KEYS.fromName) ?? "",
     provider: (localStorage.getItem(EL_KEYS.provider) as "sip-trunk" | "twilio" | null) ?? "sip-trunk",
   };
+  if (
+    cachedSnapshot.agentId === next.agentId &&
+    cachedSnapshot.phoneNumberId === next.phoneNumberId &&
+    cachedSnapshot.fromName === next.fromName &&
+    cachedSnapshot.provider === next.provider
+  ) {
+    return cachedSnapshot;
+  }
+  cachedSnapshot = next;
+  return next;
+}
+
+export function readElevenLabsServerSnapshot(): ElevenLabsSettings {
+  return EMPTY_SETTINGS;
 }
 
 export function writeElevenLabsSettings(s: ElevenLabsSettings): void {
