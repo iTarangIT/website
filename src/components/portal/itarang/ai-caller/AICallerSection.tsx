@@ -51,9 +51,9 @@ export default function AICallerSection() {
     setLeads((prev) => prev.map((l) => (l.id === lead.id ? { ...l, status: "calling" } : l)));
   };
 
-  const closeCall = (finalStatus?: "connecting" | "in-progress" | "ended" | "failed") => {
+  const closeCall = (finalStatus?: "connecting" | "in-progress" | "finalize" | "ended" | "ended-short" | "failed") => {
     const mapped: AICallerLead["status"] =
-      finalStatus === "failed" ? "failed" : finalStatus === "ended" ? "ended" : "ended";
+      finalStatus === "failed" ? "failed" : "ended";
     if (activeLead) {
       setLeads((prev) => prev.map((l) => (l.id === activeLead.id ? { ...l, status: mapped } : l)));
     }

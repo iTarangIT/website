@@ -25,6 +25,9 @@ export type ElevenLabsCallStatus =
 export interface ElevenLabsConversation {
   conversationId: string;
   status: ElevenLabsCallStatus;
+  rawStatus?: string;
+  callSuccessful?: boolean | null;
+  terminationReason?: string;
   transcript: ElevenLabsTranscriptTurn[];
   durationSec?: number;
   recordingUrl?: string;

@@ -35,7 +35,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: data?.message || `HTTP ${res.status}`, raw: data }, { status: res.status });
   }
 
-  const rawStatus: string = data.status ?? "unknown";
+  const rawStatus: string = typeof data.status === "string" ? data.status : "unknown";
   const status =
     rawStatus === "initiated" || rawStatus === "in-progress" || rawStatus === "in_progress"
       ? "in-progress"
@@ -63,11 +63,50 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     }))
     .filter((t) => t.message.length > 0);
 
+  const durationSec: number | undefined =
+    data.metadata?.call_duration_secs ??
+    data.metadata?.duration_secs ??
+    data.metadata?.call_duration_seconds ??
+    undefined;
+
+  const recordingUrl: string | undefined =
+    data.metadata?.recording_url ??
+    data.recording_url ??
+    undefined;
+
+  // Termination reason — ElevenLabs places this under several possible fields depending on
+  // the conversation phase. Check them in order.
+  const terminationReason: string | undefined =
+    data.metadata?.termination_reason ??
+    data.metadata?.call_summary_title ??
+    data.analysis?.termination_reason ??
+    data.analysis?.call_summary ??
+    undefined;
+
+  // `call_successful` — ElevenLabs reports this boolean (sometimes a string like "success" / "failed")
+  // once post-call analysis completes.
+  const rawCallSuccessful = data.call_successful ?? data.analysis?.call_successful;
+  let callSuccessful: boolean | null;
+  if (typeof rawCallSuccessful === "boolean") {
+    callSuccessful = rawCallSuccessful;
+  } else if (typeof rawCallSuccessful === "string") {
+    callSuccessful = rawCallSuccessful.toLowerCase() === "success" || rawCallSuccessful.toLowerCase() === "true";
+  } else {
+    // Fallback heuristic: at least one transcript turn + 5s of duration counts as a real conversation
+    callSuccessful =
+      transcript.length >= 1 && (typeof durationSec === "number" ? durationSec >= 5 : false)
+        ? true
+        : null;
+  }
+
   return NextResponse.json({
     conversationId: id,
     status,
+    rawStatus,
+    callSuccessful,
+    terminationReason: typeof terminationReason === "string" ? terminationReason : undefined,
     transcript,
-    durationSec: data.metadata?.call_duration_secs ?? data.metadata?.duration_secs,
-    recordingUrl: data.metadata?.recording_url ?? data.recording_url,
+    durationSec,
+    recordingUrl,
   });
 }
