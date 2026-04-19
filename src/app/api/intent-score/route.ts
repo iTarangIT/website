@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// POST /api/intent-score — runs OpenAI gpt-5.1-mini (configurable) over the current
-// transcript + previous call history and returns a structured intent score.
+// POST /api/intent-score — runs OpenAI (configurable model) over the current transcript
+// + previous call history and returns a structured intent score.
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL = process.env.OPENAI_INTENT_MODEL ?? "gpt-5.1-mini";
+// Default to a model that's widely available on standard OpenAI accounts and supports
+// json_schema structured outputs. Override via OPENAI_INTENT_MODEL env var — e.g. set it
+// to `gpt-4.1-mini`, `gpt-5-mini`, `gpt-5.1-mini` once your account has access.
+const DEFAULT_MODEL = process.env.OPENAI_INTENT_MODEL ?? "gpt-4o-mini";
 
 interface TranscriptTurn {
   role: "agent" | "user";
