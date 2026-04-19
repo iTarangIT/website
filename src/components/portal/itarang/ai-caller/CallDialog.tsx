@@ -99,9 +99,10 @@ export default function CallDialog({ lead, onClose }: Props) {
       setTerminationReason(null);
       finalizeCountRef.current = 0;
 
-      const initialMessage = lead.pitchOverride
-        ? lead.pitchOverride
-        : `Namaste ${lead.name}, this is ${settings.fromName || "iTarang AI"}. I'm calling about iTarang's lithium-battery financing options for ${lead.businessType.toLowerCase()}s in ${lead.city}. Do you have two minutes?`;
+      // Only override the opener when the user explicitly wrote a pitch override for this
+      // lead. Otherwise let the agent's own first_message (configured in the ElevenLabs
+      // dashboard) fire — that keeps language, tone and voice decisions where they belong.
+      const initialMessage = lead.pitchOverride?.trim() || undefined;
 
       const result = await startCall({
         agentId: settings.agentId,
