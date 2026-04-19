@@ -63,22 +63,53 @@ function dispatch() {
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
-function readAll(): Record<string, LeadRecord> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") return parsed as Record<string, LeadRecord>;
-    return {};
-  } catch {
-    return {};
+// Cached snapshots for useSyncExternalStore consumers.
+// Without caching, every read creates a fresh object/array reference, which makes React
+// think the external state changed on every render → infinite re-render → tab crash.
+const EMPTY_LIST: LeadRecord[] = Object.freeze([]) as unknown as LeadRecord[];
+let cachedRaw: string | null = null;
+let cachedMap: Record<string, LeadRecord> = {};
+let cachedList: LeadRecord[] = EMPTY_LIST;
+
+function refreshCache(): void {
+  if (typeof window === "undefined") {
+    cachedRaw = "";
+    cachedMap = {};
+    cachedList = EMPTY_LIST;
+    return;
   }
+  const raw = window.localStorage.getItem(STORAGE_KEY) ?? "";
+  if (raw === cachedRaw) return;
+  cachedRaw = raw;
+  try {
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === "object") {
+      cachedMap = parsed as Record<string, LeadRecord>;
+      cachedList = Object.values(cachedMap).sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+    } else {
+      cachedMap = {};
+      cachedList = EMPTY_LIST;
+    }
+  } catch {
+    cachedMap = {};
+    cachedList = EMPTY_LIST;
+  }
+}
+
+function readAll(): Record<string, LeadRecord> {
+  refreshCache();
+  return cachedMap;
 }
 
 function writeAll(data: Record<string, LeadRecord>): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  const serialized = JSON.stringify(data);
+  window.localStorage.setItem(STORAGE_KEY, serialized);
+  // Update the cache directly so consumers see the new reference immediately on the next
+  // useSyncExternalStore snapshot read.
+  cachedRaw = serialized;
+  cachedMap = data;
+  cachedList = Object.values(data).sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
   dispatch();
 }
 
@@ -88,7 +119,8 @@ export function getLeadByPhone(phone: string): LeadRecord | null {
 }
 
 export function listLeads(): LeadRecord[] {
-  return Object.values(readAll()).sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+  refreshCache();
+  return cachedList;
 }
 
 export function upsertLead(input: Omit<LeadRecord, "calls" | "firstSeenAt" | "lastUpdatedAt">): LeadRecord {
