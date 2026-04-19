@@ -39,6 +39,15 @@ export const riskInsights: Insight[] = [
     secondaryAction: { label: "View accounts", href: "/nbfc/batteries?filter=idle-2d" },
   },
   {
+    id: "ins-5",
+    severity: "critical",
+    headline: "Geo variation — 8 batteries outside serviceable radius",
+    body: "Four of these have been absconding for 7+ days. Average distance from onboarding pin is 164 km. Recommend field visit before immobilization.",
+    accountsAffected: 8,
+    primaryAction: { label: "View accounts", href: "/nbfc/batteries?filter=geo-shift" },
+    secondaryAction: { label: "Trigger field visit" },
+  },
+  {
     id: "ins-4",
     severity: "positive",
     headline: "Patna region shows improvement",

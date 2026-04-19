@@ -17,6 +17,11 @@ export interface BatteryRow {
   cds: number;
   pci: number;
   riskLevel: "low" | "medium" | "high" | "very-high";
+  // Telemetry-derived signals (lifted from driver for client-side filtering)
+  imbalanceEvents7d: number;
+  offlineHours7d: number;
+  geoShiftFlag: boolean;
+  idleDays7d: number;
   // Extended from driver
   driverId: string;
   outstanding: number;
@@ -114,6 +119,10 @@ export const batteryRows: BatteryRow[] = portalDrivers.map((d: Driver, i: number
     cds: d.risk.cdsScore,
     pci: d.risk.pci,
     riskLevel: bandToRiskLevel(d.risk.cdsScore),
+    imbalanceEvents7d: d.imbalanceEvents7d,
+    offlineHours7d: d.offlineHours7d,
+    geoShiftFlag: d.risk.geoShiftFlag,
+    idleDays7d: d.risk.idleDays7d,
     driverId: d.id,
     outstanding: d.loan.outstanding,
     loanId: makeLoanId(i),
@@ -140,6 +149,10 @@ export const edgeCaseRows: BatteryRow[] = [
     cds: 0,
     pci: 0.5,
     riskLevel: "low",
+    imbalanceEvents7d: 0,
+    offlineHours7d: 0.5,
+    geoShiftFlag: false,
+    idleDays7d: 0,
     driverId: "drv-edge-1",
     outstanding: 45000,
     loanId: "LN-2025-00011",
@@ -159,6 +172,10 @@ export const edgeCaseRows: BatteryRow[] = [
     cds: 34,
     pci: 0.78,
     riskLevel: "medium",
+    imbalanceEvents7d: 1,
+    offlineHours7d: 1.2,
+    geoShiftFlag: false,
+    idleDays7d: 0,
     driverId: "drv-edge-2",
     outstanding: 32000,
     loanId: "LN-2024-01234",
@@ -178,6 +195,10 @@ export const edgeCaseRows: BatteryRow[] = [
     cds: 58,
     pci: 0.54,
     riskLevel: "high",
+    imbalanceEvents7d: 3,
+    offlineHours7d: 18.4,
+    geoShiftFlag: true,
+    idleDays7d: 2,
     driverId: "drv-edge-3",
     outstanding: 18000,
     loanId: "LN-2024-00876",
@@ -197,6 +218,10 @@ export const edgeCaseRows: BatteryRow[] = [
     cds: 78,
     pci: 0.31,
     riskLevel: "very-high",
+    imbalanceEvents7d: 6,
+    offlineHours7d: 92,
+    geoShiftFlag: true,
+    idleDays7d: 5,
     driverId: "drv-edge-4",
     outstanding: 12000,
     loanId: "LN-2024-00544",

@@ -5,6 +5,7 @@ import KPIHeroCard from "@/components/portal/shared/KPIHeroCard";
 import DataFreshnessBadge from "@/components/portal/shared/DataFreshnessBadge";
 import RegulatoryFooter from "@/components/portal/shared/RegulatoryFooter";
 import NarrativeTile from "@/components/portal/shared/NarrativeTile";
+import AICallerSection from "@/components/portal/itarang/ai-caller/AICallerSection";
 import {
   networkKPIs,
   regionalDialerPerformance,
@@ -177,6 +178,8 @@ export default function PartnerNetworkPage() {
           "CPA of ₹180 is 57% below the ₹420 industry average; the delta is driven by telemetry pre-qualification.",
         ]}
       />
+
+      <AICallerSection />
 
       <RegulatoryFooter />
     </div>

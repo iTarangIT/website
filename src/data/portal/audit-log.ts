@@ -17,7 +17,8 @@ export type AuditActionType =
   | "data-export"
   | "pii-access"
   | "consent-withdraw"
-  | "bid-placed";
+  | "bid-placed"
+  | "ai-call-placed";
 
 export type AuditStatus = "completed" | "pending-approval" | "rejected";
 

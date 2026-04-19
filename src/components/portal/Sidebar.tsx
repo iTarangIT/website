@@ -31,7 +31,6 @@ interface NavItem {
 const NAV: Record<PortalRole, NavItem[]> = {
   nbfc: [
     { label: "Overview", href: "/nbfc", icon: LayoutDashboard },
-    { label: "Lead Intelligence", href: "/nbfc/leads", icon: Megaphone },
     { label: "Risk Intelligence", href: "/nbfc/risk", icon: Brain },
     { label: "Battery Monitoring", href: "/nbfc/batteries", icon: Battery },
     { label: "Recovery & Auction", href: "/nbfc/recovery", icon: Recycle },

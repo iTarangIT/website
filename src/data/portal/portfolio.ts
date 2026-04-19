@@ -28,9 +28,9 @@ export const threeActStrip = [
     act: "acquire" as const,
     icon: "🎯",
     title: "Acquire",
-    headline: "500 dealers converted",
-    metric: "2.8% conversion rate",
-    href: "/nbfc/leads",
+    headline: "Pre-disbursement underwriting",
+    metric: "+150 bps on high-risk clusters",
+    href: "/nbfc/risk",
   },
   {
     act: "monitor" as const,
