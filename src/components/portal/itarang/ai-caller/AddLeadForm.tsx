@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Input from "@/components/ui/Input";
-import { Plus, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { cities as cityList } from "@/data/cities";
+import { getLeadByPhone, summarizeHistory } from "@/lib/lead-store";
 
 const LANGUAGES = ["Hindi", "English", "Hinglish", "Bengali", "Tamil", "Telugu", "Marathi"];
 
@@ -58,6 +59,38 @@ export default function AddLeadForm({ onAdd }: Props) {
 
   const [error, setError] = useState<string | null>(null);
 
+  // When the phone matches an already-stored lead, auto-populate the rest of the fields
+  // from history so the agent gets the right context on the next dial.
+  const normalizedPhone = useMemo(() => normalizePhone(phone), [phone]);
+  const existingLead = useMemo(() => (normalizedPhone ? getLeadByPhone(normalizedPhone) : null), [normalizedPhone]);
+  const historySummary = useMemo(() => (existingLead ? summarizeHistory(existingLead) : null), [existingLead]);
+
+  // Syncing form state to the localStorage-backed lead store is exactly what useEffect is
+  // for. The React-19 lint rule that warns about setState-in-effect is a false positive
+  // for external-store sync patterns like this.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!existingLead) return;
+    // Only pre-fill fields the user hasn't touched yet, to avoid stomping on in-progress edits.
+    setName((n) => (n.trim() === "" ? existingLead.name : n));
+    setShopName((s) => (s.trim() === "" ? existingLead.shopName : s));
+    setCity((c) => (c === cityList[0]?.name ? existingLead.city || c : c));
+    setLanguage((l) => (l === "Hindi" ? existingLead.language || l : l));
+    setInterest((i) => (i === "Batteries" ? existingLead.interest || i : i));
+    setStatus((s) => (s === "new" ? existingLead.callStatus || s : s));
+    setPersistentMemory((p) => (p === "" ? existingLead.persistentMemory || p : p));
+    if (historySummary) {
+      setTotalAttempts(String(historySummary.totalAttempts + 1));
+      setIsFollowupBool(historySummary.isFollowup);
+      if (historySummary.lastCallSummary) {
+        setLastCallMemory((m) =>
+          m === "First call — no prior interaction" ? historySummary.lastCallSummary! : m,
+        );
+      }
+    }
+  }, [existingLead, historySummary]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -92,6 +125,31 @@ export default function AddLeadForm({ onAdd }: Props) {
   return (
     <form onSubmit={submit} className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-3">
       <p className="text-xs font-semibold text-gray-200">Add a lead to dial</p>
+
+      {existingLead && historySummary && (
+        <div
+          role="status"
+          className="rounded-lg bg-brand-500/10 border border-brand-500/30 px-3 py-2 flex items-start gap-2 text-[11px] text-brand-100"
+        >
+          <History className="h-3.5 w-3.5 mt-0.5 shrink-0 text-brand-200" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              Previous history found · {historySummary.totalAttempts} call
+              {historySummary.totalAttempts === 1 ? "" : "s"}
+              {historySummary.latestScore ? ` · last intent score ${historySummary.latestScore.overall}` : ""}
+            </p>
+            <p className="text-[10px] text-brand-200/80 mt-0.5">
+              Fields pre-filled from history. total_attempts bumped to {historySummary.totalAttempts + 1}, is_followup = 1. The agent
+              gets a proper follow-up brief via dynamic variables.
+            </p>
+            {historySummary.lastCallSummary && (
+              <p className="text-[10px] text-brand-200/70 italic mt-1 line-clamp-2">
+                Last call: {historySummary.lastCallSummary}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Customer name *">

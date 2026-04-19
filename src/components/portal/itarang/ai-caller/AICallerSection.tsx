@@ -11,6 +11,15 @@ import {
   readElevenLabsServerSnapshot,
   subscribeToElevenLabsSettings,
 } from "@/lib/elevenlabs";
+import {
+  upsertLead,
+  subscribeToLeads,
+  listLeads,
+  summarizeHistory,
+  type LeadRecord,
+} from "@/lib/lead-store";
+
+const EMPTY_LEADS: LeadRecord[] = [];
 
 export default function AICallerSection() {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -20,13 +29,38 @@ export default function AICallerSection() {
     readElevenLabsServerSnapshot,
   );
   const configured = Boolean(settings.agentId && settings.phoneNumberId);
+
+  // Persistent leads (localStorage). Subscribed via useSyncExternalStore so any call
+  // appending to history re-renders the list (and the score badges).
+  const stored = useSyncExternalStore(subscribeToLeads, listLeads, () => EMPTY_LEADS);
+
+  // In-session queue for the current add/dial loop.
   const [leads, setLeads] = useState<AICallerLead[]>([]);
   const [activeLead, setActiveLead] = useState<CallDialogLead | null>(null);
 
   const addLead = (payload: NewLeadPayload) => {
+    const leadId = `lead-${Date.now()}`;
+
+    // Persist to the store (upsert by phone).
+    upsertLead({
+      phone: payload.phone,
+      name: payload.name,
+      shopName: payload.shopName,
+      city: payload.city,
+      language: payload.language,
+      interest: payload.interest,
+      callStatus: payload.status,
+      totalAttempts: payload.totalAttempts,
+      isFollowup: payload.isFollowup,
+      lastCallMemory: payload.lastCallMemory,
+      persistentMemory: payload.persistentMemory,
+      firstMessage: payload.firstMessage,
+      pitchOverride: payload.pitchOverride,
+    });
+
     setLeads((prev) => [
       {
-        id: `lead-${Date.now()}`,
+        id: leadId,
         name: payload.name,
         phone: payload.phone,
         shopName: payload.shopName,
@@ -71,14 +105,27 @@ export default function AICallerSection() {
     setLeads((prev) => prev.map((l) => (l.id === lead.id ? { ...l, status: "calling" } : l)));
   };
 
-  const closeCall = (finalStatus?: "connecting" | "in-progress" | "finalize" | "ended" | "ended-short" | "failed") => {
-    const mapped: AICallerLead["status"] =
-      finalStatus === "failed" ? "failed" : "ended";
+  const closeCall = (
+    finalStatus?: "connecting" | "in-progress" | "finalize" | "ended" | "ended-short" | "failed",
+  ) => {
+    const mapped: AICallerLead["status"] = finalStatus === "failed" ? "failed" : "ended";
     if (activeLead) {
       setLeads((prev) => prev.map((l) => (l.id === activeLead.id ? { ...l, status: mapped } : l)));
     }
     setActiveLead(null);
   };
+
+  // Decorate in-session rows with history from the persistent store.
+  const decorated = leads.map((l) => {
+    const record = stored.find((r) => r.phone === l.phone);
+    if (!record) return l;
+    const summary = summarizeHistory(record);
+    return {
+      ...l,
+      totalCallsInStore: summary.totalAttempts,
+      latestScore: summary.latestScore ?? null,
+    };
+  });
 
   return (
     <section id="ai-caller" className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
@@ -89,7 +136,7 @@ export default function AICallerSection() {
             AI caller · live demo
           </h4>
           <p className="text-[11px] text-gray-500 mt-0.5">
-            Add a lead and dial it in real time through your ElevenLabs agent. Transcript streams into the dialog.
+            Add a lead and dial it in real time through your ElevenLabs agent. Transcript streams into the dialog, then GPT scores the call.
           </p>
         </div>
         <button
@@ -109,8 +156,8 @@ export default function AICallerSection() {
             <div className="min-w-0">
               <p className="font-semibold">Connect your ElevenLabs agent</p>
               <p className="text-[10px] text-accent-amber/80 mt-0.5 leading-relaxed">
-                Set <span className="font-mono">ELEVENLABS_API_KEY</span> on the server, then click <strong>Agent settings</strong> to paste
-                your agent ID + phone-number ID. Use the SIP trunk option for Vobiz-routed numbers.
+                Set <span className="font-mono">ELEVENLABS_API_KEY</span> and <span className="font-mono">OPENAI_API_KEY</span> on the server, then click
+                <strong> Agent settings</strong> to paste your agent ID + phone-number ID.
               </p>
             </div>
           </div>
@@ -118,14 +165,14 @@ export default function AICallerSection() {
 
         <AddLeadForm onAdd={addLead} />
 
-        {leads.length > 0 ? (
+        {decorated.length > 0 ? (
           <div className="space-y-2">
             <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">In-session leads</p>
-            {leads.map((lead) => (
+            {decorated.map((lead) => (
               <LeadRow key={lead.id} lead={lead} onCall={() => startCall(lead)} />
             ))}
             <p className="text-[10px] text-gray-500 italic pt-1">
-              Lead list resets on page reload — this is a live demo workspace, not a CRM.
+              Lead list resets on page reload. Call history &amp; intent scores persist across reloads (localStorage).
             </p>
           </div>
         ) : (

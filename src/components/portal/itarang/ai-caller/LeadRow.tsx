@@ -1,7 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Phone, User, MapPin } from "lucide-react";
+import { Phone, User, MapPin, Sparkles } from "lucide-react";
+import type { IntentScore } from "@/lib/lead-store";
 
 export type AICallerLeadStatus = "queued" | "calling" | "ended" | "failed";
 
@@ -26,6 +27,9 @@ export interface AICallerLead {
   // UI-only status
   status: AICallerLeadStatus;
   addedAt: number;
+  // History annotation (pulled from lead-store)
+  totalCallsInStore?: number;
+  latestScore?: IntentScore | null;
 }
 
 const STATUS_STYLES: Record<AICallerLeadStatus, string> = {
@@ -34,6 +38,12 @@ const STATUS_STYLES: Record<AICallerLeadStatus, string> = {
   ended: "bg-accent-green/15 text-accent-green border-accent-green/30",
   failed: "bg-red-500/15 text-red-300 border-red-500/30",
 };
+
+function scoreBadge(n: number): string {
+  if (n >= 70) return "bg-accent-green/20 text-accent-green border-accent-green/40";
+  if (n >= 40) return "bg-accent-amber/20 text-accent-amber border-accent-amber/40";
+  return "bg-red-500/20 text-red-300 border-red-500/40";
+}
 
 interface Props {
   lead: AICallerLead;
@@ -61,7 +71,33 @@ export default function LeadRow({ lead, onCall }: Props) {
           {lead.language} · {lead.interest}
         </p>
       </div>
-      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider", STATUS_STYLES[lead.status])}>
+      {typeof lead.totalCallsInStore === "number" && lead.totalCallsInStore > 0 && (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border bg-white/5 border-white/10 text-[10px] font-semibold text-gray-300"
+          title={`${lead.totalCallsInStore} historical call(s) stored for this phone`}
+        >
+          <Phone className="h-2.5 w-2.5" />
+          {lead.totalCallsInStore}
+        </span>
+      )}
+      {lead.latestScore && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider",
+            scoreBadge(lead.latestScore.overall),
+          )}
+          title={lead.latestScore.rationale}
+        >
+          <Sparkles className="h-2.5 w-2.5" />
+          {lead.latestScore.overall}
+        </span>
+      )}
+      <span
+        className={cn(
+          "inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider",
+          STATUS_STYLES[lead.status],
+        )}
+      >
         {lead.status}
       </span>
       <button

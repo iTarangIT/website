@@ -11,6 +11,7 @@ import {
 import { Phone, PhoneOff, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import TranscriptStream from "./TranscriptStream";
+import IntentScorePanel from "./IntentScorePanel";
 import {
   startCall,
   pollConversation,
@@ -19,6 +20,13 @@ import {
   type ElevenLabsTranscriptTurn,
 } from "@/lib/elevenlabs";
 import { appendAuditEntry } from "@/lib/audit-store";
+import {
+  appendCall,
+  getLeadByPhone,
+  updateCallScore,
+  type IntentScore,
+} from "@/lib/lead-store";
+import { scoreCall } from "@/lib/intent-score";
 
 export interface CallDialogLead {
   id: string;
@@ -80,12 +88,51 @@ export default function CallDialog({ lead, onClose }: Props) {
   const [callSid, setCallSid] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState(0);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [intentStatus, setIntentStatus] = useState<"idle" | "scoring" | "done" | "error">("idle");
+  const [intentScore, setIntentScore] = useState<IntentScore | null>(null);
+  const [intentError, setIntentError] = useState<string | null>(null);
   const [rawStatus, setRawStatus] = useState<string | null>(null);
   const [terminationReason, setTerminationReason] = useState<string | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const finalizeCountRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const runIntentScoring = async (phone: string, convoId: string) => {
+    setIntentStatus("scoring");
+    setIntentError(null);
+    // Pull the freshly-persisted lead + call record so the scorer sees full history.
+    const storedLead = getLeadByPhone(phone);
+    const call = storedLead?.calls.find((c) => c.conversationId === convoId);
+    if (!storedLead || !call) {
+      setIntentStatus("error");
+      setIntentError("Could not load the call record from the store.");
+      return;
+    }
+
+    const result = await scoreCall({ lead: storedLead, currentCall: call });
+    if (!result.ok || !result.score) {
+      setIntentStatus("error");
+      setIntentError(result.error ?? "Unknown scoring error");
+      return;
+    }
+
+    updateCallScore(phone, convoId, result.score);
+    setIntentScore(result.score);
+    setIntentStatus("done");
+
+    // Log the score to the audit trail alongside the call itself.
+    appendAuditEntry({
+      actionType: "ai-call-placed",
+      actionLabel: `Intent score ${result.score.overall} · ${result.score.recommendedAction}`,
+      entity: phone,
+      reasonCode: "AI caller scoring",
+      requestedBy: "Rohit Jain (Platform Admin)",
+      approvedBy: null,
+      status: "completed",
+      details: result.score.rationale,
+    });
+  };
 
   // Kick off the call when the dialog opens with a lead.
   useEffect(() => {
@@ -105,6 +152,9 @@ export default function CallDialog({ lead, onClose }: Props) {
       setConversationId(null);
       setRawStatus(null);
       setTerminationReason(null);
+      setIntentStatus("idle");
+      setIntentScore(null);
+      setIntentError(null);
       finalizeCountRef.current = 0;
 
       // Only hard-override the agent's entire opener when the user explicitly wrote a
@@ -227,6 +277,27 @@ export default function CallDialog({ lead, onClose }: Props) {
 
       setDurationSec(finalDuration);
       setUiStatus(finalUi);
+
+      // Persist the call to the store + trigger intent scoring. We only score when a
+      // productive conversation actually happened — otherwise OpenAI would be burned on
+      // empty transcripts.
+      if (lead && conversationId) {
+        appendCall(lead.phone, {
+          conversationId,
+          startedAt: startedAtRef.current ?? Date.now(),
+          endedAt: Date.now(),
+          durationSec: finalDuration,
+          rawStatus: data.rawStatus ?? undefined,
+          terminationReason: data.terminationReason ?? undefined,
+          recordingUrl: data.recordingUrl ?? undefined,
+          transcript: data.transcript,
+        });
+
+        if (finalUi !== "failed" && turns >= 1 && finalDuration >= 5 && intentStatus === "idle") {
+          // Fire-and-forget — side effect below picks up the result.
+          runIntentScoring(lead.phone, conversationId);
+        }
+      }
     };
 
     tick();
@@ -316,6 +387,17 @@ export default function CallDialog({ lead, onClose }: Props) {
           )}
 
           <TranscriptStream transcript={transcript} />
+
+          <IntentScorePanel
+            status={intentStatus}
+            score={intentScore}
+            error={intentError}
+            onRetry={
+              conversationId
+                ? () => runIntentScoring(lead.phone, conversationId)
+                : undefined
+            }
+          />
 
           {recordingUrl && isSettled && (
             <a
