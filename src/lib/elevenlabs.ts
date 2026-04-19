@@ -39,6 +39,7 @@ export interface StartCallParams {
   toNumber: string;
   provider?: "sip-trunk" | "twilio";
   initialMessage?: string;
+  dynamicVariables?: Record<string, string>;
 }
 
 export async function startCall(params: StartCallParams): Promise<ElevenLabsCallResult> {

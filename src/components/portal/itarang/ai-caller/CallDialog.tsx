@@ -24,8 +24,16 @@ export interface CallDialogLead {
   id: string;
   name: string;
   phone: string;
+  shopName: string;
   city: string;
-  businessType: string;
+  language: string;
+  interest: string;
+  callStatus: string;
+  totalAttempts: string;
+  isFollowup: string;
+  lastCallMemory: string;
+  persistentMemory: string;
+  firstMessage: string;
   pitchOverride?: string;
 }
 
@@ -99,10 +107,29 @@ export default function CallDialog({ lead, onClose }: Props) {
       setTerminationReason(null);
       finalizeCountRef.current = 0;
 
-      // Only override the opener when the user explicitly wrote a pitch override for this
-      // lead. Otherwise let the agent's own first_message (configured in the ElevenLabs
-      // dashboard) fire — that keeps language, tone and voice decisions where they belong.
+      // Only hard-override the agent's entire opener when the user explicitly wrote a
+      // pitch override. Otherwise let the agent's own first_message (with {{placeholders}})
+      // fire, substituting the dynamic variables we send below.
       const initialMessage = lead.pitchOverride?.trim() || undefined;
+
+      // Dynamic variables — substituted into {{placeholders}} in the agent's prompts.
+      // Field names here must exactly match the variable names configured on the agent.
+      const dynamicVariables: Record<string, string> = {
+        lead_id: lead.id,
+        phone_number: lead.phone,
+        owner_name: lead.name,
+        customer_name: lead.name,
+        shop_name: lead.shopName,
+        location: lead.city,
+        language: lead.language,
+        interest: lead.interest,
+        status: lead.callStatus,
+        total_attempts: lead.totalAttempts,
+        is_followup: lead.isFollowup,
+        last_call_memory: lead.lastCallMemory,
+        persistent_memory: lead.persistentMemory,
+        first_message: lead.firstMessage,
+      };
 
       const result = await startCall({
         agentId: settings.agentId,
@@ -110,6 +137,7 @@ export default function CallDialog({ lead, onClose }: Props) {
         toNumber: lead.phone,
         provider: settings.provider,
         initialMessage,
+        dynamicVariables,
       });
 
       if (cancelled) return;
@@ -133,7 +161,7 @@ export default function CallDialog({ lead, onClose }: Props) {
         requestedBy: "Rohit Jain (Platform Admin)",
         approvedBy: null,
         status: "completed",
-        details: `Lead: ${lead.name} (${lead.businessType}, ${lead.city}) · conversation_id ${result.conversationId}`,
+        details: `Lead: ${lead.name}${lead.shopName ? ` (${lead.shopName})` : ""}, ${lead.city} · ${lead.language} · conversation_id ${result.conversationId}`,
       });
     })();
 
@@ -253,7 +281,7 @@ export default function CallDialog({ lead, onClose }: Props) {
             AI call · {lead.name}
           </DialogTitle>
           <DialogDescription className="text-gray-400 text-xs font-mono">
-            {lead.phone} · {lead.city} · {lead.businessType}
+            {lead.phone} · {lead.city} · {lead.language} · {lead.interest}
           </DialogDescription>
         </DialogHeader>
 

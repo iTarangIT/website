@@ -27,12 +27,30 @@ export async function POST(req: NextRequest) {
     agent_phone_number_id: body.phoneNumberId,
     to_number: body.toNumber,
   };
+
+  const clientData: Record<string, unknown> = {};
+
+  // Dynamic variables substitute into {{placeholders}} in your agent's prompt/first_message.
+  if (body.dynamicVariables && typeof body.dynamicVariables === "object") {
+    // Stringify every value — ElevenLabs expects strings.
+    const dv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(body.dynamicVariables as Record<string, unknown>)) {
+      if (v === null || v === undefined) continue;
+      dv[k] = String(v);
+    }
+    if (Object.keys(dv).length > 0) clientData.dynamic_variables = dv;
+  }
+
+  // Hard override of first_message — only used when the caller explicitly wants to replace
+  // the agent's configured opener for this one call.
   if (body.initialMessage) {
-    payload.conversation_initiation_client_data = {
-      conversation_config_override: {
-        agent: { first_message: body.initialMessage },
-      },
+    clientData.conversation_config_override = {
+      agent: { first_message: body.initialMessage },
     };
+  }
+
+  if (Object.keys(clientData).length > 0) {
+    payload.conversation_initiation_client_data = clientData;
   }
 
   let res: Response;
