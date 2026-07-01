@@ -7,7 +7,7 @@ export const siteConfig = {
   email: "founders@itarang.in",
   supportEmail: "care@itarang.com",
   phone: "+91-8076841497",
-  whatsapp: "+91-8920828425",
+  whatsapp: "+91-8796339460",
   address: "Unitech Business Zone, Sector 50, Gurugram, Haryana",
   hours: "Mon-Fri 9am-6pm",
   social: {

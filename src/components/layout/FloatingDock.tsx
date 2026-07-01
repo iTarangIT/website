@@ -14,7 +14,7 @@ const dockItems = [
   { icon: Handshake, label: "Partners", href: "/for-partners" },
   { icon: Users, label: "About", href: "/about" },
   { icon: Mail, label: "Contact", href: "/contact" },
-  { icon: MessageCircle, label: "WhatsApp", href: "https://wa.me/918920828425" },
+  { icon: MessageCircle, label: "WhatsApp", href: "https://wa.me/918796339460" },
 ];
 
 export default function FloatingDock() {

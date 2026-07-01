@@ -32,7 +32,7 @@ export default function LoginButton({ scrolled = true, fullWidth = false, varian
           )}
         >
           <LogIn className="h-4 w-4" />
-          Log in
+          Demo
         </button>
         <LoginModal open={open} onOpenChange={setOpen} />
       </>
@@ -51,7 +51,7 @@ export default function LoginButton({ scrolled = true, fullWidth = false, varian
         )}
       >
         <LogIn className="h-3.5 w-3.5" />
-        Log in
+        Demo
       </button>
       <LoginModal open={open} onOpenChange={setOpen} />
     </>

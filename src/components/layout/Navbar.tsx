@@ -271,6 +271,15 @@ export default function Navbar() {
                 )}>
                   Talk to Us
                 </Button>
+                <Button
+                  href="https://crm.itarang.com/login"
+                  size="sm"
+                  variant="primary"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Login
+                </Button>
               </div>
               <button
                 onClick={() => setMobileOpen(true)}
@@ -500,6 +509,17 @@ export default function Navbar() {
                     onClick={() => setMobileOpen(false)}
                   >
                     Talk to Us
+                  </Button>
+                  <Button
+                    href="https://crm.itarang.com/login"
+                    size="md"
+                    variant="primary"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full justify-center"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    Login
                   </Button>
                 </div>
               </div>
