@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import LifecycleJourney from "@/components/how-it-works/LifecycleJourney";
 import BatterySpecs from "@/components/how-it-works/BatterySpecs";
 import EMICalculator from "@/components/products/EMICalculator";
+import CalculatorGate from "@/components/products/CalculatorGate";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 import HowItWorksHero from "@/components/how-it-works/HowItWorksHero";
 import BatteryComparison from "@/components/how-it-works/BatteryComparison";
@@ -37,7 +38,9 @@ export default function HowItWorksPage() {
               </p>
             </div>
           </FadeInOnScroll>
-          <EMICalculator />
+          <CalculatorGate>
+            <EMICalculator />
+          </CalculatorGate>
         </div>
       </section>
     </>
