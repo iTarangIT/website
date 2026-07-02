@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
   let sessionId: string;
   let mock = false;
   if (isMockMode()) {
-    sessionId = "mock";
+    // Unique per send so the verify attempt counter resets on resend,
+    // mirroring how real 2Factor sessions behave.
+    sessionId = `mock-${crypto.randomUUID()}`;
     mock = true;
     console.info(`[otp] MOCK send to ${e164} — code ${DEV_OTP_CODE}`);
   } else {
