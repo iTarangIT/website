@@ -37,7 +37,7 @@ export default function Footer() {
             <div className="lg:col-span-1">
               <Link href="/" className="flex items-center mb-5">
                 <Image
-                  src="/images/logo-transparent.png"
+                  src="/images/logo-wordmark-light.png"
                   alt="iTarang"
                   width={120}
                   height={40}

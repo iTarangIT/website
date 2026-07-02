@@ -15,21 +15,21 @@ const testimonials = [
   {
     id: 1,
     name: "Rajesh Kumar",
-    avatar: "/images/placeholder-avatar.jpg",
+    avatar: "/images/placeholder-avatar.svg",
     description:
       "Switched from lead-acid to iTarang lithium. My daily earning went up because the battery lasts longer. EMI is easy to manage.",
   },
   {
     id: 2,
     name: "Sunil Sharma",
-    avatar: "/images/placeholder-avatar.jpg",
+    avatar: "/images/placeholder-avatar.svg",
     description:
       "As a dealer, iTarang handles the financing headache. I just sell the battery and they take care of the rest.",
   },
   {
     id: 3,
     name: "Priya Mehta",
-    avatar: "/images/placeholder-avatar.jpg",
+    avatar: "/images/placeholder-avatar.svg",
     description:
       "The IoT dashboard gives us real-time battery health data. This is exactly the visibility lenders need before approving EV battery loans.",
   },

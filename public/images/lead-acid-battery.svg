@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Lead-acid battery">
+  <defs>
+    <linearGradient id="bgLA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e5e7eb"/>
+      <stop offset="1" stop-color="#9ca3af"/>
+    </linearGradient>
+    <linearGradient id="bodyLA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b7280"/>
+      <stop offset="1" stop-color="#374151"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bgLA)"/>
+  <g transform="translate(440 200)">
+    <rect x="0" y="60" width="400" height="300" rx="14" fill="url(#bodyLA)"/>
+    <rect x="70" y="30" width="70" height="40" rx="8" fill="#4b5563"/>
+    <rect x="260" y="30" width="70" height="40" rx="8" fill="#4b5563"/>
+    <rect x="30" y="110" width="150" height="34" rx="6" fill="#111827" opacity="0.35"/>
+    <rect x="30" y="164" width="340" height="18" rx="6" fill="#111827" opacity="0.2"/>
+    <rect x="30" y="200" width="300" height="18" rx="6" fill="#111827" opacity="0.2"/>
+    <rect x="30" y="236" width="320" height="18" rx="6" fill="#111827" opacity="0.2"/>
+  </g>
+  <text x="640" y="620" text-anchor="middle" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#374151">LEAD-ACID · Heavy · 300 cycles</text>
+</svg>

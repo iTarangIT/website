@@ -33,13 +33,13 @@ export default function BatteryComparison() {
               enableHover
             >
               <ImageComparisonImage
-                src="/images/lead-acid-battery.jpg"
+                src="/images/lead-acid-battery.svg"
                 className="grayscale"
                 alt="Lead-acid battery — heavy, short-lived"
                 position="left"
               />
               <ImageComparisonImage
-                src="/images/lithium-battery.jpg"
+                src="/images/lithium-battery.svg"
                 alt="iTarang lithium battery — lighter, longer-lasting"
                 position="right"
               />

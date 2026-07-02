@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Serif_Display, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ChatWidget from "@/components/chatbot/ChatWidget";
+import WhatsAppButton from "@/components/shared/WhatsAppButton";
 
 const dmSerif = DM_Serif_Display({
   variable: "--font-display",
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col antialiased">
         {children}
         <ChatWidget />
+        <WhatsAppButton />
       </body>
     </html>
   );

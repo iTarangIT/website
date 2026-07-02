@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="iTarang lithium battery">
+  <defs>
+    <linearGradient id="bgLi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8f3ff"/>
+      <stop offset="1" stop-color="#b6d9f6"/>
+    </linearGradient>
+    <linearGradient id="bodyLi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2196F3"/>
+      <stop offset="1" stop-color="#0a2540"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bgLi)"/>
+  <g transform="translate(470 190)">
+    <rect x="0" y="60" width="340" height="320" rx="20" fill="url(#bodyLi)"/>
+    <rect x="130" y="34" width="80" height="34" rx="8" fill="#0a2540"/>
+    <path d="M180 120 l-60 110 h48 l-30 90 110 -140 h-52 z" fill="#ef6c00"/>
+    <text x="170" y="345" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="800" fill="#ffffff" letter-spacing="2">iTARANG</text>
+  </g>
+  <text x="640" y="620" text-anchor="middle" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#0a2540">LITHIUM · Light · 2000+ cycles</text>
+</svg>

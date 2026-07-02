@@ -10,6 +10,7 @@ import { mainNavItems, type NavProductCategory, type NavSubCategory } from "@/da
 import Button from "@/components/ui/Button";
 import ProductPlaceholder from "@/components/products/ProductPlaceholder";
 import LoginButton from "@/components/auth/LoginButton";
+import AudienceDropdown from "@/components/home/AudienceDropdown";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   NavigationMenu,
@@ -67,9 +68,15 @@ export default function Navbar() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileOpen]);
 
+  // The transparent/light-text navbar only works over the dark full-bleed
+  // home hero. Every other page renders content on a light background below
+  // the navbar, so it must be solid (white bg, dark text) from the top.
+  const isHome = pathname === "/";
+  const solid = scrolled || !isHome;
+
   const linkClass = cn(
     "text-sm font-medium transition-all px-4 py-2 rounded-lg font-sans",
-    scrolled
+    solid
       ? "text-gray-600 hover:text-brand-600 hover:bg-brand-50"
       : "text-white/70 hover:text-white hover:bg-white/10"
   );
@@ -84,23 +91,39 @@ export default function Navbar() {
       <header
         className={cn(
           "fixed top-0 left-0 right-0 z-50 transition-all duration-500",
-          scrolled
+          solid
             ? "bg-white/80 backdrop-blur-xl border-b border-gray-200/50 shadow-[0_1px_20px_rgba(0,0,0,0.04)]"
             : "bg-transparent"
         )}
       >
         <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            {/* Logo */}
+            {/* Logo — swaps between light/dark wordmark so it stays legible
+                on both the transparent (dark) and scrolled (white) navbar */}
             <Link href="/" className="flex items-center shrink-0 group">
-              <Image
-                src="/images/logo-transparent.png"
-                alt="iTarang"
-                width={120}
-                height={40}
-                className="h-8 w-auto object-contain"
-                priority
-              />
+              <span className="relative block h-8 w-[128px]">
+                <Image
+                  src="/images/logo-wordmark-light.png"
+                  alt="iTarang"
+                  fill
+                  sizes="128px"
+                  priority
+                  className={cn(
+                    "object-contain object-left transition-opacity duration-500",
+                    solid ? "opacity-0" : "opacity-100"
+                  )}
+                />
+                <Image
+                  src="/images/logo-wordmark-dark.png"
+                  alt="iTarang"
+                  fill
+                  sizes="128px"
+                  className={cn(
+                    "object-contain object-left transition-opacity duration-500",
+                    solid ? "opacity-100" : "opacity-0"
+                  )}
+                />
+              </span>
             </Link>
 
             {/* Desktop Navigation */}
@@ -112,7 +135,7 @@ export default function Navbar() {
                       <NavigationMenuTrigger
                         className={cn(
                           "!bg-transparent !shadow-none text-sm font-medium font-sans px-4 py-2 rounded-lg transition-all",
-                          scrolled
+                          solid
                             ? "text-gray-600 hover:text-brand-600 hover:bg-brand-50 data-[state=open]:text-brand-600 data-[state=open]:bg-brand-50"
                             : "text-white/70 hover:text-white hover:bg-white/10 data-[state=open]:text-white data-[state=open]:bg-white/10"
                         )}
@@ -251,7 +274,7 @@ export default function Navbar() {
                     href="/for-investors"
                     className={cn(
                       "text-sm font-medium transition-colors px-3 py-2 font-sans",
-                      scrolled
+                      solid
                         ? "text-gray-400 hover:text-brand-600"
                         : "text-white/40 hover:text-white/70"
                     )}
@@ -265,9 +288,9 @@ export default function Navbar() {
             {/* CTA + Mobile toggle */}
             <div className="flex items-center gap-3">
               <div className="hidden lg:flex items-center gap-2">
-                <LoginButton scrolled={scrolled} />
+                <LoginButton scrolled={solid} />
                 <Button href="/contact" size="sm" variant="outline" className={cn(
-                  !scrolled && "bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white"
+                  !solid && "bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white"
                 )}>
                   Talk to Us
                 </Button>
@@ -280,12 +303,13 @@ export default function Navbar() {
                 >
                   Login
                 </Button>
+                <AudienceDropdown solid={solid} />
               </div>
               <button
                 onClick={() => setMobileOpen(true)}
                 className={cn(
                   "lg:hidden p-2 rounded-lg transition-colors",
-                  scrolled ? "text-gray-700 hover:bg-gray-100" : "text-white hover:bg-white/10"
+                  solid ? "text-gray-700 hover:bg-gray-100" : "text-white hover:bg-white/10"
                 )}
                 aria-label="Open menu"
               >
@@ -317,10 +341,10 @@ export default function Navbar() {
               <div className="flex items-center justify-between p-4 border-b border-gray-100">
                 <Link href="/" className="flex items-center" onClick={() => setMobileOpen(false)}>
                   <Image
-                    src="/images/logo-transparent.png"
+                    src="/images/logo-wordmark-dark.png"
                     alt="iTarang"
-                    width={100}
-                    height={32}
+                    width={112}
+                    height={28}
                     className="h-7 w-auto object-contain"
                   />
                 </Link>

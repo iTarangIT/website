@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart3,
@@ -12,6 +12,10 @@ import {
   TrendingUp,
   Truck,
   FileCheck,
+  Users,
+  Wallet,
+  BatteryCharging,
+  Headset,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
@@ -132,17 +136,70 @@ const tabs = [
     ctaHref: "/contact?role=oem",
     placeholder: "PHOTO: Battery manufacturing / quality check",
   },
+  {
+    id: "customer",
+    label: "For Customers",
+    icon: Users,
+    color: "from-violet-50 to-purple-50/50",
+    activeColor: "bg-violet-600",
+    iconActiveColor: "text-white",
+    borderColor: "border-violet-200/40",
+    headline: "Own a better battery. Pay as you ride.",
+    description:
+      "Get a lithium battery with easy daily or weekly EMIs. More range, longer life, and support that keeps you earning — no lump sum, no surprises.",
+    features: [
+      {
+        icon: Wallet,
+        title: "Affordable EMIs",
+        text: "Flexible daily or weekly payments that fit your earnings. Get on the road without a big upfront cost.",
+        iconBg: "bg-violet-100",
+        iconColor: "text-violet-600",
+      },
+      {
+        icon: BatteryCharging,
+        title: "Longer Range & Life",
+        text: "Lithium batteries go further per charge and last more cycles than lead-acid, so you earn more every day.",
+        iconBg: "bg-purple-100",
+        iconColor: "text-purple-600",
+      },
+      {
+        icon: Headset,
+        title: "Always Supported",
+        text: "IoT-monitored batteries mean quick help when you need it. We spot issues before they slow you down.",
+        iconBg: "bg-fuchsia-100",
+        iconColor: "text-fuchsia-600",
+      },
+    ],
+    cta: "Find a Dealer Near You",
+    ctaHref: "/contact?role=customer",
+    placeholder: "PHOTO: E-rickshaw driver with iTarang battery",
+  },
 ];
 
 export default function PartnerTabs() {
   const [activeTab, setActiveTab] = useState("nbfc");
   const active = tabs.find((t) => t.id === activeTab)!;
+  const sectionRef = useRef<HTMLElement>(null);
+
+  // Select + scroll to a tab when the URL hash matches one (supports
+  // cross-page deep links like /for-partners#nbfc from the home dropdown).
+  useEffect(() => {
+    const applyHash = () => {
+      const id = window.location.hash.slice(1);
+      if (!id || !tabs.some((t) => t.id === id)) return;
+      setActiveTab(id);
+      sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
 
   return (
-    <section className="py-20 md:py-28 bg-white">
+    <section ref={sectionRef} className="py-20 md:py-28 bg-white">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Tab buttons */}
-        <div className="flex items-center justify-center gap-2 mb-16">
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-16">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
