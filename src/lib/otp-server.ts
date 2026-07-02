@@ -16,33 +16,48 @@ const verifyAttempts = new Map<string, { count: number; ts: number }>();
 
 export function isMockMode(): boolean {
   if (process.env.TWOFACTOR_MOCK === "1") return true;
-  return !process.env.TWOFACTOR_API_KEY && process.env.NODE_ENV !== "production";
+  return (
+    !process.env.TWOFACTOR_API_KEY && process.env.NODE_ENV !== "production"
+  );
 }
 
 export function checkSendAllowed(
   phone: string,
-  now: number = Date.now()
+  now: number = Date.now(),
 ): { allowed: boolean; error?: string } {
-  const recent = (sendHistory.get(phone) ?? []).filter((t) => t > now - SEND_WINDOW_MS);
+  const recent = (sendHistory.get(phone) ?? []).filter(
+    (t) => t > now - SEND_WINDOW_MS,
+  );
   sendHistory.set(phone, recent);
   const last = recent[recent.length - 1];
   if (last !== undefined && now - last < SEND_COOLDOWN_MS) {
-    return { allowed: false, error: "Please wait a moment before requesting another code." };
+    return {
+      allowed: false,
+      error: "Please wait a moment before requesting another code.",
+    };
   }
   if (recent.length >= SEND_WINDOW_LIMIT) {
-    return { allowed: false, error: "Too many attempts. Please try again in a few minutes." };
+    return {
+      allowed: false,
+      error: "Too many attempts. Please try again in a few minutes.",
+    };
   }
   return { allowed: true };
 }
 
 export function recordSend(phone: string, now: number = Date.now()): void {
-  const recent = (sendHistory.get(phone) ?? []).filter((t) => t > now - SEND_WINDOW_MS);
+  const recent = (sendHistory.get(phone) ?? []).filter(
+    (t) => t > now - SEND_WINDOW_MS,
+  );
   recent.push(now);
   sendHistory.set(phone, recent);
 }
 
 /** Counts an attempt; returns false once the session has used up its 5 tries. */
-export function recordVerifyAttempt(sessionId: string, now: number = Date.now()): boolean {
+export function recordVerifyAttempt(
+  sessionId: string,
+  now: number = Date.now(),
+): boolean {
   for (const [key, entry] of verifyAttempts) {
     if (now - entry.ts > ATTEMPT_TTL_MS) verifyAttempts.delete(key);
   }
@@ -72,11 +87,20 @@ async function callTwoFactor(url: string): Promise<TwoFactorResponse | null> {
 }
 
 export async function twoFactorSend(
-  e164Phone: string
-): Promise<{ success: boolean; sessionId?: string; error?: string; status?: number }> {
+  e164Phone: string,
+): Promise<{
+  success: boolean;
+  sessionId?: string;
+  error?: string;
+  status?: number;
+}> {
   const key = process.env.TWOFACTOR_API_KEY;
   if (!key) {
-    return { success: false, error: "OTP service is temporarily unavailable.", status: 500 };
+    return {
+      success: false,
+      error: "OTP service is temporarily unavailable.",
+      status: 500,
+    };
   }
   const template = process.env.TWOFACTOR_TEMPLATE_NAME;
   // 2Factor expects the number without the leading + (e.g. 91XXXXXXXXXX)
@@ -86,32 +110,61 @@ export async function twoFactorSend(
   }`;
   const data = await callTwoFactor(url);
   if (data?.Status === "Success" && data.Details) {
-    console.info(`[otp] 2Factor send OK to ${e164Phone} (template: ${template || "none"})`);
+    console.info(
+      `[otp] 2Factor send OK to ${e164Phone} (template: ${template || "none"})`,
+    );
     return { success: true, sessionId: data.Details };
   }
-  console.error(`[otp] 2Factor send failed for ${e164Phone}:`, data?.Details ?? "network/parse error");
-  return { success: false, error: "Couldn't send the code. Please try again.", status: 502 };
+  console.error(
+    `[otp] 2Factor send failed for ${e164Phone}:`,
+    data?.Details ?? "network/parse error",
+  );
+  return {
+    success: false,
+    error: "Couldn't send the code. Please try again.",
+    status: 502,
+  };
 }
 
 export async function twoFactorVerify(
   sessionId: string,
-  code: string
+  code: string,
 ): Promise<{ success: boolean; error?: string; status?: number }> {
   const key = process.env.TWOFACTOR_API_KEY;
   if (!key) {
-    return { success: false, error: "OTP service is temporarily unavailable.", status: 500 };
+    return {
+      success: false,
+      error: "OTP service is temporarily unavailable.",
+      status: 500,
+    };
   }
   const url = `${TWOFACTOR_BASE}/${key}/SMS/VERIFY/${encodeURIComponent(sessionId)}/${encodeURIComponent(code)}`;
   const data = await callTwoFactor(url);
   const details = data?.Details ?? "";
   // 2Factor signals mismatch/expiry via Details (HTTP status varies) — branch on the string.
-  if (data?.Status === "Success" && /matched/i.test(details)) return { success: true };
+  if (data?.Status === "Success" && /matched/i.test(details))
+    return { success: true };
   if (/mismatch/i.test(details)) {
-    return { success: false, error: "Incorrect code. Please try again.", status: 400 };
+    return {
+      success: false,
+      error: "Incorrect code. Please try again.",
+      status: 400,
+    };
   }
   if (/expired/i.test(details)) {
-    return { success: false, error: "That code expired. Please resend.", status: 400 };
+    return {
+      success: false,
+      error: "That code expired. Please resend.",
+      status: 400,
+    };
   }
-  console.error(`[otp] 2Factor verify failed:`, details || "network/parse error");
-  return { success: false, error: "Verification failed. Please try again.", status: 502 };
+  console.error(
+    `[otp] 2Factor verify failed:`,
+    details || "network/parse error",
+  );
+  return {
+    success: false,
+    error: "Verification failed. Please try again.",
+    status: 502,
+  };
 }
