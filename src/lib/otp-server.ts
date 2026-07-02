@@ -79,11 +79,14 @@ export async function twoFactorSend(
     return { success: false, error: "OTP service is temporarily unavailable.", status: 500 };
   }
   const template = process.env.TWOFACTOR_TEMPLATE_NAME;
-  const url = `${TWOFACTOR_BASE}/${key}/SMS/${encodeURIComponent(e164Phone)}/AUTOGEN${
+  // 2Factor expects the number without the leading + (e.g. 91XXXXXXXXXX)
+  const phoneParam = e164Phone.replace(/^\+/, "");
+  const url = `${TWOFACTOR_BASE}/${key}/SMS/${encodeURIComponent(phoneParam)}/AUTOGEN${
     template ? `/${encodeURIComponent(template)}` : ""
   }`;
   const data = await callTwoFactor(url);
   if (data?.Status === "Success" && data.Details) {
+    console.info(`[otp] 2Factor send OK to ${e164Phone} (template: ${template || "none"})`);
     return { success: true, sessionId: data.Details };
   }
   console.error(`[otp] 2Factor send failed for ${e164Phone}:`, data?.Details ?? "network/parse error");
