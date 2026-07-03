@@ -46,6 +46,11 @@ jobs:
           # /api/chat instantiates its Groq client at module scope; the build
           # only needs the variable to exist. Runtime uses the VPS .env.local.
           GROQ_API_KEY: ci-build-placeholder
+          # The loan-calculator routes import src/lib/db, which throws at module
+          # load if DATABASE_URL is unset. The build only needs the variable to
+          # exist and parse; postgres-js connects lazily so no real DB is hit
+          # during the build. Runtime uses the VPS .env.local.
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           # NEXT_PUBLIC_* values are inlined into the bundle at build time,
           # so they must be provided here, not on the VPS.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
