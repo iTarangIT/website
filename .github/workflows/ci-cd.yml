@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI
 
 on:
   push:
@@ -37,33 +37,5 @@ jobs:
           # needs the variable to exist, no API call is made.
           GROQ_API_KEY: ci-build-placeholder
 
-  deploy:
-    name: Deploy to Hostinger VPS
-    needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      # Deploy secrets aren't configured yet -> skip gracefully (job stays green).
-      - name: Check deploy secrets
-        id: check
-        run: echo "configured=${{ secrets.VPS_HOST != '' && secrets.VPS_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy over SSH
-        if: steps.check.outputs.configured == 'true'
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            set -e
-            cd /var/www/itarang
-            git pull --ff-only origin main
-            npm ci
-            npm run build
-            pm2 restart itarang
-            pm2 save
-
-      - name: Skipped (secrets not configured)
-        if: steps.check.outputs.configured != 'true'
-        run: echo "VPS_HOST / VPS_USER / VPS_SSH_KEY secrets not set - skipping deploy."
+# Deployment moved to .github/workflows/deploy.yml (builds on the runner and
+# ships the output to the VPS - the shared 8 GB box has OOM'd on-box builds).

@@ -1,0 +1,97 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; a new push waits for the current deploy to finish
+# instead of interrupting it mid-swap.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  check-secrets:
+    name: Check deploy secrets
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        run: echo "configured=${{ secrets.VPS_HOST != '' && secrets.VPS_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Build on runner & deploy to VPS
+    needs: check-secrets
+    if: needs.check-secrets.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The production VPS is a shared 8 GB box that has OOM'd on next build
+      # before, so the build happens here and only the output is shipped.
+      - name: Build
+        run: npm run build
+        env:
+          # /api/chat instantiates its Groq client at module scope; the build
+          # only needs the variable to exist. Runtime uses the VPS .env.local.
+          GROQ_API_KEY: ci-build-placeholder
+          # NEXT_PUBLIC_* values are inlined into the bundle at build time,
+          # so they must be provided here, not on the VPS.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Pack build output
+        run: |
+          rm -rf .next/cache
+          tar czf next-build.tgz .next
+
+      - name: Upload build to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: next-build.tgz
+          target: /home/itarang-website/
+
+      - name: Activate release over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/itarang-website/htdocs/website.itarang.com
+            git fetch origin main
+            git reset --hard ${{ github.sha }}
+            npm ci --no-audit --no-fund
+            rm -rf .next-incoming
+            mkdir .next-incoming
+            tar xzf /home/itarang-website/next-build.tgz -C .next-incoming
+            rm -rf .next-previous
+            if [ -d .next ]; then mv .next .next-previous; fi
+            mv .next-incoming/.next .next
+            rmdir .next-incoming
+            pm2 restart itarang-website --update-env
+            pm2 save
+            rm -f /home/itarang-website/next-build.tgz
+            rm -rf .next-previous
+
+  skipped:
+    name: Deploy skipped (secrets not configured)
+    needs: check-secrets
+    if: needs.check-secrets.outputs.configured != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "VPS_HOST / VPS_USER / VPS_SSH_KEY secrets not set - skipping deploy."
