@@ -1,37 +1,7 @@
-// Client-side OTP service — thin wrappers over /api/otp/send and
-// /api/otp/verify (2Factor.in on the server; the session ID travels in an
-// httpOnly cookie, so verify only needs the code).
-
-export const DEV_OTP_CODE = "123456";
-
-export interface OtpResult {
-  success: boolean;
-  error?: string;
-  mock?: boolean;
-}
-
-async function postJson(path: string, body: object): Promise<OtpResult> {
-  try {
-    const res = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json().catch(() => null)) as OtpResult | null;
-    if (data && typeof data.success === "boolean") return data;
-    return { success: false, error: "Something went wrong. Please try again." };
-  } catch {
-    return { success: false, error: "Couldn't reach the server. Check your connection and try again." };
-  }
-}
-
-export function sendOtp(phone: string): Promise<OtpResult> {
-  return postJson("/api/otp/send", { phone });
-}
-
-export function verifyOtp(code: string): Promise<OtpResult> {
-  return postJson("/api/otp/verify", { code });
-}
+// Shared phone helpers used by the server-side calculator route and the
+// calculator UI. The OTP send/verify client now lives in @/lib/whatsapp-otp
+// (WhatsApp Cloud API); these pure helpers are kept here because
+// /api/calculator/calculate and LoanCalculator import them.
 
 export function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, "");

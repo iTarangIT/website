@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import LifecycleJourney from "@/components/how-it-works/LifecycleJourney";
 import BatterySpecs from "@/components/how-it-works/BatterySpecs";
-import EMICalculator from "@/components/products/EMICalculator";
-import CalculatorGate from "@/components/products/CalculatorGate";
+import LoanCalculator from "@/components/products/LoanCalculator";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 import HowItWorksHero from "@/components/how-it-works/HowItWorksHero";
 import BatteryComparison from "@/components/how-it-works/BatteryComparison";
@@ -21,9 +20,9 @@ export default function HowItWorksPage() {
       <BatteryComparison />
       <BatterySpecs />
 
-      {/* EMI Calculator section */}
+      {/* Loan Calculator section */}
       <section className="py-20 md:py-28 bg-surface-warm">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <FadeInOnScroll>
             <div className="text-center mb-12">
               <span className="inline-block text-sm font-semibold text-accent-green tracking-widest uppercase mb-4 font-sans">
@@ -33,14 +32,12 @@ export default function HowItWorksPage() {
                 What Will It Cost?
               </h2>
               <p className="mt-4 text-lg text-gray-500 max-w-xl mx-auto font-sans">
-                Slide the price and tenure to see your daily EMI. Compare with
-                what you&apos;d pay for lead-acid.
+                Pick your city, battery model and tenure to see the EMI schemes
+                you qualify for across our financing partners.
               </p>
             </div>
           </FadeInOnScroll>
-          <CalculatorGate>
-            <EMICalculator />
-          </CalculatorGate>
+          <LoanCalculator />
         </div>
       </section>
     </>

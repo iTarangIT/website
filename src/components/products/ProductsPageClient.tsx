@@ -12,7 +12,7 @@ import ERickshawProductView from "./ERickshawProductView";
 import InverterProductView from "./InverterProductView";
 import ChargerProductView from "./ChargerProductView";
 import ComparisonToggle from "./ComparisonToggle";
-import EMICalculator from "./EMICalculator";
+import LoanCalculator from "./LoanCalculator";
 import FAQAccordion from "./FAQAccordion";
 import WhyITarang from "./WhyITarang";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
@@ -92,23 +92,24 @@ export default function ProductsPageClient() {
       {/* Why iTarang — universal across all categories */}
       <WhyITarang />
 
-      {/* EMI Calculator — always visible */}
+      {/* Loan Calculator — always visible */}
       <section className="py-16 md:py-24 bg-white">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <FadeInOnScroll>
             <div className="text-center mb-12">
               <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-4 font-sans">
                 Financing
               </span>
               <h2 className="text-3xl sm:text-4xl text-gray-900 tracking-tight">
-                EMI Calculator
+                Loan Calculator
               </h2>
               <p className="mt-4 text-lg text-gray-500 max-w-xl mx-auto font-sans">
-                Estimate your monthly payments and total cost of ownership.
+                Pick your city, battery model and tenure to see the EMI schemes
+                you qualify for across our financing partners.
               </p>
             </div>
           </FadeInOnScroll>
-          <EMICalculator />
+          <LoanCalculator />
         </div>
       </section>
 
