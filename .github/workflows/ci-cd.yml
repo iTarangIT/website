@@ -36,6 +36,10 @@ jobs:
           # /api/chat instantiates its client at module scope; the build only
           # needs the variable to exist, no API call is made.
           GROQ_API_KEY: ci-build-placeholder
+          # The loan-calculator routes import src/lib/db, which throws at module
+          # load if DATABASE_URL is unset. Build only needs it to exist/parse;
+          # postgres-js connects lazily, so no real DB is contacted.
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
 # Deployment moved to .github/workflows/deploy.yml (builds on the runner and
 # ships the output to the VPS - the shared 8 GB box has OOM'd on-box builds).
