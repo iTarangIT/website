@@ -74,8 +74,21 @@ export default function LoanCalculator() {
       try {
         const res = await fetch("/api/calculator/config");
         const data = await res.json();
-        if (data.success) setMeta(data.data as ConfigMeta);
-        else setMetaError(data.error?.message ?? "Failed to load calculator config.");
+        if (data.success) {
+          const config = data.data as ConfigMeta;
+          setMeta(config);
+          // Default the battery model to "51.2V - 105 AMP" (whitespace-normalized
+          // match so it hits that exact model, not the "…- Prime" variant), unless
+          // the user has already chosen one.
+          const defaultModel = config.models.find(
+            (m) => m.displayName.replace(/\s+/g, "").toLowerCase() === "51.2v-105amp",
+          );
+          if (defaultModel) {
+            setForm((f) => (f.modelId ? f : { ...f, modelId: String(defaultModel.id) }));
+          }
+        } else {
+          setMetaError(data.error?.message ?? "Failed to load calculator config.");
+        }
       } catch {
         setMetaError("Failed to load calculator config.");
       }

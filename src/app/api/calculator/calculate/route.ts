@@ -11,7 +11,7 @@ import {
   getClientIp,
   verifyVerifiedCookie,
 } from "@/lib/calc-gate";
-import { sendCalcResultsWhatsApp } from "@/lib/whatsapp/otp-delivery";
+import { sendCalcResultsWhatsApp, sendOnboardingPrompt } from "@/lib/whatsapp/otp-delivery";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs"; // postgres-js cannot run on the edge runtime
@@ -112,6 +112,12 @@ export async function POST(req: NextRequest) {
       result,
       resolved.model.displayName,
     );
+
+    // Follow up with the onboarding ("new lead") button, but only when there
+    // was an actual scheme to act on. Tapping it starts the in-chat flow.
+    if (waResults === "sent" && result.outcome !== "none") {
+      await sendOnboardingPrompt(phone, body.customerName, resolved.model.displayName, lead.id);
+    }
 
     const okRes = NextResponse.json({
       success: true,

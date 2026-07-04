@@ -13,6 +13,8 @@
 // testing against a number that just messaged your test line.
 
 import { getAdapter } from "./index";
+import { ONBOARDING_START_ID } from "./onboarding-flow";
+import { seedOnboarding } from "./onboarding-store";
 import type { SendResult } from "./types";
 
 /**
@@ -210,6 +212,54 @@ export async function sendCalcResultsWhatsApp(
     return res.ok ? "sent" : "failed";
   } catch (err) {
     console.error("[whatsapp-otp] results send threw:", err);
+    return "failed";
+  }
+}
+
+// ── Customer new-lead prompt ────────────────────────────────────────────────
+// Sent right AFTER the scheme summary: a follow-up interactive message with a
+// single "Start application" reply button. Tapping it echoes
+// ONBOARDING_START_ID back to our webhook, which starts the in-chat customer
+// "new lead" conversation (see onboarding-flow.ts). Best-effort — never throws.
+//
+// The button (like any free-form/interactive message) only delivers inside the
+// customer's 24h WhatsApp session window; the schemes send opens/refreshes it,
+// so sending the prompt straight after is the reliable moment.
+
+/**
+ * Seed the onboarding session context and send the onboarding button.
+ * @param leadId  calc_leads.id of the quote, for later CRM hand-off (nullable).
+ */
+export async function sendOnboardingPrompt(
+  phone: string,
+  customerName: string,
+  modelName: string | null,
+  leadId: string | null,
+): Promise<ResultsSendStatus> {
+  try {
+    if (!metaWhatsAppConfigured()) return "skipped";
+
+    // Record who this is so the webhook has name/model/lead the instant they tap.
+    seedOnboarding(phone, { customerName, modelName, leadId });
+
+    const adapter = getAdapter();
+    const body =
+      `Like one of these schemes, ${customerName || "there"}? 🚀\n\n` +
+      `Tap below to apply — we'll take a few quick details and our iTarang team will get your purchase started.`;
+
+    const res = await adapter.sendInteractive(phone, body, [
+      // Title ≤20 chars (WhatsApp limit); id is what the webhook receives.
+      { id: ONBOARDING_START_ID, title: "Start application" },
+    ]);
+
+    if (!res.ok) {
+      console.error(
+        `[whatsapp-otp] onboarding prompt to ${maskWaPhone(phone)} failed: ${res.error ?? "unknown"}`,
+      );
+    }
+    return res.ok ? "sent" : "failed";
+  } catch (err) {
+    console.error("[whatsapp-otp] onboarding prompt threw:", err);
     return "failed";
   }
 }
