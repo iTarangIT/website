@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { Shield } from "lucide-react";
 import AnimatedCounter from "@/components/shared/AnimatedCounter";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
@@ -49,42 +50,40 @@ export default function AboutPage() {
       <section className="py-20 md:py-28 bg-white">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <FadeInOnScroll>
-            <div className="flex flex-col md:flex-row gap-12 items-center">
-              {/* Photo placeholder */}
-              <div className="w-full md:w-1/3">
-                <div className="rounded-3xl bg-gradient-to-br from-brand-100 to-surface-cream aspect-square flex items-center justify-center border border-brand-200/30">
-                  <span className="text-sm text-gray-400 font-sans">
-                    PHOTO: Founder headshot
-                  </span>
-                </div>
-              </div>
+            <div className="max-w-3xl">
+              <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-3 font-sans">
+                The Founder
+              </span>
+              <h2 className="text-3xl md:text-4xl text-gray-900 tracking-tight">
+                Building from the ground up
+              </h2>
 
-              {/* Bio */}
-              <div className="w-full md:w-2/3">
-                <span className="inline-block text-sm font-semibold text-brand-500 tracking-widest uppercase mb-3 font-sans">
-                  The Founder
-                </span>
-                <h2 className="text-3xl md:text-4xl text-gray-900 tracking-tight">
-                  Building from the ground up
-                </h2>
-                <p className="mt-5 text-lg text-gray-500 leading-relaxed font-sans">
-                  Vision and strategy leader driving iTarang&apos;s mission to
-                  bring formal financing and lifecycle intelligence to
-                  India&apos;s EV battery market. Previously worked across
-                  fintech and clean-energy sectors.
+              <p className="mt-4 text-xl text-gray-900 font-semibold font-sans">
+                Sanchit Gupta
+              </p>
+              <p className="text-base text-brand-500 font-sans">
+                Founder &amp; CEO, iTarang
+              </p>
+
+              <div className="mt-6 space-y-5 text-lg text-gray-500 leading-relaxed font-sans">
+                <p>
+                  Sanchit Gupta founded iTarang to bring formal financing and
+                  lifecycle intelligence to India&apos;s EV battery market —
+                  where nearly 90% of e-rickshaw batteries are still financed
+                  informally at 30&ndash;60% interest.
                 </p>
-
-                {/* Video placeholder */}
-                <div className="mt-8 rounded-2xl bg-gradient-to-br from-gray-50 to-surface-cream border border-gray-200/50 aspect-video flex items-center justify-center max-w-lg overflow-hidden group cursor-pointer hover:border-brand-300 transition-colors">
-                  <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-brand-500/10 flex items-center justify-center mx-auto mb-3 group-hover:bg-brand-500/20 transition-colors">
-                      <span className="text-brand-500 text-2xl ml-1">&#9654;</span>
-                    </div>
-                    <span className="text-sm text-gray-400 font-sans">
-                      60-second founder intro
-                    </span>
-                  </div>
-                </div>
+                <p>
+                  His conviction is simple: when a lender can see inside every
+                  battery in real time, financing gets cheaper, drivers earn
+                  more, and no asset goes untracked from factory to recycler.
+                  That belief shapes every product decision at iTarang.
+                </p>
+                <p>
+                  With experience spanning fintech and clean-energy, Sanchit
+                  leads the company&apos;s vision and strategy — building the
+                  data infrastructure that turns EV batteries into financeable,
+                  trackable, and ultimately recyclable assets.
+                </p>
               </div>
             </div>
           </FadeInOnScroll>
@@ -129,20 +128,24 @@ export default function AboutPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {[
-                "Team at work",
-                "Dealer visit",
-                "Battery warehouse",
-                "E-rickshaw with battery",
-                "IoT device installation",
-                "Driver interaction",
-              ].map((label) => (
+                { label: "Team at work", image: "/new_images/about_page/team_at_work.png" },
+                { label: "Dealer visit", image: "/new_images/about_page/dealer_visit.png" },
+                { label: "Battery warehouse", image: "/new_images/about_page/battery_warehouse.png" },
+                { label: "E-rickshaw with battery", image: "/new_images/about_page/e-rickshaw_with_battery.png" },
+                { label: "IoT device installation", image: "/new_images/about_page/IoT_Device_Installation.png" },
+                { label: "Driver interaction", image: "/new_images/about_page/Driver_Interaction.png" },
+              ].map(({ label, image }) => (
                 <div
                   key={label}
-                  className="rounded-2xl bg-gradient-to-br from-gray-100 to-surface-cream aspect-[4/3] flex items-center justify-center border border-gray-200/40 hover:border-brand-200 transition-colors group overflow-hidden"
+                  className="relative rounded-2xl bg-gradient-to-br from-gray-100 to-surface-cream aspect-[4/3] flex items-center justify-center border border-gray-200/40 hover:border-brand-200 transition-colors group overflow-hidden"
                 >
-                  <span className="text-xs text-gray-400 font-sans group-hover:text-gray-500 transition-colors">
-                    PHOTO: {label}
-                  </span>
+                  <Image
+                    src={image}
+                    alt={label}
+                    fill
+                    sizes="(max-width: 768px) 50vw, 33vw"
+                    className="object-cover"
+                  />
                 </div>
               ))}
             </div>
