@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import {
   BarChart3,
@@ -59,6 +60,7 @@ const tabs = [
     cta: "Download Partnership Overview",
     ctaHref: "/contact?role=nbfc",
     placeholder: "SCREENSHOT: NBFC Dashboard — portfolio health view",
+    image: "/new_images/monitor.png",
   },
   {
     id: "dealer",
@@ -97,6 +99,7 @@ const tabs = [
     cta: "Become a Dealer Partner",
     ctaHref: "/contact?role=dealer",
     placeholder: "PHOTO: Dealer at their shop with iTarang batteries",
+    image: "/new_images/for_dealers.png",
   },
   {
     id: "oem",
@@ -135,6 +138,7 @@ const tabs = [
     cta: "Explore OEM Integration",
     ctaHref: "/contact?role=oem",
     placeholder: "PHOTO: Battery manufacturing / quality check",
+    image: "/new_images/for_oems.png",
   },
   {
     id: "customer",
@@ -173,6 +177,7 @@ const tabs = [
     cta: "Find a Dealer Near You",
     ctaHref: "/contact?role=customer",
     placeholder: "PHOTO: E-rickshaw driver with iTarang battery",
+    image: "/new_images/for_customers.png",
   },
 ];
 
@@ -268,10 +273,20 @@ export default function PartnerTabs() {
 
             {/* Right — photo/screenshot placeholder */}
             <div className="w-full md:w-1/2">
-              <div className={`rounded-3xl bg-gradient-to-br ${active.color} aspect-[4/3] flex items-center justify-center border ${active.borderColor} overflow-hidden group hover:shadow-lg transition-shadow`}>
-                <span className="text-xs text-gray-400 px-4 text-center font-sans group-hover:text-gray-500 transition-colors">
-                  {active.placeholder}
-                </span>
+              <div className={`relative rounded-3xl bg-gradient-to-br ${active.color} aspect-[4/3] flex items-center justify-center border ${active.borderColor} overflow-hidden group hover:shadow-lg transition-shadow`}>
+                {active.image ? (
+                  <Image
+                    src={active.image}
+                    alt={active.label}
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    className="object-cover"
+                  />
+                ) : (
+                  <span className="text-xs text-gray-400 px-4 text-center font-sans group-hover:text-gray-500 transition-colors">
+                    {active.placeholder}
+                  </span>
+                )}
               </div>
             </div>
           </div>
