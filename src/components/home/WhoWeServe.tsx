@@ -2,6 +2,7 @@
 
 import { Zap, Store, BarChart3 } from "lucide-react";
 import { motion } from "framer-motion";
+import Image from "next/image";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
 const audiences = [
@@ -10,6 +11,7 @@ const audiences = [
     title: "Drivers",
     description: "Better batteries, daily EMIs you can afford. Earn more, worry less.",
     placeholder: "PHOTO: E-rickshaw driver",
+    image: "/new_images/e-rickshaw_driver.png",
     gradient: "from-amber-400/20 via-orange-300/10 to-transparent",
     iconBg: "bg-amber-500/10",
     accent: "text-amber-600",
@@ -20,6 +22,7 @@ const audiences = [
     title: "Dealers",
     description: "Sell more with ready financing. Zero credit risk, higher margins.",
     placeholder: "PHOTO: Dealer shop",
+    image: "/new_images/dealer_shop_updated.png",
     gradient: "from-blue-400/20 via-indigo-300/10 to-transparent",
     iconBg: "bg-blue-500/10",
     accent: "text-blue-600",
@@ -30,6 +33,7 @@ const audiences = [
     title: "Lenders",
     description: "See inside every battery you finance. Real-time data, real confidence.",
     placeholder: "PHOTO: Office / Dashboard",
+    image: "/new_images/lenders.png",
     gradient: "from-emerald-400/20 via-teal-300/10 to-transparent",
     iconBg: "bg-emerald-500/10",
     accent: "text-emerald-600",
@@ -66,12 +70,22 @@ export default function WhoWeServe() {
                   className={`group rounded-3xl bg-white border border-gray-200/60 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 ${item.borderHover}`}
                 >
                   {/* Photo placeholder with gradient overlay */}
-                  <div className="relative h-52 overflow-hidden">
+                  <div className="relative h-72 overflow-hidden">
                     <div className="absolute inset-0 bg-gray-100" />
+                    {item.image ? (
+                      <Image
+                        src={item.image}
+                        alt={item.title}
+                        fill
+                        sizes="(max-width: 768px) 100vw, 33vw"
+                        className="object-cover object-top"
+                      />
+                    ) : (
+                      <span className="absolute inset-0 flex items-center justify-center text-sm font-medium text-gray-400">
+                        {item.placeholder}
+                      </span>
+                    )}
                     <div className={`absolute inset-0 bg-gradient-to-b ${item.gradient}`} />
-                    <span className="absolute inset-0 flex items-center justify-center text-sm font-medium text-gray-400">
-                      {item.placeholder}
-                    </span>
                     {/* Floating icon badge */}
                     <div className="absolute bottom-4 left-4">
                       <div className={`${item.iconBg} backdrop-blur-sm w-12 h-12 rounded-2xl flex items-center justify-center border border-white/30 shadow-lg group-hover:scale-110 transition-transform`}>
