@@ -37,7 +37,6 @@ export function SchemeCardView({ card }: { card: SchemeCard }) {
       </div>
 
       <dl className="space-y-1.5 text-sm">
-        <Row label="Asset price" value={inr(card.priceToDriver)} />
         <Row label="Loan amount" value={inr(card.loanAmount)} />
         <Row label="Down payment" value={inr(b.downPayment)} />
         {b.advanceInstallmentsTotal > 0 && (

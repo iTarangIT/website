@@ -130,7 +130,6 @@ function schemeBlock(s: SchemeForSummary): string {
     }`,
     `Tenure: ${s.tenure} months${s.advance > 0 ? ` · ${s.advance} advance EMI` : ""}`,
     `EMI: ${inr(s.emi)}/month × ${s.remainingMonths}`,
-    `Asset price: ${inr(s.priceToDriver)}`,
     `Loan amount: ${inr(s.loanAmount)}`,
     `Down payment: ${inr(s.breakdown.downPayment)}`,
   ];
@@ -182,7 +181,7 @@ export async function sendCalcResultsWhatsApp(
               .map(
                 (s) =>
                   `${s.nbfc} ${s.schemeCode} (${s.tenure}m): EMI ${inr(s.emi)}/m x ${s.remainingMonths}, ` +
-                  `asset ${inr(s.priceToDriver)}, loan ${inr(s.loanAmount)}, ` +
+                  `loan ${inr(s.loanAmount)}, ` +
                   `down ${inr(s.breakdown.downPayment)}, other upfront ${inr(otherUpfront(s))}, ` +
                   `pay today ${inr(s.totalUpfront)}, est total ${inr(s.estimatedTotalPayable)}`,
               )

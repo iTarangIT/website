@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { OTP_SESSION_COOKIE, verifyOtp } from "@/lib/whatsapp/otp-store";
+import { OTP_SESSION_COOKIE, verifySmsOtp } from "@/lib/otp/two-factor";
 import {
   CALC_COOKIE_MAX_AGE_S,
   CALC_VERIFIED_COOKIE,
@@ -9,9 +9,9 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Public WhatsApp OTP — VERIFY. Hash-compares the entered code against the
-// cookie session (3 attempts, 5-min lockout, 10-min expiry — enforced in the
-// store). On success the session is marked verified.
+// Public OTP — VERIFY. Checks the entered code against the 2Factor session
+// bound to the cookie (attempts/lockout/expiry enforced in two-factor.ts). On
+// success it mints the signed calculator cookie required by /api/calculator.
 export async function POST(req: NextRequest) {
   let body: { code?: unknown; otp?: unknown };
   try {
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   const sessionId = req.cookies.get(OTP_SESSION_COOKIE)?.value;
-  const result = verifyOtp(sessionId, code);
+  const result = await verifySmsOtp(sessionId, code);
   if (!result.ok) {
     return NextResponse.json({ success: false, error: result.message, code: result.code }, { status: result.status });
   }
@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
   });
 
   // Mint the signed cookie the public /api/calculator/calculate route requires.
-  // The store returns the phone as "91XXXXXXXXXX"; the calculator gate compares
-  // against normalizePhone() output ("+91XXXXXXXXXX"), so prefix the "+".
+  // two-factor.ts stores the phone as "+91XXXXXXXXXX", which is exactly what
+  // normalizePhone() (used by the calculator gate) produces.
   const e164 = result.phone.startsWith("+") ? result.phone : `+${result.phone}`;
   const signed = signVerifiedCookie(e164);
   if (signed) {

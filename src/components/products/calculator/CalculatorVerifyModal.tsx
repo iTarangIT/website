@@ -199,8 +199,8 @@ export default function CalculatorVerifyModal({
                     Verify to see your schemes
                   </h3>
                   <p className="mt-1 mb-6 text-sm text-gray-600 font-sans">
-                    Enter your name and WhatsApp number — we&apos;ll send a
-                    one-time code to confirm this search.
+                    Enter your name and mobile number — we&apos;ll send a
+                    one-time code by SMS to confirm this search.
                   </p>
 
                   <form onSubmit={handleFormSubmit} className="space-y-4 font-sans">
@@ -227,7 +227,7 @@ export default function CalculatorVerifyModal({
 
                     <div>
                       <label htmlFor="cv-phone" className="block text-sm font-medium text-gray-700 mb-1 text-left">
-                        WhatsApp Number *
+                        Mobile Number *
                       </label>
                       <div className="flex">
                         <span className="inline-flex items-center rounded-l-lg border border-r-0 border-gray-300 bg-gray-50 px-3 text-sm text-gray-600">
@@ -259,7 +259,7 @@ export default function CalculatorVerifyModal({
                           Sending…
                         </>
                       ) : (
-                        "Send OTP on WhatsApp"
+                        "Send OTP"
                       )}
                     </Button>
                   </form>
@@ -281,7 +281,7 @@ export default function CalculatorVerifyModal({
                     Verify your number
                   </h3>
                   <p className="mt-1 mb-6 text-sm text-gray-600 font-sans">
-                    We sent a 6-digit code on WhatsApp to{" "}
+                    We sent a 6-digit code by SMS to{" "}
                     <span className="font-medium text-gray-900">{maskPhone(normalizePhone(phone))}</span>
                   </p>
 

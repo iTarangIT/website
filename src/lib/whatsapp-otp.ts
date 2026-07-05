@@ -1,8 +1,9 @@
-// Client-side WhatsApp OTP wrapper — thin wrappers over /api/whatsapp-otp/send
-// and /api/whatsapp-otp/verify. Same shape as the site's SMS helper (src/lib/
-// otp.ts) so an existing OTP gate can switch from SMS to WhatsApp by importing
-// from here instead. The session id travels in an httpOnly cookie, so verify
-// only needs the code.
+// Client-side OTP wrapper — thin fetch wrappers over /api/whatsapp-otp/send and
+// /api/whatsapp-otp/verify. Delivery is now SMS via 2Factor.in (see
+// src/lib/otp/two-factor.ts); the route paths keep the historical name. The
+// session id travels in an httpOnly cookie, so verify only needs the code.
+
+
 
 export const DEV_OTP_CODE = "123456";
 

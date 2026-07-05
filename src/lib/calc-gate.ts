@@ -1,10 +1,10 @@
 // Server-only helpers protecting the PUBLIC loan-calculator endpoints.
 //
 // 1) A stateless HMAC-signed "verified" cookie, minted by
-//    /api/whatsapp-otp/verify after a successful WhatsApp OTP, and required by
+//    /api/whatsapp-otp/verify after a successful SMS OTP, and required by
 //    /api/calculator/calculate. Being stateless it survives
 //    multi-instance/serverless deploys (unlike the in-memory OTP session state
-//    in lib/whatsapp/otp-store.ts).
+//    in lib/otp/two-factor.ts).
 // 2) An in-memory per-IP + per-phone rate limiter. Per-instance only (resets on
 //    redeploy) — accepted v1 limitation; the signed cookie is the
 //    cross-instance backstop.
