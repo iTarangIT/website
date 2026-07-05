@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import LifecycleJourney from "@/components/how-it-works/LifecycleJourney";
-import BatterySpecs from "@/components/how-it-works/BatterySpecs";
 import LoanCalculator from "@/components/products/LoanCalculator";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 import HowItWorksHero from "@/components/how-it-works/HowItWorksHero";
@@ -18,7 +17,6 @@ export default function HowItWorksPage() {
       <HowItWorksHero />
       <LifecycleJourney />
       <BatteryComparison />
-      <BatterySpecs />
 
       {/* Loan Calculator section */}
       <section className="py-20 md:py-28 bg-surface-warm">
