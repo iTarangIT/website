@@ -33,6 +33,55 @@ const testimonials = [
     description:
       "The IoT dashboard gives us real-time battery health data. This is exactly the visibility lenders need before approving EV battery loans.",
   },
+  {
+    id: 4,
+    name: "Mohammed Irfan",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "I drive 14 hours a day. With iTarang the battery holds charge till night, so I never have to stop early. My weekly income is up by almost a third.",
+  },
+  {
+    id: 5,
+    name: "Anita Deshmukh",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "The daily EMI is smaller than what I used to spend on charging a lead-acid battery. Owning a lithium pack finally made sense for me.",
+  },
+  {
+    id: 6,
+    name: "Vikram Singh",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "My showroom now closes more sales because customers get instant financing. Zero credit risk on my side — iTarang carries that with the NBFC.",
+  },
+  {
+    id: 7,
+    name: "Lakshmi Nair",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "As a lending partner, the real-time SOH data changed how we underwrite. We approve faster and our default rate has dropped sharply.",
+  },
+  {
+    id: 8,
+    name: "Arjun Reddy",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "Battery passporting made our EPR reporting effortless. Every pack we manufacture has a full digital trail from factory to recycler.",
+  },
+  {
+    id: 9,
+    name: "Farhan Ansari",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "When my battery showed a warning, the service team called me before it failed. I didn't lose a single day of work.",
+  },
+  {
+    id: 10,
+    name: "Kavita Joshi",
+    avatar: "/images/placeholder-avatar.svg",
+    description:
+      "Getting a lithium battery on weekly payments let me start earning without any big upfront cost. The support has been reliable throughout.",
+  },
 ];
 
 export default function SocialProof() {

@@ -29,16 +29,34 @@ const TestimonialCarousel = React.forwardRef<
     const [currentIndex, setCurrentIndex] = React.useState(0)
     const [exitX, setExitX] = React.useState<number>(0)
 
+    const count = testimonials.length
+
+    const goNext = () => {
+      setExitX(-250)
+      setTimeout(() => {
+        setCurrentIndex((prev) => (prev + 1) % count)
+        setExitX(0)
+      }, 200)
+    }
+
+    const goPrev = () => {
+      setExitX(250)
+      setTimeout(() => {
+        setCurrentIndex((prev) => (prev - 1 + count) % count)
+        setExitX(0)
+      }, 200)
+    }
+
     const handleDragEnd = (
       _event: MouseEvent | TouchEvent | PointerEvent,
       info: PanInfo,
     ) => {
       if (Math.abs(info.offset.x) > 100) {
-        setExitX(info.offset.x)
-        setTimeout(() => {
-          setCurrentIndex((prev) => (prev + 1) % testimonials.length)
-          setExitX(0)
-        }, 200)
+        if (info.offset.x < 0) {
+          goNext()
+        } else {
+          goPrev()
+        }
       }
     }
 
@@ -96,13 +114,25 @@ const TestimonialCarousel = React.forwardRef<
                 }}
               >
                 {showArrows && isCurrentCard && (
-                  <div className="absolute inset-x-0 top-2 flex justify-between px-4">
-                    <span className="text-2xl select-none cursor-pointer text-gray-300 hover:text-gray-400 dark:text-muted-foreground dark:hover:text-primary">
+                  <div className="absolute inset-x-0 top-2 flex justify-between px-4 z-10">
+                    <button
+                      type="button"
+                      aria-label="Previous testimonial"
+                      onPointerDownCapture={(e) => e.stopPropagation()}
+                      onClick={goPrev}
+                      className="text-2xl leading-none select-none cursor-pointer text-gray-300 hover:text-gray-400 dark:text-muted-foreground dark:hover:text-primary"
+                    >
                       &larr;
-                    </span>
-                    <span className="text-2xl select-none cursor-pointer text-gray-300 hover:text-gray-400 dark:text-muted-foreground dark:hover:text-primary">
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next testimonial"
+                      onPointerDownCapture={(e) => e.stopPropagation()}
+                      onClick={goNext}
+                      className="text-2xl leading-none select-none cursor-pointer text-gray-300 hover:text-gray-400 dark:text-muted-foreground dark:hover:text-primary"
+                    >
                       &rarr;
-                    </span>
+                    </button>
                   </div>
                 )}
 
@@ -125,13 +155,16 @@ const TestimonialCarousel = React.forwardRef<
           {showDots && (
             <div className="absolute -bottom-8 left-0 right-0 flex justify-center gap-2">
               {testimonials.map((_, index) => (
-                <div
+                <button
                   key={index}
+                  type="button"
+                  aria-label={`Go to testimonial ${index + 1}`}
+                  onClick={() => setCurrentIndex(index)}
                   className={cn(
-                    "w-2 h-2 rounded-full transition-colors",
+                    "w-2 h-2 rounded-full transition-colors cursor-pointer",
                     index === currentIndex
                       ? "bg-blue-500 dark:bg-primary"
-                      : "bg-gray-300 dark:bg-muted-foreground/30",
+                      : "bg-gray-300 hover:bg-gray-400 dark:bg-muted-foreground/30",
                   )}
                 />
               ))}
