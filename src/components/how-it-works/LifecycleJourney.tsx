@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Recycle,
 } from "lucide-react";
+import Image from "next/image";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
 const stageColors = [
@@ -30,6 +31,7 @@ const stages = [
     detail:
       "90% of e-rickshaw batteries are financed informally at 30-60% interest. We bring formal lending with real data backing every loan.",
     placeholder: "PHOTO: Driver signing finance docs at dealer",
+    image: "/new_images/finance.png",
   },
   {
     icon: Truck,
@@ -41,6 +43,7 @@ const stages = [
     detail:
       "The IoT module is pre-configured. Dealer swaps the battery, pairs the device, and the driver starts earning the same day.",
     placeholder: "PHOTO: Battery installation in e-rickshaw",
+    image: "/new_images/deploy_updated.png",
   },
   {
     icon: Activity,
@@ -52,6 +55,7 @@ const stages = [
     detail:
       "Our dashboard shows every battery's vital signs. Lenders see portfolio health. Dealers see warranty claims forming. Nobody flies blind.",
     placeholder: "SCREENSHOT: IoT Dashboard",
+    image: "/new_images/monitor.png",
   },
   {
     icon: Wrench,
@@ -63,6 +67,7 @@ const stages = [
     detail:
       "Temperature spikes, deep discharge patterns, abnormal charge cycles — the system catches problems early and routes to the nearest service point.",
     placeholder: "PHOTO: Technician servicing a battery",
+    image: "/new_images/maintain.png",
   },
   {
     icon: RotateCcw,
@@ -74,6 +79,7 @@ const stages = [
     detail:
       "No guesswork. The buyback price reflects real SOH data collected over the battery's entire life. Drivers get fair value. Second-life applications get quality cells.",
     placeholder: "PHOTO: Collected batteries at warehouse",
+    image: "/new_images/Buyback.png",
   },
   {
     icon: Recycle,
@@ -85,6 +91,7 @@ const stages = [
     detail:
       "Every battery is tracked from factory to recycler. OEMs meet Extended Producer Responsibility targets. Critical minerals re-enter the supply chain.",
     placeholder: "PHOTO: Recycling facility / mineral extraction",
+    image: "/new_images/recycling.png",
   },
 ];
 
@@ -127,10 +134,20 @@ export default function LifecycleJourney() {
                 >
                   {/* Photo placeholder with colored gradient */}
                   <div className="w-full md:w-1/2">
-                    <div className={`rounded-3xl bg-gradient-to-br ${color.bg} aspect-[4/3] flex items-center justify-center border ${color.border} overflow-hidden group hover:shadow-lg transition-shadow`}>
-                      <span className="text-xs text-gray-400 px-4 text-center font-sans group-hover:text-gray-500 transition-colors">
-                        {stage.placeholder}
-                      </span>
+                    <div className={`relative rounded-3xl bg-gradient-to-br ${color.bg} aspect-[4/3] flex items-center justify-center border ${color.border} overflow-hidden group hover:shadow-lg transition-shadow`}>
+                      {stage.image ? (
+                        <Image
+                          src={stage.image}
+                          alt={stage.title}
+                          fill
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs text-gray-400 px-4 text-center font-sans group-hover:text-gray-500 transition-colors">
+                          {stage.placeholder}
+                        </span>
+                      )}
                     </div>
                   </div>
 
