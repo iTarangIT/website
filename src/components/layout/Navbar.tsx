@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
-import { Menu, X, ChevronDown, ChevronRight, Battery, Power, PlugZap, ArrowRight } from "lucide-react";
+import { Menu, X, ChevronDown, ChevronRight, Battery, Power, PlugZap, ArrowRight, BarChart3, Store, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { mainNavItems, type NavProductCategory, type NavSubCategory } from "@/data/navigation";
 import Button from "@/components/ui/Button";
@@ -27,12 +27,21 @@ const categoryIcons: Record<string, React.ComponentType<{ className?: string }>>
   "plug-zap": PlugZap,
 };
 
+// Mirrors the desktop AudienceDropdown ("I am a…") options — kept in sync so the
+// role selector is available inside the mobile drawer too.
+const audienceOptions = [
+  { id: "nbfc", label: "NBFC", Icon: BarChart3 },
+  { id: "dealer", label: "Dealer", Icon: Store },
+  { id: "customer", label: "Customer", Icon: Users },
+];
+
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [productsOpen, setProductsOpen] = useState(false);
+  const [audienceOpen, setAudienceOpen] = useState(false);
 
   // Desktop dropdown state
   const [activeL1, setActiveL1] = useState<string | null>(null);
@@ -523,6 +532,53 @@ export default function Navbar() {
                     Blog
                   </Link>
                 </div>
+
+                {/* Audience selector — the desktop "I am a…" dropdown lives in the
+                    lg-only CTA cluster, so it's re-created here for mobile/tablet */}
+                <div className="pt-4">
+                  <button
+                    onClick={() => setAudienceOpen((o) => !o)}
+                    aria-expanded={audienceOpen}
+                    className="flex items-center justify-between w-full px-4 py-3 text-base font-medium text-gray-700 hover:text-brand-600 hover:bg-brand-50 rounded-xl border border-gray-200 transition-colors font-sans"
+                  >
+                    I am a…
+                    <ChevronDown className={cn(
+                      "h-4 w-4 text-gray-400 transition-transform duration-200",
+                      audienceOpen && "rotate-180 text-brand-500"
+                    )} />
+                  </button>
+
+                  <AnimatePresence>
+                    {audienceOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="pt-1 pl-2 space-y-0.5">
+                          {audienceOptions.map((o) => {
+                            const Icon = o.Icon;
+                            return (
+                              <button
+                                key={o.id}
+                                onClick={() => { setMobileOpen(false); router.push(`/for-partners#${o.id}`); }}
+                                className="flex items-center gap-3 w-full px-3 py-2.5 text-sm font-medium text-gray-600 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-sans"
+                              >
+                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50">
+                                  <Icon className="h-4 w-4 text-brand-500" />
+                                </div>
+                                {o.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <div className="pt-4 space-y-2">
                   <LoginButton variant="mobile" fullWidth onClick={() => setMobileOpen(false)} />
                   <Button
