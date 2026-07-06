@@ -59,30 +59,30 @@ export default function AboutPage() {
               </h2>
 
               <p className="mt-4 text-xl text-gray-900 font-semibold font-sans">
-                Sanchit Gupta
+                Founded on a simple conviction
               </p>
               <p className="text-base text-brand-500 font-sans">
-                Founder &amp; CEO, iTarang
+                Leadership at iTarang
               </p>
 
               <div className="mt-6 space-y-5 text-lg text-gray-500 leading-relaxed font-sans">
                 <p>
-                  Sanchit Gupta founded iTarang to bring formal financing and
-                  lifecycle intelligence to India&apos;s EV battery market —
-                  where nearly 90% of e-rickshaw batteries are still financed
-                  informally at 30&ndash;60% interest.
+                  iTarang was founded to bring formal financing and lifecycle
+                  intelligence to India&apos;s EV battery market — where nearly
+                  90% of e-rickshaw batteries are still financed informally at
+                  30&ndash;60% interest.
                 </p>
                 <p>
-                  His conviction is simple: when a lender can see inside every
+                  The conviction is simple: when a lender can see inside every
                   battery in real time, financing gets cheaper, drivers earn
                   more, and no asset goes untracked from factory to recycler.
                   That belief shapes every product decision at iTarang.
                 </p>
                 <p>
-                  With experience spanning fintech and clean-energy, Sanchit
-                  leads the company&apos;s vision and strategy — building the
-                  data infrastructure that turns EV batteries into financeable,
-                  trackable, and ultimately recyclable assets.
+                  With experience spanning fintech and clean-energy, our
+                  leadership drives the company&apos;s vision and strategy —
+                  building the data infrastructure that turns EV batteries into
+                  financeable, trackable, and ultimately recyclable assets.
                 </p>
               </div>
             </div>
