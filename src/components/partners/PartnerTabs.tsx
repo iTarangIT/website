@@ -17,12 +17,38 @@ import {
   Wallet,
   BatteryCharging,
   Headset,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
-const tabs = [
+type Tab = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+  activeColor: string;
+  iconActiveColor: string;
+  borderColor: string;
+  headline: string;
+  description: string;
+  features: {
+    icon: LucideIcon;
+    title: string;
+    text: string;
+    iconBg: string;
+    iconColor: string;
+  }[];
+  cta: string;
+  ctaHref: string;
+  placeholder: string;
+  image: string;
+  partnersLabel?: string;
+  partners?: { name: string; src: string; width: number; height: number }[];
+};
+
+const tabs: Tab[] = [
   {
     id: "nbfc",
     label: "For NBFCs",
@@ -61,6 +87,21 @@ const tabs = [
     ctaHref: "/contact?role=nbfc",
     placeholder: "SCREENSHOT: NBFC Dashboard — portfolio health view",
     image: "/new_images/monitor.png",
+    partnersLabel: "Financing & ecosystem partners",
+    partners: [
+      {
+        name: "Bajaj Finserv",
+        src: "/logos/bajaj-finserv.png",
+        width: 736,
+        height: 200,
+      },
+      {
+        name: "BatteryPool",
+        src: "/logos/battery_pool_logo.svg",
+        width: 189,
+        height: 31,
+      },
+    ],
   },
   {
     id: "dealer",
@@ -290,6 +331,42 @@ export default function PartnerTabs() {
               </div>
             </div>
           </div>
+
+          {/* Partner logo strip */}
+          {active.partners && (
+            <div className="mt-16 md:mt-20 pt-12 border-t border-gray-200/70">
+              <div className="flex flex-col items-center">
+                <span className="text-xs font-semibold tracking-[0.18em] uppercase text-gray-400 font-sans">
+                  {active.partnersLabel}
+                </span>
+
+                <div className="mt-8 flex flex-wrap items-center justify-center gap-4 sm:gap-6">
+                  {active.partners.map((partner, i) => (
+                    <motion.div
+                      key={partner.name}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: 0.15 + i * 0.08 }}
+                      className={cn(
+                        "group flex h-24 w-[210px] items-center justify-center rounded-2xl",
+                        "bg-gradient-to-br from-white to-surface-warm px-7",
+                        "border border-gray-200/60 shadow-sm",
+                        "transition-all duration-300 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-lg"
+                      )}
+                    >
+                      <Image
+                        src={partner.src}
+                        alt={partner.name}
+                        width={partner.width}
+                        height={partner.height}
+                        className="h-auto max-h-10 w-auto object-contain opacity-70 grayscale transition-all duration-300 group-hover:opacity-100 group-hover:grayscale-0"
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       </div>
     </section>
