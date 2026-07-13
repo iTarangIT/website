@@ -4,7 +4,7 @@ export const siteConfig = {
   description:
     "We finance, track, maintain, and recycle EV batteries across India. Drivers get affordable EMIs. Lenders get visibility. Nothing falls through the cracks.",
   url: "https://www.itarang.com",
-  email: "care.itarang@gmail.com",
+  email: "care@itarang.com",
   supportEmail: "care@itarang.com",
   phone: "+91-8076841497",
   whatsapp: "+91-8796339460",
