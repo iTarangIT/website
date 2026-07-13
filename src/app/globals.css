@@ -38,6 +38,7 @@
   --animate-shine: shine var(--duration, 14s) infinite linear;
   --animate-grain: grain 8s steps(10) infinite;
   --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
+  --animate-marquee: marquee var(--marquee-duration, 36s) linear infinite;
 }
 
 /* shadcn CSS variables mapped to iTarang brand */
@@ -110,6 +111,14 @@
 @keyframes glow-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+/* Track holds the logo set twice over, so -50% lands on a seam-free repeat.
+   Spacing between cards must come from their own margins, never a flex gap —
+   a gap would sit outside the halves and knock the loop out of register. */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
 /* ========================================
@@ -204,6 +213,21 @@ h1, h2, h3 {
   border: 1px solid rgba(19, 143, 198, 0.1);
   border-radius: 1rem;
   padding: 1.5rem;
+}
+
+/* Marquee — freeze the scroll and fall back to a plain centred row. The repeated
+   cards exist only to feed the loop, so drop them or they read as duplicates.
+   Unlayered, so these win over the Tailwind utilities they override. */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .marquee-repeat {
+    display: none;
+  }
 }
 
 /* Custom scrollbar */

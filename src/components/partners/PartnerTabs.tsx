@@ -17,6 +17,10 @@ import {
   Wallet,
   BatteryCharging,
   Headset,
+  Layers,
+  Repeat,
+  Recycle,
+  BadgeIndianRupee,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,6 +37,8 @@ type Tab = {
   borderColor: string;
   headline: string;
   description: string;
+  /** Hover border for this tab's feature cards. */
+  cardHoverColor: string;
   features: {
     icon: LucideIcon;
     title: string;
@@ -60,6 +66,7 @@ const tabs: Tab[] = [
     headline: "See inside every battery you finance.",
     description:
       "SOH, location, charge patterns, driver behaviour — all in real-time. If a payment is late, the battery tells us before the collection team finds out.",
+    cardHoverColor: "hover:border-blue-200/70",
     features: [
       {
         icon: Eye,
@@ -111,28 +118,50 @@ const tabs: Tab[] = [
     activeColor: "bg-emerald-600",
     iconActiveColor: "text-white",
     borderColor: "border-emerald-200/40",
-    headline: "Sell more batteries. We handle the financing.",
+    headline: "Become the complete lithium shop. We power everything behind it.",
     description:
-      "Offer lithium batteries with ready EMI financing. Your customers get better batteries. You get better margins and zero credit risk.",
+      "Sell every kind of lithium battery, offer instant EMIs, buy back old batteries, and turn scrap into cash — all through one partner. You grow your business. We handle financing, logistics, and the tech.",
+    cardHoverColor: "hover:border-emerald-200/70",
     features: [
       {
-        icon: TrendingUp,
-        title: "Higher Margins",
-        text: "Lithium batteries sell at higher price points with financing built in. More revenue per customer.",
+        icon: Layers,
+        title: "Sell Every Battery, Not Just E-Rickshaw",
+        text: "Stock and sell the full lithium range — L2, L3, L4, L5, plus two-wheeler, inverter, and solar batteries. One partner for your entire shop, in every voltage and Ah configuration your customers need.",
+        iconBg: "bg-emerald-100",
+        iconColor: "text-emerald-600",
+      },
+      {
+        icon: Shield,
+        title: "Zero Credit Risk, Financing for Every Driver",
+        text: "The loan sits between the driver and the NBFC — never you. And we approve a wide range of driver profiles, so fewer customers walk out empty-handed. You make the sale; we handle approvals and collections.",
+        iconBg: "bg-green-100",
+        iconColor: "text-green-600",
+      },
+      {
+        icon: Repeat,
+        title: "Buyback Keeps Customers Coming Back",
+        text: "If a driver no longer wants a battery, we buy it back — priced fairly on its age and condition — and help them switch. Your customer stays happy, stays with you, and comes back for the next purchase.",
+        iconBg: "bg-teal-100",
+        iconColor: "text-teal-600",
+      },
+      {
+        icon: Recycle,
+        title: "Turn Scrap Into Cash",
+        text: "We buy old and scrap batteries from you and your drivers at the best rates around. What used to sit dead in your shop now becomes income.",
         iconBg: "bg-emerald-100",
         iconColor: "text-emerald-600",
       },
       {
         icon: Truck,
-        title: "Full Support",
-        text: "We supply batteries, handle loan processing, install IoT devices, and manage collections. You focus on customers.",
+        title: "We Do the Heavy Lifting",
+        text: "We supply stock, process loans, fit the IoT device, and manage collections. You focus on selling.",
         iconBg: "bg-green-100",
         iconColor: "text-green-600",
       },
       {
-        icon: Shield,
-        title: "Zero Credit Risk",
-        text: "Financing is between the driver and the NBFC. You sell, we handle the rest.",
+        icon: BadgeIndianRupee,
+        title: "Best Price, Guaranteed",
+        text: "Found a lower price elsewhere? Show us the proof and we'll match it. You never lose a sale on price.",
         iconBg: "bg-teal-100",
         iconColor: "text-teal-600",
       },
@@ -153,6 +182,7 @@ const tabs: Tab[] = [
     headline: "Meet your EPR targets. We track every battery.",
     description:
       "From factory to recycler, every battery has a digital trail. Meet Extended Producer Responsibility compliance with real data, not paperwork.",
+    cardHoverColor: "hover:border-amber-200/70",
     features: [
       {
         icon: FileCheck,
@@ -192,6 +222,7 @@ const tabs: Tab[] = [
     headline: "Own a better battery. Pay as you ride.",
     description:
       "Get a lithium battery with easy daily or weekly EMIs. More range, longer life, and support that keeps you earning — no lump sum, no surprises.",
+    cardHoverColor: "hover:border-violet-200/70",
     features: [
       {
         icon: Wallet,
@@ -222,10 +253,25 @@ const tabs: Tab[] = [
   },
 ];
 
+/** Cards per marquee half. The logo list is repeated up to this many cards so the
+ *  strip is wider than any viewport — otherwise the loop shows a gap on the reset. */
+const MARQUEE_MIN_CARDS = 8;
+/** Seconds a single card takes to cross the strip. Higher = calmer drift. */
+const MARQUEE_SECONDS_PER_CARD = 4.5;
+
 export default function PartnerTabs() {
   const [activeTab, setActiveTab] = useState("nbfc");
   const active = tabs.find((t) => t.id === activeTab)!;
   const sectionRef = useRef<HTMLElement>(null);
+
+  const partners = active.partners;
+  const marqueeHalf = partners
+    ? Array.from(
+        { length: Math.ceil(MARQUEE_MIN_CARDS / partners.length) },
+        () => partners
+      ).flat()
+    : [];
+  const marqueeDuration = `${Math.round(marqueeHalf.length * MARQUEE_SECONDS_PER_CARD)}s`;
 
   // Select + scroll to a tab when the URL hash matches one (supports
   // cross-page deep links like /for-partners#nbfc from the home dropdown).
@@ -274,7 +320,7 @@ export default function PartnerTabs() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
-          <div className="flex flex-col md:flex-row gap-12 items-start">
+          <div className="flex flex-col md:flex-row gap-12 items-start md:items-center">
             {/* Left — text content */}
             <div className="w-full md:w-1/2">
               <h2 className="text-3xl md:text-4xl text-gray-900 tracking-tight">
@@ -283,27 +329,6 @@ export default function PartnerTabs() {
               <p className="mt-4 text-lg text-gray-500 leading-relaxed font-sans">
                 {active.description}
               </p>
-
-              <div className="mt-8 space-y-5">
-                {active.features.map((feature) => {
-                  const FIcon = feature.icon;
-                  return (
-                    <div key={feature.title} className="flex gap-4">
-                      <div className={`flex-shrink-0 h-10 w-10 rounded-xl ${feature.iconBg} flex items-center justify-center`}>
-                        <FIcon className={`h-5 w-5 ${feature.iconColor}`} />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-semibold text-gray-900 font-sans">
-                          {feature.title}
-                        </h3>
-                        <p className="mt-1 text-sm text-gray-500 leading-relaxed font-sans">
-                          {feature.text}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
 
               <div className="mt-8">
                 <Button href={active.ctaHref} size="lg">
@@ -332,38 +357,82 @@ export default function PartnerTabs() {
             </div>
           </div>
 
-          {/* Partner logo strip */}
-          {active.partners && (
+          {/* Feature grid — same structure across every tab */}
+          <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {active.features.map((feature, i) => {
+              const FIcon = feature.icon;
+              return (
+                <motion.div
+                  key={feature.title}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.1 + i * 0.06 }}
+                  className={cn(
+                    "group rounded-2xl p-6",
+                    "bg-gradient-to-br from-white to-surface-warm",
+                    "border border-gray-200/60 shadow-sm",
+                    "transition-all duration-300 hover:-translate-y-1 hover:shadow-lg",
+                    active.cardHoverColor
+                  )}
+                >
+                  <div className={`h-10 w-10 rounded-xl ${feature.iconBg} flex items-center justify-center`}>
+                    <FIcon className={`h-5 w-5 ${feature.iconColor}`} />
+                  </div>
+                  <h3 className="mt-4 text-base font-semibold text-gray-900 font-sans">
+                    {feature.title}
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-500 leading-relaxed font-sans">
+                    {feature.text}
+                  </p>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {/* Partner logo strip — drifts left, pauses on hover */}
+          {partners && (
             <div className="mt-16 md:mt-20 pt-12 border-t border-gray-200/70">
               <div className="flex flex-col items-center">
                 <span className="text-xs font-semibold tracking-[0.18em] uppercase text-gray-400 font-sans">
                   {active.partnersLabel}
                 </span>
 
-                <div className="mt-8 flex flex-wrap items-center justify-center gap-4 sm:gap-6">
-                  {active.partners.map((partner, i) => (
-                    <motion.div
-                      key={partner.name}
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.4, delay: 0.15 + i * 0.08 }}
-                      className={cn(
-                        "group flex h-24 w-[210px] items-center justify-center rounded-2xl",
-                        "bg-gradient-to-br from-white to-surface-warm px-7",
-                        "border border-gray-200/60 shadow-sm",
-                        "transition-all duration-300 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-lg"
-                      )}
-                    >
-                      <Image
-                        src={partner.src}
-                        alt={partner.name}
-                        width={partner.width}
-                        height={partner.height}
-                        className="h-auto max-h-10 w-auto object-contain opacity-70 grayscale transition-all duration-300 group-hover:opacity-100 group-hover:grayscale-0"
-                      />
-                    </motion.div>
-                  ))}
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.15 }}
+                  style={{ "--marquee-duration": marqueeDuration } as React.CSSProperties}
+                  className={cn(
+                    "marquee-viewport group/marquee relative mt-8 w-full overflow-hidden py-3",
+                    "[mask-image:linear-gradient(to_right,transparent,#000_7%,#000_93%,transparent)]"
+                  )}
+                >
+                  <div className="marquee-track flex w-max animate-marquee items-center group-hover/marquee:[animation-play-state:paused]">
+                    {[...marqueeHalf, ...marqueeHalf].map((partner, i) => (
+                      <div
+                        key={`${partner.name}-${i}`}
+                        // Everything past the first logo of each set is padding for
+                        // the loop — hidden from AT, and dropped under reduced motion.
+                        aria-hidden={i >= partners.length}
+                        className={cn(
+                          i >= partners.length && "marquee-repeat",
+                          "group/logo mx-2 flex h-24 w-[210px] shrink-0 items-center justify-center rounded-2xl sm:mx-3",
+                          "bg-gradient-to-br from-white to-surface-warm px-7",
+                          "border border-gray-200/60 shadow-sm",
+                          "transition-all duration-300 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-lg"
+                        )}
+                      >
+                        <Image
+                          src={partner.src}
+                          alt={partner.name}
+                          width={partner.width}
+                          height={partner.height}
+                          className="h-auto max-h-10 w-auto object-contain opacity-70 grayscale transition-all duration-300 group-hover/logo:opacity-100 group-hover/logo:grayscale-0"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
               </div>
             </div>
           )}
