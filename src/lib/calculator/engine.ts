@@ -81,9 +81,10 @@ export interface GlobalConfig {
 
 export interface Card1Input {
   model: string;
+  /** MAXIMUM tenure in months — every scheme at this tenure or shorter is returned. */
   tenure: number;
-  expectedEmi?: number; // optional filter
-  upfrontAbility?: number; // optional filter (max TOTAL upfront)
+  expectedEmi?: number; // captured on the lead; does NOT filter the results
+  upfrontAbility?: number; // captured on the lead; does NOT filter the results
   city?: string;
 }
 
@@ -271,7 +272,7 @@ export function calculate(ctx: EngineContext, input: Card1Input): CalcResult {
   for (const { nbfc, modelCap } of eligibleNbfcs) {
     for (const scheme of nbfc.schemes) {
       if (!scheme.active) continue;
-      if (scheme.tenure !== input.tenure) continue; // exact-match; caller may map to nearest first
+      if (scheme.tenure > input.tenure) continue; // tenure is a ceiling: include every shorter scheme
 
       const raw = computeScheme(components, global.dealerMargin, nbfc, scheme, modelCap);
       // FIX: totalUpfront is the workbook's single upfront figure — already contains
@@ -298,67 +299,20 @@ export function calculate(ctx: EngineContext, input: Card1Input): CalcResult {
     }
   }
 
-  const expEmi = input.expectedEmi;
-  const upAbility = input.upfrontAbility;
-  const windowFactor = 1 + global.nearBestWindowPct / 100;
-
-  const qualified: SchemeCard[] = [];
+  // Every scheme inside the tenure ceiling is offered. Expected EMI / upfront ability are
+  // captured on the lead for follow-up but never hide a scheme: a shorter tenure necessarily
+  // costs more per month, and the customer should still get to see and choose it.
+  const qualified = cards;
   const stretch: SchemeCard[] = [];
 
-  for (const card of cards) {
-    const emiOk = expEmi == null ? true : card.emi <= expEmi;
-    const upfrontOk = upAbility == null ? true : card.totalUpfront <= upAbility;
-
-    if (emiOk && upfrontOk) {
-      card.tier = "qualified";
-      qualified.push(card);
-      continue;
-    }
-
-    const failsEmi = expEmi != null && card.emi > expEmi;
-    const failsUpfront = upAbility != null && card.totalUpfront > upAbility;
-    const failCount = (failsEmi ? 1 : 0) + (failsUpfront ? 1 : 0);
-
-    if (failCount === 1) {
-      const withinWindow =
-        (failsEmi && expEmi != null && card.emi <= expEmi * windowFactor) ||
-        (failsUpfront && upAbility != null && card.totalUpfront <= upAbility * windowFactor);
-      if (withinWindow) {
-        // Normalised distance to qualifying — how big a change the customer must make.
-        const distance =
-          failsEmi && expEmi != null
-            ? (card.emi - expEmi) / expEmi
-            : failsUpfront && upAbility != null
-              ? (card.totalUpfront - upAbility) / upAbility
-              : 0;
-        card.tier = "stretch";
-        card.stretchDistance = distance;
-        card.stretch = {
-          failsEmi,
-          failsUpfront,
-          upfrontGap: failsUpfront && upAbility != null ? card.totalUpfront - upAbility : 0,
-          requiredEmi: failsEmi ? card.emi : 0,
-          distance,
-        };
-        stretch.push(card);
-      }
-    }
-    // failCount === 2 → dropped
-  }
-
   qualified.sort((a, b) => a.emi - b.emi || a.totalUpfront - b.totalUpfront);
-  stretch.sort((a, b) => (a.stretchDistance ?? 0) - (b.stretchDistance ?? 0));
 
   if (qualified.length > 0) {
     qualified[0].recommended = true;
     qualified[0].recommendationLabel = "Lowest monthly EMI";
-  } else if (stretch.length > 0) {
-    stretch[0].recommended = true;
-    stretch[0].recommendationLabel = "Closest to qualify";
   }
 
-  const outcome: CalcResult["outcome"] =
-    qualified.length > 0 ? "qualified" : stretch.length > 0 ? "stretch_only" : "none";
+  const outcome: CalcResult["outcome"] = qualified.length > 0 ? "qualified" : "none";
 
   return { qualified, stretch, outcome };
 }

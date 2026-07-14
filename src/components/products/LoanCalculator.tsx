@@ -214,11 +214,11 @@ export default function LoanCalculator() {
                 ))}
               </select>
             </Field>
-            <Field label="Tenure" required>
+            <Field label="Tenure" required hint="Shows every scheme at this tenure or shorter.">
               <select className={inputCls} value={form.tenure} onChange={(e) => set("tenure", e.target.value)}>
                 <option value="">Select tenure…</option>
                 {meta?.tenures.map((t) => (
-                  <option key={t} value={t}>{t} months</option>
+                  <option key={t} value={t}>Up to {t} months</option>
                 ))}
               </select>
             </Field>
@@ -230,6 +230,10 @@ export default function LoanCalculator() {
                 <input className={inputCls} type="number" min={0} value={form.upfrontAbility} onChange={(e) => set("upfrontAbility", e.target.value)} placeholder="₹ total" />
               </Field>
             </div>
+            <p className="text-xs text-gray-400">
+              Expected EMI and upfront ability help our team follow up — they don&apos;t hide any
+              scheme from your results.
+            </p>
           </div>
 
           {error && (
@@ -295,7 +299,7 @@ function Results({ result }: { result: CalcResponse }) {
       <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <p className="text-sm text-gray-500">
           Model <span className="font-semibold text-gray-900">{result.model.displayName}</span> ·{" "}
-          {result.qualified.length} qualified, {result.stretch.length} next-best
+          {result.qualified.length} qualified
         </p>
       </div>
 
@@ -310,22 +314,9 @@ function Results({ result }: { result: CalcResponse }) {
         </section>
       )}
 
-      {result.stretch.length > 0 && (
-        <section>
-          <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-            {result.outcome === "stretch_only" ? "Closest to qualify" : "Next best (stretch to qualify)"}
-          </h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {result.stretch.map((c) => (
-              <SchemeCardView key={`${c.nbfc}-${c.schemeCode}`} card={c} />
-            ))}
-          </div>
-        </section>
-      )}
-
       {result.outcome === "none" && (
         <div className="rounded-2xl border border-gray-200 bg-white px-5 py-6 text-center text-sm text-gray-500">
-          No schemes qualify or are close for these filters. Please reach out to your
+          No schemes are available for this city, battery model and tenure. Please reach out to your
           nearest iTarang dealer — we may still be able to help.
         </div>
       )}
@@ -357,7 +348,17 @@ function Results({ result }: { result: CalcResponse }) {
 const inputCls =
   "w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-100";
 
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
       <span className="mb-1 block text-xs font-medium text-gray-600">
@@ -365,6 +366,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
         {required && <span className="text-red-500"> *</span>}
       </span>
       {children}
+      {hint && <span className="mt-1 block text-xs text-gray-400">{hint}</span>}
     </label>
   );
 }
