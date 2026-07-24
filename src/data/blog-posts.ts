@@ -29,4 +29,14 @@ export const blogPosts: BlogPost[] = [
     category: "Vision",
     coverImage: "/images/blog/battery-passport-cover.webp",
   },
+  {
+    slug: "e-rickshaw-lithium-battery-compatibility-installation",
+    title: "How to Check E-Rickshaw Lithium Battery Compatibility and Installation Requirements",
+    excerpt:
+      "A practical checklist for vehicle compatibility, model selection, dealer installation, IoT pairing, activation, and safety checks.",
+    date: "2026-07-24",
+    readTime: "7 min read",
+    category: "Driver Guides",
+    coverImage: "/images/blog/e-rickshaw-battery-compatibility-cover.webp",
+  },
 ];
