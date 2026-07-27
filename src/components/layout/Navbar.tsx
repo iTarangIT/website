@@ -107,8 +107,9 @@ export default function Navbar() {
       >
         <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            {/* Logo — swaps between light/dark wordmark so it stays legible
-                on both the transparent (dark) and scrolled (white) navbar */}
+            {/* One bounded wordmark source keeps the critical header from
+                discovering and decoding two logo assets. The filter provides
+                contrast on the solid navbar without a second image request. */}
             <Link href="/" className="flex items-center shrink-0 group">
               <span className="relative block h-8 w-[128px]">
                 <Image
@@ -118,18 +119,8 @@ export default function Navbar() {
                   sizes="128px"
                   priority
                   className={cn(
-                    "object-contain object-left transition-opacity duration-500",
-                    solid ? "opacity-0" : "opacity-100"
-                  )}
-                />
-                <Image
-                  src="/images/logo-wordmark-dark.png"
-                  alt="iTarang"
-                  fill
-                  sizes="128px"
-                  className={cn(
-                    "object-contain object-left transition-opacity duration-500",
-                    solid ? "opacity-100" : "opacity-0"
+                    "object-contain object-left transition-[filter] duration-500",
+                    solid && "brightness-0"
                   )}
                 />
               </span>

@@ -82,7 +82,7 @@ export default function WhoWeServe() {
                         src={item.image}
                         alt={item.title}
                         fill
-                        sizes="(max-width: 768px) 100vw, 33vw"
+                        sizes="(max-width: 768px) calc(100vw - 2rem), 420px"
                         loading="lazy"
                         className="object-cover object-top"
                       />

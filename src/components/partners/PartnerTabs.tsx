@@ -331,7 +331,7 @@ export default function PartnerTabs() {
                     src={active.image}
                     alt={active.label}
                     fill
-                    sizes="(max-width: 768px) 100vw, 50vw"
+                    sizes="(max-width: 768px) calc(100vw - 2rem), 600px"
                     loading="lazy"
                     className="object-cover"
                   />
