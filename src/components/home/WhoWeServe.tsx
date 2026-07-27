@@ -47,7 +47,7 @@ const audiences = [
 
 export default function WhoWeServe() {
   return (
-    <section className="py-24 md:py-32 bg-surface-warm relative overflow-hidden">
+    <section className="py-24 md:py-32 bg-surface-warm relative overflow-hidden [content-visibility:auto] [contain-intrinsic-size:0_900px]">
       {/* Subtle background pattern */}
       <div className="absolute top-0 right-0 w-1/2 h-full bg-[radial-gradient(ellipse_at_top_right,rgba(5,27,154,0.04),transparent_60%)]" />
 
@@ -83,6 +83,7 @@ export default function WhoWeServe() {
                         alt={item.title}
                         fill
                         sizes="(max-width: 768px) 100vw, 33vw"
+                        loading="lazy"
                         className="object-cover object-top"
                       />
                     ) : (
