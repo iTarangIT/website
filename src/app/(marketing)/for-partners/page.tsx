@@ -28,6 +28,29 @@ export default function ForPartnersPage() {
         </div>
       </section>
 
+      <section className="bg-white px-4 py-12 md:py-16">
+        <div className="mx-auto max-w-7xl">
+          <h2 className="text-3xl tracking-tight text-gray-900">Explore your iTarang journey</h2>
+          <p className="mt-3 max-w-2xl font-sans text-lg leading-relaxed text-gray-600">
+            Start with the audience-specific information that matches your role, then use the partner overview below for the wider ecosystem context.
+          </p>
+          <nav aria-label="Audience solutions" className="mt-7 grid gap-4 md:grid-cols-3">
+            <a href="/for-drivers" className="rounded-xl border border-gray-200 p-5 transition hover:border-brand-300 hover:bg-brand-50">
+              <h3 className="text-xl text-gray-900">For Drivers</h3>
+              <p className="mt-2 font-sans text-gray-600">Battery purchase, financing, monitoring, and support.</p>
+            </a>
+            <a href="/for-dealers" className="rounded-xl border border-gray-200 p-5 transition hover:border-brand-300 hover:bg-brand-50">
+              <h3 className="text-xl text-gray-900">For Dealers</h3>
+              <p className="mt-2 font-sans text-gray-600">Partnership, installation, onboarding, and service workflows.</p>
+            </a>
+            <a href="/for-oems" className="rounded-xl border border-gray-200 p-5 transition hover:border-brand-300 hover:bg-brand-50">
+              <h3 className="text-xl text-gray-900">For OEMs</h3>
+              <p className="mt-2 font-sans text-gray-600">Lifecycle, monitoring, recovery, recycling, and EPR discussions.</p>
+            </a>
+          </nav>
+        </div>
+      </section>
+
       <PartnerTabs />
     </>
   );

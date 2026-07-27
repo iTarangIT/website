@@ -3,12 +3,14 @@
 import { Zap, Store, BarChart3 } from "lucide-react";
 import { motion } from "framer-motion";
 import Image from "next/image";
+import Link from "next/link";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
 const audiences = [
   {
     icon: Zap,
     title: "Drivers",
+    href: "/for-drivers",
     description: "Better batteries, daily EMIs you can afford. Earn more, worry less.",
     placeholder: "PHOTO: E-rickshaw driver",
     image: "/new_images/e-rickshaw_driver.png",
@@ -20,6 +22,7 @@ const audiences = [
   {
     icon: Store,
     title: "Dealers",
+    href: "/for-dealers",
     description: "Sell more with ready financing. Zero credit risk, higher margins.",
     placeholder: "PHOTO: Dealer shop",
     image: "/new_images/dealer_shop_updated.png",
@@ -31,6 +34,7 @@ const audiences = [
   {
     icon: BarChart3,
     title: "Lenders",
+    href: "/for-partners#nbfc",
     description: "See inside every battery you finance. Real-time data, real confidence.",
     placeholder: "PHOTO: Office / Dashboard",
     image: "/new_images/lenders.png",
@@ -65,6 +69,7 @@ export default function WhoWeServe() {
             const Icon = item.icon;
             return (
               <FadeInOnScroll key={item.title} delay={i * 0.12}>
+                <Link href={item.href}>
                 <motion.div
                   whileHover={{ y: -6, transition: { duration: 0.3 } }}
                   className={`group rounded-3xl bg-white border border-gray-200/60 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 ${item.borderHover}`}
@@ -104,6 +109,7 @@ export default function WhoWeServe() {
                     </p>
                   </div>
                 </motion.div>
+                </Link>
               </FadeInOnScroll>
             );
           })}
