@@ -1,12 +1,35 @@
+export type BlogCategorySlug =
+  | "financing"
+  | "battery-selection"
+  | "charging-maintenance"
+  | "safety"
+  | "lifecycle-recycling"
+  | "partners-industry";
+
 export interface BlogPost {
   slug: string;
   title: string;
   excerpt: string;
   date: string;
   readTime: string;
-  category: string;
+  category: BlogCategorySlug;
   coverImage: string;
 }
+
+export interface BlogCategory {
+  name: string;
+  slug: BlogCategorySlug;
+  description: string;
+}
+
+export const blogCategories: BlogCategory[] = [
+  { name: "Financing", slug: "financing", description: "Battery price, EMI, eligibility, and financing workflows." },
+  { name: "Battery Selection", slug: "battery-selection", description: "Voltage, capacity, compatibility, and purchase decisions." },
+  { name: "Charging & Maintenance", slug: "charging-maintenance", description: "Charging practice, battery care, alerts, and troubleshooting." },
+  { name: "Safety", slug: "safety", description: "Safe charging, handling, installation checks, and escalation." },
+  { name: "Lifecycle & Recycling", slug: "lifecycle-recycling", description: "Battery health, replacement, second life, and recycling." },
+  { name: "Partners & Industry", slug: "partners-industry", description: "Dealer, OEM, NBFC, policy, and ecosystem topics." },
+];
 
 export const blogPosts: BlogPost[] = [
   {
@@ -16,7 +39,7 @@ export const blogPosts: BlogPost[] = [
       "Over 90% of e-rickshaw batteries are financed informally at 30–60% interest rates. We break down the real cost to drivers and the structural opportunity for institutional capital.",
     date: "2026-03-20",
     readTime: "6 min read",
-    category: "Industry Insights",
+    category: "financing",
     coverImage: "/images/blog/informal-financing-cover.webp",
   },
   {
@@ -26,7 +49,7 @@ export const blogPosts: BlogPost[] = [
       "From EU regulations to India's Battery Waste Management Rules — how lifecycle data creates the foundation for a bankable, circular EV battery economy.",
     date: "2026-03-15",
     readTime: "8 min read",
-    category: "Vision",
+    category: "partners-industry",
     coverImage: "/images/blog/battery-passport-cover.webp",
   },
   {
@@ -36,7 +59,7 @@ export const blogPosts: BlogPost[] = [
       "A practical checklist for vehicle compatibility, model selection, dealer installation, IoT pairing, activation, and safety checks.",
     date: "2026-07-24",
     readTime: "7 min read",
-    category: "Driver Guides",
+    category: "battery-selection",
     coverImage: "/images/blog/e-rickshaw-battery-compatibility-cover.webp",
   },
   {
@@ -46,7 +69,7 @@ export const blogPosts: BlogPost[] = [
       "Understand battery health, charging, temperature, range, and anomaly alerts, with safe driver checks and service-escalation guidance.",
     date: "2026-07-27",
     readTime: "8 min read",
-    category: "Driver Guides",
+    category: "charging-maintenance",
     coverImage: "/images/blog/e-rickshaw-battery-maintenance-cover.webp",
   },
 ];

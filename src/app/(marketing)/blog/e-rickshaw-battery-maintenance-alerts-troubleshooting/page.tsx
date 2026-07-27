@@ -15,7 +15,7 @@ export default function ERickshawBatteryMaintenanceAlertsArticle() {
       title="E-Rickshaw Battery Maintenance Alerts and Troubleshooting FAQ"
       date="2026-07-27"
       readTime="8 min read"
-      category="Driver Guides"
+      category="charging-maintenance"
     >
       <p>
         A battery alert is a signal to investigate, not a diagnosis by itself. This guide

@@ -14,7 +14,7 @@ export default function BatteryPassportArticle() {
       title="The Battery Passport: What It Means for India's EV Circular Economy"
       date="2026-03-15"
       readTime="8 min read"
-      category="Vision"
+      category="partners-industry"
     >
       <p>
         As India accelerates its transition to electric mobility, a critical question is emerging:

@@ -15,7 +15,7 @@ export default function ERickshawBatteryCompatibilityInstallationArticle() {
       title="How to Check E-Rickshaw Lithium Battery Compatibility and Installation Requirements"
       date="2026-07-24"
       readTime="7 min read"
-      category="Driver Guides"
+      category="battery-selection"
     >
       <p>
         Choosing a lithium battery for an e-rickshaw starts with compatibility, not just
