@@ -7,6 +7,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/", priority: 1.0, changeFrequency: "weekly" as const },
     { path: "/how-it-works", priority: 0.9, changeFrequency: "monthly" as const },
     { path: "/e-rickshaw-lithium-battery-models-specifications", priority: 0.9, changeFrequency: "monthly" as const },
+    { path: "/e-rickshaw-battery-warranty-service-replacement-support", priority: 0.9, changeFrequency: "monthly" as const },
     { path: "/for-partners", priority: 0.9, changeFrequency: "monthly" as const },
     { path: "/for-drivers", priority: 0.9, changeFrequency: "monthly" as const },
     { path: "/for-dealers", priority: 0.9, changeFrequency: "monthly" as const },
