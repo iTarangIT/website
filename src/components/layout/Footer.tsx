@@ -142,14 +142,6 @@ export default function Footer() {
             <p className="text-xs text-brand-400/30 font-sans">
               &copy; {new Date().getFullYear()} {siteConfig.name}. All rights reserved.
             </p>
-            <div className="flex items-center gap-6">
-              <Link href="/privacy" className="text-xs text-brand-400/30 hover:text-brand-300/60 transition-colors font-sans">
-                Privacy Policy
-              </Link>
-              <Link href="/terms" className="text-xs text-brand-400/30 hover:text-brand-300/60 transition-colors font-sans">
-                Terms of Service
-              </Link>
-            </div>
           </div>
         </div>
       </div>
