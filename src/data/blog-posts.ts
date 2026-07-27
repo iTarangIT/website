@@ -39,4 +39,14 @@ export const blogPosts: BlogPost[] = [
     category: "Driver Guides",
     coverImage: "/images/blog/e-rickshaw-battery-compatibility-cover.webp",
   },
+  {
+    slug: "e-rickshaw-battery-maintenance-alerts-troubleshooting",
+    title: "E-Rickshaw Battery Maintenance Alerts and Troubleshooting FAQ",
+    excerpt:
+      "Understand battery health, charging, temperature, range, and anomaly alerts, with safe driver checks and service-escalation guidance.",
+    date: "2026-07-27",
+    readTime: "8 min read",
+    category: "Driver Guides",
+    coverImage: "/images/blog/e-rickshaw-battery-maintenance-cover.webp",
+  },
 ];
