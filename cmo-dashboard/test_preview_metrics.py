@@ -82,9 +82,9 @@ class PreviewMetricsTests(unittest.TestCase):
     def test_discord_evidence_contains_both_sites_and_three_look_at_lines(self):
         message = preview_metrics.evidence_message(
             {"id": "TASK-4", "agent_summary_1": "Check title", "agent_summary_2": "Check CTA", "agent_summary_3": "Check mobile"},
-            "abc1234", "https://preview.itarang.com",
+            "abc1234", "https://itarangwebsite.vercel.app",
         )
-        self.assertIn("Preview: https://preview.itarang.com", message)
+        self.assertIn("Preview: https://itarangwebsite.vercel.app", message)
         self.assertIn("Live: https://itarang.com", message)
         self.assertEqual(message.count("- "), 3)
 

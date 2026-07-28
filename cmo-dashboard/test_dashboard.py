@@ -134,7 +134,7 @@ class ApprovalTests(unittest.TestCase):
                   patch.object(dashboard_server, 'APPROVAL_LOG', root / 'approvals.log'),
                   patch.object(dashboard_server, 'HUMAN_APPROVALS', root / 'approvals.json'),
                   patch.object(dashboard_server, 'METRICS_DIR', metrics),
-                  patch.object(dashboard_server, 'deploy_preview', return_value={'preview_url': 'https://preview.itarang.com'}) as deploy,
+                  patch.object(dashboard_server, 'deploy_preview', return_value={'preview_url': 'https://itarangwebsite.vercel.app'}) as deploy,
                   patch.object(dashboard_server, 'post_discord') as discord,
                   patch.object(dashboard_server, '_queue_approved_work') as queue):
                 result = apply_approval('TASK-7', 'approve', 'looks good', 'alice')

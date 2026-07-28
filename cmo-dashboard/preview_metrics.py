@@ -21,7 +21,7 @@ STATE = Path(os.getenv("CMO_DASHBOARD_PROFILE_DIR", "/opt/data/profiles/itarang_
 METRICS_DIR = STATE / "website-metrics"
 SPEND_TRACKER = Path(os.getenv("CMO_SPEND_TRACKER", "/opt/data/profiles/itarang_cmo/scripts/spend-tracker.py"))
 PREVIEW_HOOK_URL = os.getenv("VERCEL_DEPLOY_HOOK_URL", "").strip()
-PREVIEW_URL = os.getenv("CMO_PREVIEW_URL", "https://preview.itarang.com").strip().rstrip("/")
+PREVIEW_URL = os.getenv("CMO_PREVIEW_URL", "https://itarangwebsite.vercel.app").strip().rstrip("/")
 LIVE_URL = os.getenv("CMO_LIVE_URL", "https://itarang.com").strip().rstrip("/")
 DISCORD_WEBHOOK_URL = os.getenv("CMO_DISCORD_WEBHOOK_URL", "").strip()
 

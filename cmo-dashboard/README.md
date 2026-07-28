@@ -23,7 +23,7 @@ Required for the production dashboard and website preview gate:
 - `CMO_DASHBOARD_GIT_REPO` — absolute website repository path.
 - `VERCEL_DEPLOY_HOOK_URL` — Vercel project deploy-hook URL configured for the `cmo-changes` branch.
 - `VERCEL_TOKEN` — Vercel API token; environment-only, never store in the repository or task state.
-- `CMO_PREVIEW_URL` — fixed internal preview URL reviewers open.
+- `CMO_PREVIEW_URL` — fixed preview URL reviewers open (`https://itarangwebsite.vercel.app`).
 - `CMO_LIVE_URL` — production URL reviewers compare against.
 - `CMO_DISCORD_WEBHOOK_URL` — Discord webhook used for immediate Gate 1 preview notices and evidence posts.
 
