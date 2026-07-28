@@ -1,16 +1,15 @@
 name: Deploy
-
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'cmo-dashboard/**'
   workflow_dispatch:
-
 # One deploy at a time; a new push waits for the current deploy to finish
 # instead of interrupting it mid-swap.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
-
 jobs:
   check-secrets:
     name: Check deploy secrets
@@ -20,7 +19,6 @@ jobs:
     steps:
       - id: check
         run: echo "configured=${{ secrets.VPS_HOST != '' && secrets.VPS_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
-
   deploy:
     name: Build on runner & deploy to VPS
     needs: check-secrets
@@ -28,16 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           # Matches the Node major on the VPS so runner-built output runs identically.
           node-version: 24
           cache: npm
-
       - name: Install dependencies
         run: npm ci
-
       # The production VPS is a shared 8 GB box that has OOM'd on next build
       # before, so the build happens here and only the output is shipped.
       - name: Build
@@ -55,12 +50,10 @@ jobs:
           # so they must be provided here, not on the VPS.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-
       - name: Pack build output
         run: |
           rm -rf .next/cache
           tar czf next-build.tgz .next
-
       - name: Upload build to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -69,7 +62,6 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           source: next-build.tgz
           target: /home/itarang-website/
-
       - name: Activate release over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -93,7 +85,6 @@ jobs:
             pm2 save
             rm -f /home/itarang-website/next-build.tgz
             rm -rf .next-previous
-
   skipped:
     name: Deploy skipped (secrets not configured)
     needs: check-secrets
