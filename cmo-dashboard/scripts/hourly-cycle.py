@@ -32,11 +32,14 @@ LOG = PROFILE / "logs/hourly-cycle.log"
 STATE_DIR = PROFILE / "state"
 ACTIVE = STATE_DIR / "hourly-active.json"
 APPROVALS = STATE_DIR / "human-approvals.json"
+FAILURE_STATE = STATE_DIR / "hourly-failure.json"
 LOCK = STATE_DIR / "tasks.lock"
 TMUX = PROFILE / "bin/tmux"
 TARGET = os.environ.get("CMO_DISCORD_TARGET", "discord:1526833186657796153")
 ROLES = {"social", "seo", "ads", "content", "ops"}
 STATUSES = {"Backlog", "In Progress", "CMO Review", "Human Approval", "Completed"}
+CANONICAL_SECTIONS = ("Backlog", "In Progress", "CMO Review", "Human Approval", "Completed")
+GITHUB_ENV = PROFILE / "dashboard" / ".env"
 
 
 def now() -> dt.datetime:
@@ -65,6 +68,37 @@ def save_json(path: Path, value) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def ensure_board_sections(text: str) -> str:
+    missing = [name for name in CANONICAL_SECTIONS if not re.search(rf"(?m)^## {re.escape(name)}\s*$", text)]
+    if not missing:
+        return text
+    log(f"BOARD_SECTIONS_MISSING missing={','.join(missing)}; creating empty sections")
+    for name in missing:
+        text = text.rstrip() + f"\n\n## {name}\n\n_No tasks._\n"
+    return text
+
+
+def github_token() -> str:
+    for line in GITHUB_ENV.read_text(encoding="utf-8").splitlines():
+        if line.startswith("GITHUB_TOKEN="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    raise RuntimeError(f"GITHUB_TOKEN missing from {GITHUB_ENV}")
+
+
+def git_fetch(repo: str, *args: str) -> None:
+    token = github_token()
+    askpass = STATE_DIR / f".git-askpass-{os.getpid()}"
+    askpass.write_text("#!/bin/sh\ncase \"$1\" in *Username*) printf '%s\\n' x-access-token ;; *) printf '%s\\n' \"$HERMES_GITHUB_TOKEN\" ;; esac\n", encoding="utf-8")
+    askpass.chmod(0o700)
+    env = os.environ.copy()
+    env.update({"GIT_ASKPASS": str(askpass), "GIT_TERMINAL_PROMPT": "0", "HERMES_GITHUB_TOKEN": token})
+    try:
+        subprocess.run(["git", "-C", repo, *args], check=False, timeout=90, env=env,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    finally:
+        askpass.unlink(missing_ok=True)
 
 
 def parse_tasks(text: str) -> list[dict]:
@@ -256,8 +290,7 @@ def metric_summary(rows: list[dict]) -> str:
 
 def merged_into_main(commit: str) -> bool:
     repo = os.environ.get("CMO_DASHBOARD_GIT_REPO", str(Path(__file__).resolve().parents[2]))
-    subprocess.run(["git", "-C", repo, "fetch", "origin", "main"], check=False, timeout=90,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    git_fetch(repo, "fetch", "origin", "main")
     result = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", commit, "origin/main"],
                             check=False, timeout=10)
     return result.returncode == 0
@@ -284,8 +317,34 @@ def post_changes(changes: list[str]) -> None:
     subprocess.run(["/opt/hermes/.venv/bin/hermes", "--profile", "itarang_cmo", "send", "--to", TARGET, message, "--quiet"], check=True, timeout=60)
 
 
+def post_failure_alert(exc: Exception) -> None:
+    state = load_json(FAILURE_STATE, {})
+    current = now()
+    last = state.get("last_alert")
+    due = not state.get("active")
+    if last:
+        try:
+            due = (current - dt.datetime.fromisoformat(last)).total_seconds() >= 21600
+        except ValueError:
+            due = True
+    if not due:
+        return
+    message = f"ALERT hourly cycle failing: {type(exc).__name__}: {exc}"
+    try:
+        post_changes([message])
+    except Exception as alert_exc:
+        log(f"FAILURE_ALERT_FAILED error={type(alert_exc).__name__}: {alert_exc}")
+        return
+    save_json(FAILURE_STATE, {"active": True, "last_alert": stamp(current), "error": message})
+
+
+def clear_failure_alert() -> None:
+    if FAILURE_STATE.exists():
+        save_json(FAILURE_STATE, {"active": False, "last_alert": None})
+
+
 def run_cycle() -> int:
-    text = BOARD.read_text(encoding="utf-8")
+    text = ensure_board_sections(BOARD.read_text(encoding="utf-8"))
     active = load_json(ACTIVE, {})
     approvals = load_json(APPROVALS, {})
     changes: list[str] = []
@@ -468,7 +527,8 @@ def run_cycle() -> int:
     except Exception as exc:
         log(f"DISCORD_FAILED error={type(exc).__name__}: {exc}")
         print(f"Discord post failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        raise
+    clear_failure_alert()
     print("\n".join(changes) if changes else "no changes")
     return 0
 
@@ -484,7 +544,12 @@ def main() -> int:
         except BlockingIOError:
             print("hourly cycle already running", file=sys.stderr)
             return 0
-        return run_cycle()
+        try:
+            return run_cycle()
+        except Exception as exc:
+            log(f"CYCLE_FAILED error={type(exc).__name__}: {exc}")
+            post_failure_alert(exc)
+            return 1
 
 
 if __name__ == "__main__":
