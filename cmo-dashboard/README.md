@@ -4,7 +4,7 @@ This directory contains the dashboard approval endpoint and the hourly website e
 
 ## Website change flow
 
-1. The implementation worker changes and pushes `cmo-changes` and returns a commit hash plus three review lines.
+1. The implementation worker changes and pushes `cmo-changes` and returns a commit hash plus three review lines. After a rejection, it must also return a non-empty `reply` field in the same compact JSON result, describing what changed in response to the outstanding rejection comment; otherwise the hourly cycle bounces the resubmission back to In Progress.
 2. The hourly cycle captures Lighthouse baseline metrics before dispatching website implementation. A website task without explicit `Affected pages` URLs is not dispatched.
 3. Gate 1 is the dashboard approval. Approval requires the pre-existing captured baseline and an implementation commit. The approval endpoint triggers the Vercel deploy hook for `cmo-changes`, records the fixed preview URL, and posts the preview URL, live URL, and three “what to look at” lines to Discord.
 4. The system records the task as awaiting merge. It never merges.
