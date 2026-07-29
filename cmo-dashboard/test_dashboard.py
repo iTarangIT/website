@@ -81,6 +81,52 @@ class AuthTests(unittest.TestCase):
 
 
 class ApprovalTests(unittest.TestCase):
+    def test_task_metadata_exposes_rejection_thread_and_outstanding_round(self):
+        task = parse_tasks('''## Human Approval
+
+### TASK-8 — Threaded review
+- ID: TASK-8
+- Owner: content
+- Status: Human Approval
+- Approval thread 1 rejection: alice: update the CTA contrast
+- Approval thread 1 reply: content: changed CTA contrast and added a regression check
+- Approval thread 2 rejection: alice: also verify the mobile breakpoint
+''')[0]
+        metadata = dashboard_server.task_change_metadata(task)
+        self.assertEqual([event['type'] for event in metadata['approval_thread']], ['rejection', 'reply', 'rejection'])
+        outstanding = dashboard_server.outstanding_rejection(task)
+        self.assertIsNotNone(outstanding)
+        self.assertEqual('2', outstanding['round'])
+
+    def test_reject_appends_thread_event_to_task_card(self):
+        board = '''## Human Approval
+
+### TASK-8 — Threaded review
+- ID: TASK-8
+- Owner: content
+- Status: Human Approval
+- Decision summary:
+  - Change one is limited.
+  - Change two is reversible.
+  - No spend is required.
+
+## In Progress
+_No tasks._
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board_path = root / 'tasks.md'
+            board_path.write_text(board, encoding='utf-8')
+            with patch.object(dashboard_server, 'TASKS_FILE', board_path), \
+                 patch.object(dashboard_server, 'BOARD_LOCK', root / 'tasks.lock'), \
+                 patch.object(dashboard_server, 'APPROVAL_LOG', root / 'approvals.log'), \
+                 patch.object(dashboard_server, 'HUMAN_APPROVALS', root / 'approvals.json'), \
+                 patch.object(dashboard_server, '_queue_approved_work'):
+                result = apply_approval('TASK-8', 'reject', 'Please fix the mobile breakpoint.', 'alice')
+            updated = board_path.read_text(encoding='utf-8')
+        self.assertTrue(result['ok'])
+        self.assertIn('- Approval thread 1 rejection: alice: Please fix the mobile breakpoint.', updated)
+
     def test_reject_requires_comment_without_touching_board(self):
         with self.assertRaises(ValueError):
             apply_approval('TASK-4', 'reject', '', 'alice')

@@ -169,8 +169,28 @@ def task_change_metadata(task: dict[str, Any]) -> dict[str, Any]:
         'metrics_evidence': task.get('metrics_evidence', ''),
         'metrics_summary': task.get('metrics_summary', ''),
         'metrics_table': task.get('metrics_table', ''),
+        'approval_thread': approval_thread(task),
         'approval_valid': task.get('board_column') != 'Under Review (Human)' or 3 <= len(task.get('decision_summary', [])) <= 5,
     }
+
+
+def approval_thread(task: dict[str, Any]) -> list[dict[str, str]]:
+    """Read rejection/reply events stored as fields on the task card."""
+    events: list[dict[str, str]] = []
+    for key, value in task.items():
+        match = re.fullmatch(r'approval_thread_(\d+)_(rejection|reply)', str(key))
+        if match and str(value).strip():
+            events.append({'round': match.group(1), 'type': match.group(2), 'text': str(value).strip()})
+    return sorted(events, key=lambda item: (int(item['round']), 0 if item['type'] == 'rejection' else 1))
+
+
+def outstanding_rejection(task: dict[str, Any]) -> dict[str, str] | None:
+    events = approval_thread(task)
+    replied_rounds = {event['round'] for event in events if event['type'] == 'reply'}
+    for event in reversed([event for event in events if event['type'] == 'rejection']):
+        if event['round'] not in replied_rounds:
+            return event
+    return None
 
 
 def tmux_health(tmux_bin: Path = TMUX_BIN) -> dict[str, str]:
@@ -321,6 +341,8 @@ def _queue_approved_work(task_id: str, owner: str, decision: str, comment: str) 
         'and a three-line what/why summary. The hourly cycle deploys the branch to the fixed Vercel preview '
         'after the commit; never merge or publish. '
         'For REJECT: revise the work according to the comment and return it to CMO Review. '
+        'Reply to the outstanding rejection comment in the same format, explicitly stating what changed in response. '
+        'A resubmission without that reply is invalid and will be bounced back automatically. '
         'Do not publish or merge without the required approval.\n',
         encoding='utf-8',
     )
@@ -468,6 +490,10 @@ def apply_approval(task_id: str, decision: str, comment: str, user: str) -> dict
                 'Change status': 'Gate 1 approved; preview deployed; awaiting human GitHub merge (Gate 2).',
                 'Metrics evidence': str(METRICS_DIR / f'{task_id}.baseline.json'),
             })
+        if decision == 'reject':
+            rounds = [int(event['round']) for event in approval_thread(task)]
+            round_number = max(rounds or [0]) + 1
+            updates[f'Approval thread {round_number} rejection'] = f'{user}: {comment.strip()}'
         text = _move_task(text, task_id, 'In Progress', updates)
         TASKS_FILE.write_text(text, encoding='utf-8')
         record_approval(user, task_id, decision, comment.strip())
@@ -503,7 +529,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const empty=message=>`<div class="empty">${esc(message)}</div>`;
 function preserveOpen(){return [...document.querySelectorAll('details[open][data-task]')].map(x=>x.dataset.task)}
 function patch(id,html){if(rendered[id]===html)return;const open=preserveOpen();const node=document.getElementById(id);if(node)node.innerHTML=html;rendered[id]=html;open.forEach(key=>document.querySelectorAll(`details[data-task="${CSS.escape(key)}"]`).forEach(x=>x.open=true))}
-function approvalBlock(t){if(t.board_column!=='Under Review (Human)')return '';const summary=t.decision_summary||[];const valid=summary.length>=3&&summary.length<=5;const c=t.change||{};const evidence=c.evidence||'no branch evidence';return `<section class="decision-summary ${valid?'':'approval-invalid'}"><h4>DECISION SUMMARY ${valid?'':'· INVALID — RETURN TO AGENT'}</h4>${valid?`<ul>${summary.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:empty('Approval packet requires 3–5 concrete bullets.') }<div class="risk"><strong>RISK/COST:</strong> ${esc(c.risk_cost||'')}</div><details class="expand" data-task="${esc(t.id)}"><summary>Full change detail</summary><div><strong>Complete change list:</strong> ${esc(c.change_description||'')}</div><div><strong>File-level diff:</strong> ${esc(c.diff_summary||'')}</div><div><strong>Evidence:</strong> ${esc(evidence)}</div></details></section>`}
+function approvalBlock(t){if(t.board_column!=='Under Review (Human)')return '';const summary=t.decision_summary||[];const valid=summary.length>=3&&summary.length<=5;const c=t.change||{};const evidence=c.evidence||'no branch evidence';const thread=c.approval_thread||[];return `<section class="decision-summary ${valid?'':'approval-invalid'}"><h4>DECISION SUMMARY ${valid?'':'· INVALID — RETURN TO AGENT'}</h4>${valid?`<ul>${summary.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:empty('Approval packet requires 3–5 concrete bullets.') }${thread.length?`<div class="approval-thread"><strong>REJECTION THREAD</strong><ol>${thread.map(x=>`<li><b>Round ${esc(x.round)} ${esc(x.type)}:</b> ${esc(x.text)}</li>`).join('')}</ol></div>`:''}<div class="risk"><strong>RISK/COST:</strong> ${esc(c.risk_cost||'')}</div><details class="expand" data-task="${esc(t.id)}"><summary>Full change detail</summary><div><strong>Complete change list:</strong> ${esc(c.change_description||'')}</div><div><strong>File-level diff:</strong> ${esc(c.diff_summary||'')}</div><div><strong>Evidence:</strong> ${esc(evidence)}</div></details></section>`}
 function changeBlock(t){const c=t.change||{};if(c.evidence==='no branch evidence')return `<div class="change-details">${esc(c.evidence)}</div>`;const lines=(c.summary_lines||[]).filter(Boolean);return `<div class="change-details"><div><strong>Branch:</strong> ${esc(c.branch)}</div><div><strong>Commit:</strong> ${esc(c.commits)}</div>${c.preview_url?`<div><strong>Visual preview:</strong> <a href="${esc(c.preview_url)}" target="_blank" rel="noreferrer">${esc(c.preview_url)}</a></div>`:''}${c.live_url?`<div><strong>Live site:</strong> <a href="${esc(c.live_url)}" target="_blank" rel="noreferrer">${esc(c.live_url)}</a></div>`:''}${c.files_changed?`<div><strong>Files changed:</strong> ${esc(c.files_changed)}</div>`:''}${c.change_description?`<div><strong>Change:</strong> ${esc(c.change_description)}</div>`:''}${c.metrics_evidence?`<details class="expand"><summary>Metrics evidence</summary><pre>${esc(c.metrics_evidence)}</pre></details>`:''}${c.metrics_table?`<details class="expand"><summary>Before / after table</summary><pre>${esc(c.metrics_table)}</pre></details>`:''}${lines.length?`<div><strong>Agent summary:</strong></div><ul>${lines.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}</div>`}
 function approvalActions(t){if(t.status!=='Human Approval')return '';return `<div class="approval-actions"><button class="approve" data-approval="approve" data-task="${esc(t.id)}">Approve</button><button class="reject" data-approval="reject" data-task="${esc(t.id)}">Reject</button></div>`}
 function card(t){const fields=Object.entries(t).filter(([key])=>!['id','title','status','priority','owner','last_updated','board_column','change','acceptance_criteria','decision_summary'].includes(key));return `<article class="card" data-card="${esc(t.id)}"><h3>${esc(t.title)} <span class="small">${esc(t.id)}</span></h3><span class="pill">${esc(t.status)}</span>${t.priority?`<span class="pill">${esc(t.priority)}</span>`:''}<div class="small">Owner: ${esc(t.owner)}</div><div class="small">Last updated: ${esc(t.last_updated)}</div>${approvalBlock(t)}<p class="summary">${esc(t.latest_summary||'')}</p>${changeBlock(t)}${fields.length?`<details class="expand" data-task="${esc(t.id)}"><summary>Task fields</summary>${fields.map(([key,value])=>`<div><strong>${esc(key)}:</strong> ${esc(Array.isArray(value)?value.join(', '):value)}</div>`).join('')}</details>`:''}${approvalActions(t)}</article>`}

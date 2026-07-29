@@ -277,7 +277,32 @@ def parse_implementation_result(summary: str) -> dict:
         raise ValueError("implementation result needs a commit hash")
     if not isinstance(look, list) or len(look) != 3 or any(not str(item).strip() for item in look):
         raise ValueError("implementation result needs exactly three review lines")
-    return {"commit": commit, "look": [str(item).strip() for item in look]}
+    return {"commit": commit, "look": [str(item).strip() for item in look], "reply": str(value.get("reply", "")).strip()}
+
+
+def approval_thread(task: dict) -> list[dict[str, str]]:
+    events = []
+    for key, value in task.get("fields", {}).items():
+        match = re.fullmatch(r"Approval thread (\d+) (rejection|reply)", key)
+        if match and value.strip():
+            events.append({"round": match.group(1), "type": match.group(2), "text": value.strip()})
+    return sorted(events, key=lambda item: (int(item["round"]), 0 if item["type"] == "rejection" else 1))
+
+
+def outstanding_rejection(task: dict) -> dict[str, str] | None:
+    events = approval_thread(task)
+    replied_rounds = {event["round"] for event in events if event["type"] == "reply"}
+    for event in reversed([event for event in events if event["type"] == "rejection"]):
+        if event["round"] not in replied_rounds:
+            return event
+    return None
+
+
+def thread_message(task: dict) -> str:
+    events = approval_thread(task)
+    return "Approval thread:\n" + "\n".join(
+        f"- Round {event['round']} {event['type']}: {event['text']}" for event in events
+    ) if events else ""
 
 
 def metric_summary(rows: list[dict]) -> str:
@@ -364,6 +389,15 @@ def run_cycle() -> int:
                 changes.append(f"{task_id}: website handoff invalid; retained for retry")
                 active.pop(task_id, None)
                 continue
+            pending_rejection = outstanding_rejection(task) if task else None
+            if pending_rejection and not result.get("reply"):
+                if task:
+                    text = update_in_place(text, task, status="In Progress", summary=(
+                        f"Website resubmission bounced: reply to rejection round {pending_rejection['round']} is required."
+                    ))
+                changes.append(f"{task_id}: resubmission bounced; missing rejection reply\n{thread_message(task) if task else ''}")
+                active.pop(task_id, None)
+                continue
             if task:
                 text = add_card_fields(text, task, {
                     "Branch": "cmo-changes",
@@ -372,9 +406,13 @@ def run_cycle() -> int:
                     "Agent summary 2": result["look"][1],
                     "Agent summary 3": result["look"][2],
                 })
+                if pending_rejection:
+                    text = add_card_fields(text, task, {
+                        f"Approval thread {pending_rejection['round']} reply": result["reply"],
+                    })
                 task = next(x for x in parse_tasks(text) if x["id"] == task_id)
                 text = move_card(text, task, "CMO Review", "Website implementation committed on cmo-changes; ready for Gate 1 review.")
-                changes.append(f"{task_id}: website implemented on cmo-changes; moved to CMO Review")
+                changes.append(f"{task_id}: website implemented on cmo-changes; moved to CMO Review\n{thread_message(task)}")
             active.pop(task_id, None)
             continue
         if item.get("implementation") or item.get("awaiting_merge"):
