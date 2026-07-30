@@ -171,7 +171,102 @@ def task_change_metadata(task: dict[str, Any]) -> dict[str, Any]:
         'metrics_table': task.get('metrics_table', ''),
         'approval_thread': approval_thread(task),
         'approval_valid': task.get('board_column') != 'Under Review (Human)' or 3 <= len(task.get('decision_summary', [])) <= 5,
+        'metrics': task_metrics(task),
     }
+
+
+def _read_metric_phase(task_id: str, phase: str) -> dict[str, Any] | None:
+    path = METRICS_DIR / f'{task_id}.{phase}.json'
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) and value.get('status') == 'captured' else None
+
+
+def _metric_value(page: dict[str, Any], key: str) -> Any:
+    return (page.get('metrics') or {}).get(key)
+
+
+def _format_metric_value(key: str, value: Any) -> str:
+    if value is None:
+        return 'awaiting measurement'
+    if key.endswith('_bytes'):
+        return f'{value:,} bytes'
+    if key.endswith('_ms'):
+        return f'{value:,.0f} ms' if isinstance(value, (int, float)) else str(value)
+    if key == 'cumulative_layout_shift' and isinstance(value, (int, float)):
+        return f'{value:.3f}'
+    if isinstance(value, float):
+        return f'{value:.2f}'
+    return str(value)
+
+
+def _metric_label(key: str) -> str:
+    return key.replace('_', ' ').strip().title()
+
+
+def task_metrics(task: dict[str, Any]) -> dict[str, Any]:
+    task_id = str(task.get('id', ''))
+    baseline = _read_metric_phase(task_id, 'baseline')
+    preview = _read_metric_phase(task_id, 'preview')
+    live = _read_metric_phase(task_id, 'live')
+    phases = [item for item in (baseline, preview, live) if item]
+    urls = []
+    for phase in phases:
+        urls.extend(page.get('url', '') for page in phase.get('pages', []))
+    urls = list(dict.fromkeys(urls))
+    keys: list[str] = []
+    for phase in phases:
+        for page in phase.get('pages', []):
+            for key in (page.get('metrics') or {}):
+                if key not in keys:
+                    keys.append(key)
+    rows = []
+    for url in urls:
+        row_pages = {phase: next((p for p in (phase_data or {}).get('pages', []) if p.get('url') == url), {})
+                     for phase, phase_data in (('baseline', baseline), ('preview', preview), ('live', live))}
+        for key in keys:
+            before = _metric_value(row_pages['baseline'], key)
+            preview_value = _metric_value(row_pages['preview'], key)
+            after = _metric_value(row_pages['live'], key)
+            comparison = preview_value if preview_value is not None and after is None else after
+            change = comparison - before if isinstance(before, (int, float)) and isinstance(comparison, (int, float)) else None
+            rows.append({'metric': f'{_metric_label(key)} · {url.split("itarang.com", 1)[-1] or "/"}',
+                         'key': key, 'before': _format_metric_value(key, before),
+                         'preview': _format_metric_value(key, preview_value),
+                         'after': _format_metric_value(key, after), 'change': change,
+                         'change_display': _format_metric_value(key, change),
+                         'percent_change': (float(change) / before * 100) if isinstance(change, (int, float)) and isinstance(before, (int, float)) and isinstance(after, (int, float)) and before != 0 else None})
+    raw_runs = sum(int((phase or {}).get('raw_runs', 0)) for phase in (baseline, preview, live))
+    return {'declared_metric': task.get('declared_metric', ''), 'measurement_method': task.get('measurement_method', ''),
+            'rows': rows, 'raw_runs': raw_runs, 'has_data': bool(rows), 'merged': bool(live)}
+
+
+def impact_metrics(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    changes = []
+    for task in tasks:
+        data = task.get('change', {}).get('metrics', {})
+        if not data.get('merged'):
+            continue
+        baseline = _read_metric_phase(task['id'], 'baseline')
+        live = _read_metric_phase(task['id'], 'live')
+        if not baseline or not live:
+            continue
+        changes.append({'task_id': task['id'], 'title': task.get('title', task['id']), 'merge_date': live.get('captured_at', ''),
+                        'declared_metric': data.get('declared_metric', ''), 'rows': data.get('rows', [])})
+    weight_deltas, load_deltas, score_deltas = [], [], []
+    for change in changes:
+        for row in change['rows']:
+            if row['key'] == 'page_weight_bytes' and isinstance(row.get('change'), (int, float)):
+                weight_deltas.append(row['change'])
+            elif row['key'] == 'load_time_ms' and isinstance(row.get('change'), (int, float)):
+                load_deltas.append(row['change'])
+            elif row['key'] == 'performance_score' and isinstance(row.get('change'), (int, float)):
+                score_deltas.append(row['change'])
+    return {'changes_shipped': len(changes), 'total_page_weight_saved': -sum(weight_deltas),
+            'avg_load_time_delta': sum(load_deltas) / len(load_deltas) if load_deltas else None,
+            'score_improvement': sum(score_deltas), 'changes': sorted(changes, key=lambda x: x['merge_date'], reverse=True)}
 
 
 def approval_thread(task: dict[str, Any]) -> list[dict[str, str]]:
@@ -264,6 +359,7 @@ def build_snapshot(tasks_file: Path = TASKS_FILE, tmux_bin: str | Path = TMUX_BI
         'board_columns': columns,
         'spend_total': spend_total(SPEND_LOG),
         'approval_count': approval_count(APPROVAL_LOG),
+        'impact_metrics': impact_metrics(tasks),
         'tasks_file': str(tasks_file),
         'tasks_mtime': modified,
         'error': read_error,
@@ -513,6 +609,7 @@ INDEX_HTML = r'''<!doctype html>
 :root{--bg:#0a0d12;--panel:#111722;--panel2:#161e2b;--line:#253043;--text:#edf2f7;--muted:#8e9bad;--green:#35d07f;--amber:#f5b942;--red:#f06d6d;--violet:#9580ff;--cyan:#63d5e8}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#18243b 0,transparent 35%),var(--bg);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}main{max-width:1500px;margin:auto;padding:28px 28px 48px}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:24px}.eyebrow{text-transform:uppercase;letter-spacing:.16em;color:var(--cyan);font-size:11px;font-weight:700}.title{font-size:30px;letter-spacing:-.04em;margin:6px 0}.sub{color:var(--muted);margin:0}.healthbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.health{border:1px solid var(--line);background:#0e141e;border-radius:999px;padding:7px 10px;color:var(--muted);font-size:12px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--red)}.dot.alive{background:var(--green);box-shadow:0 0 10px #35d07f99}.meta{color:var(--muted);font-size:12px;margin:12px 0 18px}.cycle-stamp{border:1px solid #31516b;background:#102333;color:var(--cyan);border-radius:10px;padding:10px 12px;margin-bottom:16px}.pending{border:1px solid #6e5520;background:#231d10;border-radius:14px;padding:16px;margin-bottom:18px}.pending h2{margin:0 0 10px;font-size:17px;color:var(--amber)}.pending-card{border-top:1px solid #4a3b20;padding:12px 0}.change-details details{margin-top:10px}.decision-summary{border:1px solid #806020;background:#1b170e;border-radius:10px;padding:10px;margin:10px 0}.decision-summary h4{margin:0 0 6px;color:var(--amber);font-size:12px;letter-spacing:.08em}.decision-summary ul{margin:0;padding-left:20px}.approval-invalid{border-color:var(--red);color:var(--red)}.risk{color:var(--amber);margin-top:8px}.expand{cursor:pointer;color:var(--cyan);margin-top:8px}.tab{color:var(--muted);background:transparent;border:0;border-bottom:2px solid transparent;padding:12px 14px;cursor:pointer;font-weight:700;white-space:nowrap}.tab.active{color:var(--text);border-bottom-color:var(--violet)}.view{display:none}.view.active{display:block}.agent-head{display:flex;justify-content:space-between;align-items:center;margin:22px 0 14px}.agent-head h2{margin:0;font-size:20px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.card,.column{background:linear-gradient(145deg,#121a27,#0e141e);border:1px solid var(--line);border-radius:14px;padding:16px;min-height:130px}.card h3{font-size:15px;margin:0 0 10px}.pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:var(--muted);font-size:11px;margin:0 5px 8px 0}.summary{color:#c9d2df;margin:8px 0 0}.small{color:var(--muted);font-size:12px}.change-details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;color:#c9d2df;font-size:12px}.change-details strong{color:var(--cyan)}.change-details div{margin:4px 0}.change-details ul{margin:4px 0 4px 18px;padding:0}.approval-actions{display:flex;gap:8px;margin-top:14px}.approval-actions button{border:0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer}.approve{background:var(--green);color:#06140c}.reject{background:var(--red);color:#200606}.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.stack{display:flex;flex-direction:column;gap:12px}.column h3{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}@media(max-width:1000px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:650px){main{padding:18px}.top{display:block}.healthbar{justify-content:flex-start;margin-top:16px}.board{grid-template-columns:1fr}}
 .live,.reconnecting{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 9px;text-transform:uppercase;font-size:11px;letter-spacing:.08em;color:var(--green)}.reconnecting{color:var(--amber)}
+.metrics-section{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}.metrics-section h4{margin:0 0 7px;color:var(--cyan);font-size:12px;letter-spacing:.08em}.metrics-meta{color:var(--muted);font-size:12px;margin:7px 0}.metrics-table-wrap{overflow-x:auto}.metrics-table{width:100%;border-collapse:collapse;font-size:12px;min-width:620px}.metrics-table th,.metrics-table td{border-bottom:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}.metrics-table th{color:var(--muted);font-weight:600}.metric-rollups{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}.metric-rollup{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}.metric-rollup strong{display:block;font-size:20px}.metric-rollup span{color:var(--muted);font-size:12px}.metric-list{overflow-x:auto}.metric-list table{width:100%;border-collapse:collapse;min-width:780px}.metric-list th,.metric-list td{border-bottom:1px solid var(--line);padding:9px;text-align:left;vertical-align:top}.metric-list th{color:var(--muted);cursor:pointer}.metric-list a{color:var(--cyan)}@media(max-width:700px){main{padding:18px 12px 36px}.metric-rollups{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics-table{min-width:0}.metrics-table thead{display:none}.metrics-table,.metrics-table tbody,.metrics-table tr,.metrics-table td{display:block;width:100%}.metrics-table tr{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;padding:5px}.metrics-table td{border:0;padding:4px 6px}.metrics-table td:before{content:attr(data-label);display:inline-block;color:var(--muted);font-weight:600;width:78px}.metric-list{margin:0 -4px;padding:0 4px}}
 </style></head>
 <body><main>
 <section class="top"><div><div class="eyebrow">iTarang / Marketing Operations</div><h1 class="title">CMO Control Room</h1><p class="sub">Read-only task visibility with Human Approval actions only.</p><div id="last-event" class="small"></div></div><div><div id="live-state" class="live">connecting</div><div id="health" class="healthbar"></div></div></section>
@@ -521,6 +618,7 @@ INDEX_HTML = r'''<!doctype html>
 <section class="pending" id="pending"></section>
 <nav class="tabs" id="tabs"></nav>
 <section id="board" class="view active"><div class="board" id="board-grid"></div></section>
+<section id="metrics" class="view"><h2>Metrics</h2><p class="sub">Measured impact from merged changes only.</p><div id="metrics-content"></div></section>
 <section id="agent-views"></section>
 </main>
 <script>
@@ -529,18 +627,20 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const empty=message=>`<div class="empty">${esc(message)}</div>`;
 function preserveOpen(){return [...document.querySelectorAll('details[open][data-task]')].map(x=>x.dataset.task)}
 function patch(id,html){if(rendered[id]===html)return;const open=preserveOpen();const node=document.getElementById(id);if(node)node.innerHTML=html;rendered[id]=html;open.forEach(key=>document.querySelectorAll(`details[data-task="${CSS.escape(key)}"]`).forEach(x=>x.open=true))}
+function metricsBlock(t){const m=(t.change||{}).metrics||{};if(!m.has_data&&!t.declared_metric)return '';const rows=m.rows||[];return `<section class="metrics-section"><h4>METRICS</h4><div><strong>Declared metric:</strong> ${esc(m.declared_metric||'no quantifiable metric declared')}</div><div><strong>Measurement method:</strong> ${esc(m.measurement_method||'awaiting measurement')}</div>${rows.length?`<div class="metrics-table-wrap"><table class="metrics-table"><thead><tr><th>Metric</th><th>Before</th><th>Preview</th><th>After</th><th>Change</th></tr></thead><tbody>${rows.map(r=>`<tr><td data-label="Metric">${esc(r.metric)}</td><td data-label="Before">${esc(r.before)}</td><td data-label="Preview">${esc(r.preview)}</td><td data-label="After">${esc(r.after)}</td><td data-label="Change">${esc(r.change_display||'awaiting measurement')}</td></tr>`).join('')}</tbody></table></div>`:empty('awaiting measurement')}<div class="metrics-meta">${esc(m.raw_runs||0)} raw runs stored</div></section>`}
 function approvalBlock(t){if(t.board_column!=='Under Review (Human)')return '';const summary=t.decision_summary||[];const valid=summary.length>=3&&summary.length<=5;const c=t.change||{};const evidence=c.evidence||'no branch evidence';const thread=c.approval_thread||[];return `<section class="decision-summary ${valid?'':'approval-invalid'}"><h4>DECISION SUMMARY ${valid?'':'· INVALID — RETURN TO AGENT'}</h4>${valid?`<ul>${summary.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:empty('Approval packet requires 3–5 concrete bullets.') }${thread.length?`<div class="approval-thread"><strong>REJECTION THREAD</strong><ol>${thread.map(x=>`<li><b>Round ${esc(x.round)} ${esc(x.type)}:</b> ${esc(x.text)}</li>`).join('')}</ol></div>`:''}<div class="risk"><strong>RISK/COST:</strong> ${esc(c.risk_cost||'')}</div><details class="expand" data-task="${esc(t.id)}"><summary>Full change detail</summary><div><strong>Complete change list:</strong> ${esc(c.change_description||'')}</div><div><strong>File-level diff:</strong> ${esc(c.diff_summary||'')}</div><div><strong>Evidence:</strong> ${esc(evidence)}</div></details></section>`}
 function changeBlock(t){const c=t.change||{};if(c.evidence==='no branch evidence')return `<div class="change-details">${esc(c.evidence)}</div>`;const lines=(c.summary_lines||[]).filter(Boolean);return `<div class="change-details"><div><strong>Branch:</strong> ${esc(c.branch)}</div><div><strong>Commit:</strong> ${esc(c.commits)}</div>${c.preview_url?`<div><strong>Visual preview:</strong> <a href="${esc(c.preview_url)}" target="_blank" rel="noreferrer">${esc(c.preview_url)}</a></div>`:''}${c.live_url?`<div><strong>Live site:</strong> <a href="${esc(c.live_url)}" target="_blank" rel="noreferrer">${esc(c.live_url)}</a></div>`:''}${c.files_changed?`<div><strong>Files changed:</strong> ${esc(c.files_changed)}</div>`:''}${c.change_description?`<div><strong>Change:</strong> ${esc(c.change_description)}</div>`:''}${c.metrics_evidence?`<details class="expand"><summary>Metrics evidence</summary><pre>${esc(c.metrics_evidence)}</pre></details>`:''}${c.metrics_table?`<details class="expand"><summary>Before / after table</summary><pre>${esc(c.metrics_table)}</pre></details>`:''}${lines.length?`<div><strong>Agent summary:</strong></div><ul>${lines.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}</div>`}
 function approvalActions(t){if(t.status!=='Human Approval')return '';return `<div class="approval-actions"><button class="approve" data-approval="approve" data-task="${esc(t.id)}">Approve</button><button class="reject" data-approval="reject" data-task="${esc(t.id)}">Reject</button></div>`}
-function card(t){const fields=Object.entries(t).filter(([key])=>!['id','title','status','priority','owner','last_updated','board_column','change','acceptance_criteria','decision_summary'].includes(key));return `<article class="card" data-card="${esc(t.id)}"><h3>${esc(t.title)} <span class="small">${esc(t.id)}</span></h3><span class="pill">${esc(t.status)}</span>${t.priority?`<span class="pill">${esc(t.priority)}</span>`:''}<div class="small">Owner: ${esc(t.owner)}</div><div class="small">Last updated: ${esc(t.last_updated)}</div>${approvalBlock(t)}<p class="summary">${esc(t.latest_summary||'')}</p>${changeBlock(t)}${fields.length?`<details class="expand" data-task="${esc(t.id)}"><summary>Task fields</summary>${fields.map(([key,value])=>`<div><strong>${esc(key)}:</strong> ${esc(Array.isArray(value)?value.join(', '):value)}</div>`).join('')}</details>`:''}${approvalActions(t)}</article>`}
-function pendingCard(t){return `<article class="pending-card" data-card="${esc(t.id)}"><h3>${esc(t.title)} <span class="small">${esc(t.id)} · ${esc(t.owner)}</span></h3>${approvalBlock(t)}${changeBlock(t)}${approvalActions(t)}</article>`}
+function card(t){const fields=Object.entries(t).filter(([key])=>!['id','title','status','priority','owner','last_updated','board_column','change','acceptance_criteria','decision_summary'].includes(key));return `<article id="${esc(t.id)}" class="card" data-card="${esc(t.id)}"><h3>${esc(t.title)} <span class="small">${esc(t.id)}</span></h3><span class="pill">${esc(t.status)}</span>${t.priority?`<span class="pill">${esc(t.priority)}</span>`:''}<div class="small">Owner: ${esc(t.owner)}</div><div class="small">Last updated: ${esc(t.last_updated)}</div>${approvalBlock(t)}${metricsBlock(t)}<p class="summary">${esc(t.latest_summary||'')}</p>${changeBlock(t)}${fields.length?`<details class="expand" data-task="${esc(t.id)}"><summary>Task fields</summary>${fields.map(([key,value])=>`<div><strong>${esc(key)}:</strong> ${esc(Array.isArray(value)?value.join(', '):value)}</div>`).join('')}</details>`:''}${approvalActions(t)}</article>`}
+function pendingCard(t){return `<article class="pending-card" data-card="${esc(t.id)}"><h3>${esc(t.title)} <span class="small">${esc(t.id)} · ${esc(t.owner)}</span></h3>${approvalBlock(t)}${metricsBlock(t)}${changeBlock(t)}${approvalActions(t)}</article>`}
 function setStatus(text,live){document.getElementById('meta').textContent=text;document.getElementById('live-state').textContent=live?'live':'reconnecting';document.getElementById('live-state').className=live?'live':'reconnecting'}
-function render(next){const nextAgents=new Set(next.agents||[]);document.querySelectorAll('#agent-views .view').forEach(v=>{if(!nextAgents.has(v.id.slice(5)))v.remove()});(next.agents||[]).forEach(a=>{if(!document.getElementById(`view-${a}`)){const v=document.createElement('section');v.id=`view-${a}`;v.className='view';document.getElementById('agent-views').appendChild(v)}});snapshot=next;lastEvent=new Date();const agents=next.agents||[];const health=next.health||{};patch('health',agents.map(a=>`<span class="health"><i class="dot ${health[a]==='alive'?'alive':''}"></i>cmo-${esc(a)}: ${esc(health[a]||'dead')}</span>`).join(''));patch('tabs',[`<button class="tab ${active==='board'?'active':''}" data-view="board">Board</button>`,...agents.map(a=>`<button class="tab ${active===a?'active':''}" data-view="${esc(a)}">${esc(a)}</button>`)].join(''));patch('cycle-stamp',`Last orchestration cycle ran at: ${esc(next.last_cycle_ran||'')}`);const when=next.tasks_mtime?new Date(next.tasks_mtime*1000).toLocaleTimeString():'';document.getElementById('meta').textContent=`Source: ${esc(next.tasks_file||'tasks.md')} · File update: ${esc(when)} · Spend: ${next.spend_total==null?'':esc(next.spend_total)} · Approvals: ${esc(next.approval_count??'')}`;document.getElementById('last-event').textContent=`Last event: ${lastEvent.toLocaleTimeString()}`;patch('pending',`<h2>Pending Changes · Human Approval</h2>${(next.pending_changes||[]).map(pendingCard).join('')||empty('No pending changes.')}`);patch('board-grid',(next.board_columns||[]).map(column=>`<section class="column"><h3>${esc(column)}</h3><div class="stack">${next.tasks.filter(t=>t.board_column===column).map(card).join('')||empty('No tasks.')}</div></section>`).join(''));agents.forEach(agent=>{const tasks=next.tasks.filter(t=>(t.owner||'').toLowerCase()===agent);patch(`view-${agent}`,`<div class="agent-head"><h2>${esc(agent)}</h2><span class="health"><i class="dot ${health[agent]==='alive'?'alive':''}"></i>tmux ${esc(health[agent]||'dead')}</span></div><div class="cards">${tasks.map(card).join('')||empty('No assigned tasks.')}</div>`)});document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='board'||v.id===`view-${active}`));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===active))}
-function show(name){active=name;document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='board'||v.id===`view-${name}`));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===name))}
+function metricsView(data){const fmt=(v,suffix='')=>v==null?'awaiting measurement':`${Number(v).toLocaleString()}${suffix}`;const roll=data||{};const cards=`<div class="metric-rollups"><div class="metric-rollup"><strong>${fmt(roll.changes_shipped)}</strong><span>Changes shipped</span></div><div class="metric-rollup"><strong>${fmt(roll.total_page_weight_saved,' bytes')}</strong><span>Total page-weight saved</span></div><div class="metric-rollup"><strong>${roll.avg_load_time_delta==null?'awaiting measurement':`${Number(roll.avg_load_time_delta).toFixed(0)} ms`}</strong><span>Average load-time delta</span></div><div class="metric-rollup"><strong>${fmt(roll.score_improvement)}</strong><span>Performance-score improvement</span></div></div>`;const changes=roll.changes||[];if(!changes.length)return cards+empty('No measured changes yet — metrics appear when changes merge.');return cards+`<div class="metric-list"><table><thead><tr><th data-sort="date">Merge date ↕</th><th>Task</th><th>Declared metric</th><th>Before → After</th><th data-sort="impact">Impact ↕</th></tr></thead><tbody>${changes.map(c=>{const row=(c.rows||[]).find(r=>r.key==='page_weight_bytes')||(c.rows||[])[0]||{};return `<tr><td>${esc(c.merge_date)}</td><td><a href="#${esc(c.task_id)}">${esc(c.task_id)} · ${esc(c.title)}</a></td><td>${esc(c.declared_metric||'no quantifiable metric declared')}</td><td>${esc(row.before||'awaiting measurement')} → ${esc(row.after||'awaiting measurement')}</td><td>${row.percent_change==null?'awaiting measurement':`${Number(row.percent_change).toFixed(1)}%`}</td></tr>`}).join('')}</tbody></table></div>`}
+function render(next){const nextAgents=new Set(next.agents||[]);document.querySelectorAll('#agent-views .view').forEach(v=>{if(!nextAgents.has(v.id.slice(5)))v.remove()});(next.agents||[]).forEach(a=>{if(!document.getElementById(`view-${a}`)){const v=document.createElement('section');v.id=`view-${a}`;v.className='view';document.getElementById('agent-views').appendChild(v)}});snapshot=next;lastEvent=new Date();const agents=next.agents||[];const health=next.health||{};patch('health',agents.map(a=>`<span class="health"><i class="dot ${health[a]==='alive'?'alive':''}"></i>cmo-${esc(a)}: ${esc(health[a]||'dead')}</span>`).join(''));patch('tabs',[`<button class="tab ${active==='board'?'active':''}" data-view="board">Board</button>`,`<button class="tab ${active==='metrics'?'active':''}" data-view="metrics">Metrics</button>`,...agents.map(a=>`<button class="tab ${active===a?'active':''}" data-view="${esc(a)}">${esc(a)}</button>`)].join(''));patch('cycle-stamp',`Last orchestration cycle ran at: ${esc(next.last_cycle_ran||'')}`);const when=next.tasks_mtime?new Date(next.tasks_mtime*1000).toLocaleTimeString():'';document.getElementById('meta').textContent=`Source: ${esc(next.tasks_file||'tasks.md')} · File update: ${esc(when)} · Spend: ${next.spend_total==null?'':esc(next.spend_total)} · Approvals: ${esc(next.approval_count??'')}`;document.getElementById('last-event').textContent=`Last event: ${lastEvent.toLocaleTimeString()}`;patch('pending',`<h2>Pending Changes · Human Approval</h2>${(next.pending_changes||[]).map(pendingCard).join('')||empty('No pending changes.')}`);patch('board-grid',(next.board_columns||[]).map(column=>`<section class="column"><h3>${esc(column)}</h3><div class="stack">${next.tasks.filter(t=>t.board_column===column).map(card).join('')||empty('No tasks.')}</div></section>`).join(''));patch('metrics-content',metricsView(next.impact_metrics));agents.forEach(agent=>{const tasks=next.tasks.filter(t=>(t.owner||'').toLowerCase()===agent);patch(`view-${agent}`,`<div class="agent-head"><h2>${esc(agent)}</h2><span class="health"><i class="dot ${health[agent]==='alive'?'alive':''}"></i>tmux ${esc(health[agent]||'dead')}</span></div><div class="cards">${tasks.map(card).join('')||empty('No assigned tasks.')}</div>`)});document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='board'||v.id==='metrics'||v.id===`view-${active}`));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===active))}
+function show(name){active=name;document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='board'||v.id==='metrics'||v.id===`view-${name}`));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===name))}
 async function decide(task,decision){let comment='';if(decision==='reject'){comment=window.prompt('Reject comment (required):','');if(!comment||!comment.trim())return}else comment=window.prompt('Approval comment (optional):','')||'';const r=await fetch('/api/approval',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:task,decision,comment})});if(r.ok)poll()}
 async function poll(){try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw Error(`HTTP ${r.status}`);render(await r.json())}catch(e){setStatus('Live source unavailable; retrying.',false)}}
 function startFallback(){if(fallbackTimer===null)fallbackTimer=setInterval(poll,10000)}function stopFallback(){if(fallbackTimer!==null){clearInterval(fallbackTimer);fallbackTimer=null}}
-document.getElementById('tabs').addEventListener('click',e=>{if(e.target.matches('.tab'))show(e.target.dataset.view)});document.addEventListener('click',e=>{const b=e.target.closest('[data-approval]');if(b)decide(b.dataset.task,b.dataset.approval)});
+document.getElementById('tabs').addEventListener('click',e=>{if(e.target.matches('.tab'))show(e.target.dataset.view)});document.addEventListener('click',e=>{const b=e.target.closest('[data-approval]');if(b)decide(b.dataset.task,b.dataset.approval);const h=e.target.closest('[data-sort]');if(h){const table=h.closest('table');const rows=[...table.tBodies[0].rows];const col=h.cellIndex;const numeric=h.dataset.sort==='impact';rows.sort((a,b)=>{const av=numeric?parseFloat(a.cells[col].textContent):a.cells[col].textContent;const bv=numeric?parseFloat(b.cells[col].textContent):b.cells[col].textContent;if(numeric)return (Number.isFinite(bv)?bv:-Infinity)-(Number.isFinite(av)?av:-Infinity);return String(bv).localeCompare(String(av))});rows.forEach(r=>table.tBodies[0].appendChild(r))}});
 const stream=new EventSource('/api/events');stream.addEventListener('state',e=>{stopFallback();setStatus('Live source connected.',true);render(JSON.parse(e.data))});stream.addEventListener('heartbeat',()=>{document.getElementById('last-event').textContent=`Last event: ${new Date().toLocaleTimeString()}`});stream.onopen=()=>{stopFallback();setStatus('Live source connected.',true)};stream.onerror=()=>{setStatus('Reconnecting to live source.',false);startFallback()};poll();
 </script></body></html>'''
 
