@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { blogPosts } from "@/data/blog-posts";
 
 const BASE_URL = "https://www.itarang.com";
 
@@ -16,14 +17,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/contact", priority: 0.8, changeFrequency: "yearly" as const },
     { path: "/for-investors", priority: 0.7, changeFrequency: "monthly" as const },
     { path: "/blog", priority: 0.7, changeFrequency: "weekly" as const },
-    { path: "/blog/informal-financing", priority: 0.6, changeFrequency: "yearly" as const },
-    { path: "/blog/battery-passport", priority: 0.6, changeFrequency: "yearly" as const },
   ];
 
-  return routes.map((route) => ({
-    url: `${BASE_URL}${route.path}`,
-    lastModified: new Date(),
-    changeFrequency: route.changeFrequency,
-    priority: route.priority,
-  }));
+  return [
+    ...routes.map((route) => ({
+      url: `${BASE_URL}${route.path}`,
+      lastModified: new Date(),
+      changeFrequency: route.changeFrequency,
+      priority: route.priority,
+    })),
+    ...blogPosts.map((post) => ({
+      url: `${BASE_URL}/blog/${post.slug}`,
+      lastModified: post.date,
+      changeFrequency: "yearly" as const,
+      priority: 0.6,
+    })),
+  ];
 }
