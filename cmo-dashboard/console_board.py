@@ -10,6 +10,10 @@ from cmo_runtime import decisions
 PROFILE_DIR = dashboard_server.PROFILE_DIR
 TASKS_FILE = dashboard_server.TASKS_FILE
 
+#: Work the content skill produces that is not an article, and so is not a blog.
+#: Kept in step with the same refusal in ContentRuntime._select().
+NON_ARTICLE_WORK_TYPES = frozenset({"internal-board-summary", "commissioning"})
+
 
 def artifact_for(task: dict[str, Any], profile_dir: Path = PROFILE_DIR) -> Path | None:
     """Return a real card attachment only when it resolves beneath artifacts/."""
@@ -68,6 +72,15 @@ def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -
         # A content card only reaches the Blogs tab once it has a real artifact. An
         # unwritten content card is no longer a "topic" here — topics live in the
         # proposals store and never appear on the board until they are approved.
-        if str(task.get("skill", task.get("owner", ""))).casefold() == "content" and task["artifact_path"]:
+        #
+        # The work type matters too. An internal board-state summary is written by
+        # the content skill and lands in artifacts/ like an article does, so it
+        # satisfies every other condition here — and then sits on the Blogs tab as a
+        # 61-word list of lane counts. ContentRuntime._select() already refuses that
+        # work type; this filter has to agree with it, or the tab shows things no
+        # one would call a blog.
+        work_type = str(task.get("work_type", "")).strip().casefold()
+        is_content = str(task.get("skill", task.get("owner", ""))).casefold() == "content"
+        if is_content and task["artifact_path"] and work_type not in NON_ARTICLE_WORK_TYPES:
             blogs.append(task)
     return {"tasks": tasks, "blogs": blogs}

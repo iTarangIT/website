@@ -212,8 +212,13 @@ class ServedPageTests(unittest.TestCase):
         first = self.fetch("/ceo")[1]["X-CMO-Build"]
         target = HERE / "ceo_build.py"
         original = target.stat()
+        # The stamp reports the NEWEST *.py, so the bump has to clear every other
+        # file in the directory — not just this one's own mtime. Bumping by a fixed
+        # two hours passed only while ceo_build.py happened to be among the newest;
+        # adding any newer file silently turned this into a test of nothing.
+        newest = max(path.stat().st_mtime for path in HERE.glob("*.py"))
         try:
-            os.utime(target, (original.st_atime, original.st_mtime + 7200))
+            os.utime(target, (original.st_atime, newest + 7200))
             second = self.fetch("/ceo")[1]["X-CMO-Build"]
         finally:
             os.utime(target, (original.st_atime, original.st_mtime))

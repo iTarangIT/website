@@ -776,6 +776,38 @@ def _atomic_artifact_set(files: Mapping[Path, str]) -> None:
         raise
 
 
+#: How much of one scraped page is retained in the research brief.
+EXCERPT_LIMIT = 3000
+
+
+def _truncate_excerpt(excerpt: str, limit: int = EXCERPT_LIMIT) -> str:
+    """Shorten one scraped page without severing its Markdown.
+
+    A flat `excerpt[:3000]` cuts wherever 3000 characters happen to land, which is
+    routinely the middle of `**bold**`. The dangling `**` then reaches the reader
+    as two literal asterisks — the exact failure `test_ceo_reader.py` exists to
+    catch, and it fires on the brief rather than on anything the writer produced.
+
+    So: cut on a line boundary when there is one to cut on, then drop any inline
+    marker left unpaired inside the surviving text. Losing a half-sentence off the
+    end of a retained excerpt costs nothing; the brief is evidence, not prose.
+    """
+    if len(excerpt) <= limit:
+        return excerpt
+    head = excerpt[:limit]
+    boundary = head.rfind("\n")
+    # Only honour the line boundary if it keeps most of the budget; a single very
+    # long line would otherwise throw the whole excerpt away.
+    if boundary >= limit // 2:
+        head = head[:boundary]
+    head = head.rstrip()
+    # One unpaired `**` is what reaches the page as asterisks. Dropping back past
+    # it makes the count even again, so a single pass is enough.
+    if head.count("**") % 2:
+        head = head[: head.rfind("**")].rstrip()
+    return head + "\n\n[Excerpt truncated in retained brief.]"
+
+
 def _research_markdown(task_id: str, topic: str, bundle: ResearchBundle) -> str:
     percentage = bundle.source_fetch_success_rate * 100
     lines = [
@@ -792,9 +824,7 @@ def _research_markdown(task_id: str, topic: str, bundle: ResearchBundle) -> str:
         "",
     ]
     for index, source in enumerate(bundle.sources, start=1):
-        excerpt = source.markdown.strip()
-        if len(excerpt) > 3000:
-            excerpt = excerpt[:3000].rstrip() + "\n\n[Excerpt truncated in retained brief.]"
+        excerpt = _truncate_excerpt(source.markdown.strip())
         lines.extend(
             [
                 f"### {index}. {source.title}",
