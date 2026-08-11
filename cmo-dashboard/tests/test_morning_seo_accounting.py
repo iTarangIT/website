@@ -216,5 +216,47 @@ class SpendTrackerTests(unittest.TestCase):
         self.assertIn("1 unaccounted", self.module.firecrawl_credit_line("2026-08-04"))
 
 
+class MorningCrawlCadenceTests(unittest.TestCase):
+    """The crawl is sized to the sitemap and runs every other day, not daily."""
+
+    def setUp(self) -> None:
+        self.module = load_script("morning_seo_job", "morning-seo-job.py")
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.state = Path(directory.name) / "morning-seo-last-run"
+        self.module.STATE = self.state
+
+    def mark(self, day: str) -> None:
+        self.state.write_text(json.dumps({"day": day, "status": "success"}), encoding="utf-8")
+
+    def test_a_first_ever_run_is_due(self) -> None:
+        self.assertTrue(self.module.due("2026-08-11"))
+
+    def test_the_day_after_a_crawl_is_not_due(self) -> None:
+        self.mark("2026-08-10")
+        self.assertFalse(self.module.due("2026-08-11"))
+
+    def test_the_second_day_after_a_crawl_is_due(self) -> None:
+        self.mark("2026-08-10")
+        self.assertTrue(self.module.due("2026-08-12"))
+
+    def test_a_long_gap_is_due(self) -> None:
+        self.mark("2026-07-01")
+        self.assertTrue(self.module.due("2026-08-11"))
+
+    def test_the_same_day_is_never_due_twice(self) -> None:
+        self.mark("2026-08-11")
+        self.assertFalse(self.module.due("2026-08-11"))
+
+    def test_an_unreadable_marker_does_not_block_the_crawl_forever(self) -> None:
+        self.state.write_text("not json and not a date", encoding="utf-8")
+        self.assertTrue(self.module.due("2026-08-11"))
+
+    def test_the_crawl_ceiling_matches_the_sitemap(self) -> None:
+        # 12 static routes + 4 blog posts + 4 active category pages.
+        self.assertEqual(self.module.CRAWL_PAGE_LIMIT, 20)
+        self.assertEqual(self.module.MINIMUM_DAYS_BETWEEN_CRAWLS, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

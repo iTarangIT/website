@@ -1,6 +1,7 @@
 SCRIPT = r'''const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const VIEWS=['analytics','topics','blogs'];
 let token=sessionStorage.getItem('cmo_token')||'';
 let email=sessionStorage.getItem('cmo_email')||'';
 let role=sessionStorage.getItem('cmo_role')||'';
@@ -10,6 +11,7 @@ let openTask=null;
 let detailTab='read';
 let publishRequest='';
 let darkReading=false;
+let busy=false;
 
 function expire(){
  sessionStorage.removeItem('cmo_token');sessionStorage.removeItem('cmo_email');sessionStorage.removeItem('cmo_role');
@@ -25,25 +27,137 @@ async function api(path,options={}){
  if(!response.ok)throw Error(payload.error||response.statusText||'Request failed');
  return payload;
 }
+function post(path,body){return api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
 function notice(message,error=false){const node=$('#notice');node.textContent=message||'';node.classList.toggle('error',error);}
 function value(item){return item===null||item===undefined||item===''?'—':esc(item);}
 function delta(item){return item===null||item===undefined?'':`<span class="delta">${item>0?'+':''}${esc(item)} vs previous window</span>`;}
-function findTask(id){return [...(state?.topics||[]),...(state?.blogs||[])].find(item=>item.id===id);}
+function findTask(id){return (state?.blogs||[]).find(item=>item.id===id);}
 
 function showView(name){
  currentView=name;
  $$('.screen').forEach(node=>node.hidden=node.id!==`panel-${name}`);
  $$('.primary button').forEach(node=>node.classList.toggle('active',node.dataset.view===name));
 }
-function topicCard(task){
- const brief=task.research_brief;
- const note=task.topic_approved_by?`<p class="meta">Legacy topic note by ${esc(task.topic_approved_by)} — not a writing or publication gate.</p>`:'';
- const briefHtml=brief?`<details><summary>Read research brief</summary><div class="article-sheet"><pre>${esc(brief.text)}</pre></div></details>`:'<p class="meta">No research brief is attached yet.</p>';
- return `<article class="card"><div class="card-row"><div><span class="pill">${esc(task.topic_stage||'proposed')}</span><h3>${esc(task.title||task.id)}</h3><p class="meta">${esc(task.id)} · ${esc(task.status||'')}</p><p class="meta">Submitting this topic is the instruction to research and write it; no separate topic approval is required.</p>${note}</div></div>${briefHtml}</article>`;
+
+/* ---------------------------------------------------------------- proposals */
+
+function sourceLine(proposal){
+ const refs=(proposal.source_refs||[]).map(ref=>{
+  if(/^https?:\/\//i.test(ref))return `<a href="${esc(ref)}" target="_blank" rel="noopener">${esc(ref.replace(/^https?:\/\//,'').slice(0,60))}</a>`;
+  if(ref.startsWith('gsc:'))return `Search Console: ${esc(ref.slice(4))}`;
+  if(ref.startsWith('board:'))return `board card ${esc(ref.slice(6))}`;
+  return esc(ref);
+ });
+ const kind={search_console:'Search Console',firecrawl:'Firecrawl',cache:'cached research',legacy_board:'carried over from the board'}[proposal.source_kind]||proposal.source_kind;
+ if(!refs.length)return '<p class="meta source-missing">This candidate names no source.</p>';
+ return `<p class="meta">Source: <span class="source">${esc(kind)}</span> — ${refs.join(' · ')}</p>`;
 }
-function renderTopics(){
- $('#topic-list').innerHTML=(state.topics||[]).map(topicCard).join('')||'<p class="empty">No content topics are on the board.</p>';
+function proposalCard(proposal){
+ const keywords=(proposal.keywords||[]).map(word=>`<span class="pill">${esc(word)}</span>`).join(' ')||'<span class="meta">no keywords recorded</span>';
+ const round=proposal.round>1?`<span class="meta">revised ${proposal.round-1}×</span>`:'';
+ const busyNote=proposal.status==='revising'?'<p class="meta">Re-researching this candidate…</p>':'';
+ const history=(proposal.history||[]).length>1?`<details><summary>Earlier rounds</summary>${proposal.history.slice(0,-1).map(item=>`<div class="history-row"><strong>Round ${esc(item.round)}: ${esc(item.title)}</strong><p class="meta">${esc(item.outline)}</p></div>`).join('')}</details>`:'';
+ return `<article class="card" data-proposal="${esc(proposal.id)}">
+<div class="card-row"><div><span class="pill status-${esc(proposal.status)}">${esc(proposal.status)}</span> ${round}
+<h3>${esc(proposal.title)}</h3>
+<p class="meta">From your subject: ${esc(proposal.subject)}</p>
+<div class="keywords">${keywords}</div>
+<p class="outline">${esc(proposal.outline)}</p>
+${sourceLine(proposal)}${busyNote}${history}</div></div>
+<div class="actions">
+<button data-approve="${esc(proposal.id)}" type="button">Approve</button>
+<button class="ghost" data-suggest-open="${esc(proposal.id)}" type="button">Suggest changes</button>
+<button class="danger" data-reject-open="${esc(proposal.id)}" type="button">Reject</button>
+</div>
+<div class="inline-form" data-form="${esc(proposal.id)}" hidden>
+<label class="field"><span data-form-label></span><textarea data-form-input rows="2" maxlength="1000"></textarea></label>
+<div class="actions"><button data-form-submit="${esc(proposal.id)}" type="button">Send</button><button class="ghost" data-form-cancel="${esc(proposal.id)}" type="button">Cancel</button></div>
+</div></article>`;
 }
+function renderProposals(){
+ const topics=state.topics||{};
+ const proposals=topics.proposals||[];
+ $('#proposal-list').innerHTML=proposals.map(proposalCard).join('')||'<p class="empty">No candidate topics are waiting. Enter a rough subject above and Hermes will research it into candidates.</p>';
+ const rejected=topics.rejected||[];
+ $('#rejected-count').textContent=rejected.length?`(${rejected.length})`:'(none)';
+ $('#rejected-list').innerHTML=rejected.map(item=>`<div class="watch-row"><div><strong>${esc(item.title)}</strong><p class="meta">${esc(item.reason||'no reason recorded')} · ${esc(item.actor)} · ${esc(item.created_at)}</p></div><button class="ghost" data-undo="${esc(item.proposal_id)}" type="button">Undo</button></div>`).join('')||'<p class="empty">Nothing has been rejected.</p>';
+ const carded=topics.carded||[];
+ $('#carded-count').textContent=carded.length?`(${carded.length})`:'(none)';
+ $('#carded-list').innerHTML=carded.map(item=>`<div class="watch-row"><span>${esc(item.title)}</span><span class="meta">${esc(item.task_id)}</span></div>`).join('')||'<p class="empty">No topic has been approved yet.</p>';
+ renderCredits();
+}
+function renderCredits(){
+ const budget=(state.topics||{}).budget||{};
+ const node=$('#credit-meter');
+ if(budget.status==='ready'){node.innerHTML=`Firecrawl: <strong>${esc(budget.remaining)}</strong> credits left · a proposal run reads up to ${esc(budget.page_cap)} pages · refuses at ${esc(budget.stop_threshold)} used`;node.classList.remove('error');return;}
+ node.textContent=budget.message||'Firecrawl credit balance is unavailable.';
+ node.classList.add('error');
+}
+async function researchSubject(){
+ const subject=$('#subject').value.trim();
+ if(!subject){$('#propose-result').textContent='Enter a rough subject first.';return;}
+ if(busy)return;
+ busy=true;
+ const button=$('#research-subject');button.disabled=true;
+ $('#propose-result').classList.remove('error');
+ $('#propose-result').textContent='Researching… Search Console first, then up to five pages of Firecrawl.';
+ try{
+  const run=await post('/ceo/api/propose',{subject});
+  const parts=[`${run.added.length} candidate${run.added.length===1?'':'s'} proposed.`];
+  if(run.cache_hit)parts.push('Cached research reused — this run cost 0 credits.');
+  else parts.push(`Cost ${run.credits_used} credits; ${run.credits_remaining} left.`);
+  if(run.suppressed.length)parts.push(`${run.suppressed.length} suppressed as previously rejected.`);
+  if(run.duplicates.length)parts.push(`${run.duplicates.length} already proposed.`);
+  if(run.dropped.length)parts.push(`${run.dropped.length} dropped without a source.`);
+  (run.messages||[]).forEach(message=>parts.push(message));
+  $('#propose-result').textContent=parts.join(' ');
+  $('#subject').value='';
+  await refresh();
+ }catch(error){$('#propose-result').textContent=error.message;$('#propose-result').classList.add('error');}
+ finally{busy=false;button.disabled=false;}
+}
+function openInlineForm(id,kind){
+ const form=document.querySelector(`[data-form="${id}"]`);if(!form)return;
+ form.hidden=false;form.dataset.kind=kind;
+ form.querySelector('[data-form-label]').textContent=kind==='suggest'?'What should be different about this topic?':'Why are you rejecting it? (remembered, so it is not proposed again)';
+ form.querySelector('[data-form-input]').focus();
+}
+async function submitInlineForm(id){
+ const form=document.querySelector(`[data-form="${id}"]`);if(!form||busy)return;
+ const text=form.querySelector('[data-form-input]').value.trim();
+ if(!text){notice(form.dataset.kind==='suggest'?'Say what should change.':'Give a reason so it can be remembered.',true);return;}
+ busy=true;
+ try{
+  if(form.dataset.kind==='suggest'){
+   notice('Re-researching this candidate…');
+   const result=await post('/ceo/api/proposal/suggest',{proposal_id:Number(id),comment:text});
+   notice(`Revised. Cost ${result.credits_used} credits.`);
+  }else{
+   await post('/ceo/api/proposal/reject',{proposal_id:Number(id),reason:text});
+   notice('Rejected and remembered.');
+  }
+  await refresh();
+ }catch(error){notice(error.message,true);}
+ finally{busy=false;}
+}
+async function approveProposal(id){
+ if(busy)return;busy=true;
+ try{
+  const result=await post('/ceo/api/proposal/approve',{proposal_id:Number(id)});
+  notice(`Approved. Board card ${result.task_id} is queued for writing.`);
+  await refresh();
+ }catch(error){notice(error.message,true);}
+ finally{busy=false;}
+}
+async function undoRejection(id){
+ if(busy)return;busy=true;
+ try{await post('/ceo/api/proposal/undo-rejection',{proposal_id:Number(id)});notice('Rejection undone.');await refresh();}
+ catch(error){notice(error.message,true);}
+ finally{busy=false;}
+}
+
+/* ------------------------------------------------------------------- trends */
+
 function renderTrends(){
  const keyword=$('#trend-keyword').value.trim().toLocaleLowerCase();
  const rows=(state.trending||[]).filter(row=>!keyword||String(row.title||'').toLocaleLowerCase().includes(keyword));
@@ -52,7 +166,7 @@ function renderTrends(){
  $('#watchlist').innerHTML=(state.watchlist||[]).map(keyword=>`<div class="watch-row"><span>${esc(keyword)}</span><button class="ghost" data-unwatch="${esc(keyword)}" type="button">Remove</button></div>`).join('')||'<p class="empty">Nothing is being watched. Watchlist entries never create board cards.</p>';
 }
 function renderBlogs(){
- $('#blog-list').innerHTML=(state.blogs||[]).map(task=>`<article class="card"><div class="card-row"><button class="open" data-open="${esc(task.id)}" type="button"><span class="pill">${esc(task.decision_status)}</span><h3>${esc(task.title||task.id)}</h3><p class="meta">${esc(task.id)} · ${task.article?.word_count??0} words · ${task.article?.read_minutes??0} min read</p></button><span class="meta">${esc(task.change_status||task.status||'')}</span></div></article>`).join('')||'<p class="empty">No blog has been written yet. Writing is blocked until the content KPI set is approved; only cards backed by an artifact under artifacts/ appear here.</p>';
+ $('#blog-list').innerHTML=(state.blogs||[]).map(task=>`<article class="card"><div class="card-row"><button class="open" data-open="${esc(task.id)}" type="button"><span class="pill">${esc(task.decision_status)}</span><h3>${esc(task.title||task.id)}</h3><p class="meta">${esc(task.id)} · ${task.article?.word_count??0} words · ${task.article?.read_minutes??0} min read</p></button><span class="meta">${esc(task.change_status||task.status||'')}</span></div></article>`).join('')||'<p class="empty">No blog has been written yet. A topic has to be approved in Topics &amp; Research before the writer can produce one.</p>';
 }
 function renderGsc(){
  const data=state.analytics?.search_console||{};
@@ -70,7 +184,9 @@ function renderGa4(){
  const selected=$('#metric').value in labels?$('#metric').value:'sessions';
  $('#ga4-panel').innerHTML=`<div class="metrics"><div class="metric"><span>${labels[selected]}</span><strong>${value(data.metrics?.[selected])}</strong>${delta(data.deltas?.[selected])}</div></div>`;
 }
-function renderAll(){renderTopics();renderTrends();renderBlogs();renderGsc();renderGa4();}
+function renderAll(){renderProposals();renderTrends();renderBlogs();renderGsc();renderGa4();}
+
+/* ------------------------------------------------------------- blog reading */
 
 function slotHtml(slot){
  if(slot.bound)return `<figure class="image-slot" data-image-url="${esc(slot.url)}"><span>Loading ${esc(slot.caption)}…</span><figcaption>${esc(slot.caption)}</figcaption></figure>`;
@@ -155,19 +271,14 @@ function openPdf(task){const popup=window.open('','_blank');if(!popup){notice('A
 function downloadArticle(task){const blob=new Blob([task.article?.text||''],{type:'text/markdown;charset=utf-8'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=(task.article?.metadata?.slug||task.id)+'.md';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
 
 async function refresh(quiet=false){
- if(quiet&&openTask)return;
+ if(quiet&&(openTask||busy))return;
  const range=$('#range').value;const device=$('#device').value;
  try{state=await api(`/ceo/api/state?range=${encodeURIComponent(range)}&device=${encodeURIComponent(device)}`);renderAll();if(!quiet)notice('');}
  catch(error){if(!quiet)notice(error.message,true);}
 }
-async function addTopics(){
- const topics=$('#topic-batch').value.split(/\n/).map(value=>value.trim()).filter(Boolean);
- try{const result=await api('/ceo/api/topics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topics})});const skipped=(result.skipped||[]).map(item=>`${item.title}: ${item.reason}`).join(' · ');$('#topic-result').textContent=`Added ${result.added.length}.${skipped?' Skipped — '+skipped:''}`;$('#topic-batch').value='';await refresh();}
- catch(error){$('#topic-result').textContent=error.message;$('#topic-result').classList.add('error');}
-}
-async function updateWatch(keyword,action){try{const result=await api('/ceo/api/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword,action})});state.watchlist=result.watchlist;renderTrends();}catch(error){notice(error.message,true);}}
-async function decide(task,decision){try{await api('/ceo/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:task.id,decision})});closeDetail();await refresh();}catch(error){notice(error.message,true);}}
-async function revise(task){const comment=$('#revision-comment').value;try{await api('/ceo/api/revision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:task.id,comment})});closeDetail();await refresh();}catch(error){notice(error.message,true);}}
+async function updateWatch(keyword,action){try{const result=await post('/ceo/api/watchlist',{keyword,action});state.watchlist=result.watchlist;renderTrends();}catch(error){notice(error.message,true);}}
+async function decide(task,decision){try{await post('/ceo/api/decision',{task_id:task.id,decision});closeDetail();await refresh();}catch(error){notice(error.message,true);}}
+async function revise(task){const comment=$('#revision-comment').value;try{await post('/ceo/api/revision',{task_id:task.id,comment});closeDetail();await refresh();}catch(error){notice(error.message,true);}}
 async function upload(task,slot,file){try{await api(`/ceo/api/upload?task=${encodeURIComponent(task.id)}&slot=${encodeURIComponent(slot)}`,{method:'POST',headers:{'X-Filename':file.name},body:file});await refresh();openTask=task.id;detailTab='files';await renderDetail();}catch(error){notice(error.message,true);}}
 
 async function publish(task){
@@ -175,7 +286,7 @@ async function publish(task){
  if(!confirm('Merge '+task.id+' to main and publish it to itarang.com?'))return;
  const button=$('#publish-block [data-publish]');if(button)button.disabled=true;
  try{
-  const outcome=await api('/ceo/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:task.id,request_id:publishRequest})});
+  const outcome=await post('/ceo/publish',{task:task.id,request_id:publishRequest});
   publishRequest='';
   notice('Published. Merge commit '+(outcome.merge_commit||'').slice(0,7)+'.');
   await refresh();await renderDetail();
@@ -183,18 +294,31 @@ async function publish(task){
 }
 document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
- if(button.dataset.view)showView(button.dataset.view);
- if(button.dataset.open)openDetail(button.dataset.open);
- if(button.dataset.detail){detailTab=button.dataset.detail;renderDetail();}
- if(button.dataset.unwatch)updateWatch(button.dataset.unwatch,'remove');
- if(button.dataset.reader){const task=findTask(openTask);if(button.dataset.reader==='dark'){darkReading=!darkReading;renderDetail();}if(button.dataset.reader==='download')downloadArticle(task);if(button.dataset.reader==='pdf')openPdf(task);if(button.dataset.reader==='print')window.print();}
- if(button.dataset.decision)decide(findTask(openTask),button.dataset.decision);
- if(button.dataset.revision)revise(findTask(openTask));
- if(button.dataset.publish)publish(findTask(openTask));
+ const data=button.dataset;
+ if(data.view)showView(data.view);
+ if(data.open)openDetail(data.open);
+ if(data.detail){detailTab=data.detail;renderDetail();}
+ if(data.unwatch)updateWatch(data.unwatch,'remove');
+ if(data.approve)approveProposal(data.approve);
+ if(data.suggestOpen)openInlineForm(data.suggestOpen,'suggest');
+ if(data.rejectOpen)openInlineForm(data.rejectOpen,'reject');
+ if(data.formSubmit)submitInlineForm(data.formSubmit);
+ if(data.formCancel){const form=document.querySelector(`[data-form="${data.formCancel}"]`);if(form)form.hidden=true;}
+ if(data.undo)undoRejection(data.undo);
+ if(data.reader){const task=findTask(openTask);if(data.reader==='dark'){darkReading=!darkReading;renderDetail();}if(data.reader==='download')downloadArticle(task);if(data.reader==='pdf')openPdf(task);if(data.reader==='print')window.print();}
+ if(data.decision)decide(findTask(openTask),data.decision);
+ if(data.revision)revise(findTask(openTask));
+ if(data.publish)publish(findTask(openTask));
 });
 document.addEventListener('change',event=>{if(event.target.matches('[data-upload]')&&event.target.files[0])upload(findTask(openTask),event.target.dataset.upload,event.target.files[0]);if(event.target.matches('#range,#device,#metric'))refresh();});
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&openTask)closeDetail();if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){event.preventDefault();showView('trending');$('#trend-keyword').focus();}if(/^[1-4]$/.test(event.key)&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))showView(['topics','trending','blogs','analytics'][Number(event.key)-1]);});
-$('#add-topics').addEventListener('click',addTopics);
+document.addEventListener('keydown',event=>{
+ const typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+ if(event.key==='Escape'&&openTask)closeDetail();
+ if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!typing){event.preventDefault();showView('topics');$('#subject').focus();}
+ if(/^[1-3]$/.test(event.key)&&!typing)showView(VIEWS[Number(event.key)-1]);
+});
+$('#research-subject').addEventListener('click',researchSubject);
+$('#subject').addEventListener('keydown',event=>{if(event.key==='Enter')researchSubject();});
 $('#trend-keyword').addEventListener('input',renderTrends);
 $('#watch-keyword').addEventListener('click',()=>{const keyword=$('#trend-keyword').value.trim();if(keyword)updateWatch(keyword,'add');});
 $('#close-detail').addEventListener('click',closeDetail);

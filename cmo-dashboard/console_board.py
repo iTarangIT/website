@@ -26,7 +26,6 @@ def artifact_for(task: dict[str, Any], profile_dir: Path = PROFILE_DIR) -> Path 
 def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -> dict[str, Any]:
     text = tasks_file.read_text(encoding="utf-8")
     tasks = dashboard_server.parse_tasks(text)
-    topics: list[dict[str, Any]] = []
     blogs: list[dict[str, Any]] = []
     for task in tasks:
         artifact = artifact_for(task, profile_dir)
@@ -65,6 +64,9 @@ def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -
             "change_status": change_status,
             "waiting_on": waiting_on,
         } if has_pipeline else None
-        if str(task.get("skill", task.get("owner", ""))).casefold() == "content":
-            (blogs if task["artifact_path"] else topics).append(task)
-    return {"tasks": tasks, "topics": topics, "blogs": blogs}
+        # A content card only reaches the Blogs tab once it has a real artifact. An
+        # unwritten content card is no longer a "topic" here — topics live in the
+        # proposals store and never appear on the board until they are approved.
+        if str(task.get("skill", task.get("owner", ""))).casefold() == "content" and task["artifact_path"]:
+            blogs.append(task)
+    return {"tasks": tasks, "blogs": blogs}

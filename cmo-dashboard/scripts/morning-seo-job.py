@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Daily Firecrawl SEO review and backlog updater for itarang_cmo.
+"""Every-other-day Firecrawl SEO review and backlog updater for itarang_cmo.
 
 The watchdog calls this with --due every cycle. It is deliberately clock-driven:
 if the first cycle after 08:00 IST is late, the run is recorded as late rather
-than silently skipped. --force bypasses the clock but not the one-attempt-per-day
+than silently skipped. --force bypasses the clock but not the one-attempt-per-window
 guard.
 """
 from __future__ import annotations
@@ -30,6 +30,12 @@ STATE = PROFILE / "state/morning-seo-last-run"
 LOCK = PROFILE / "state/morning-seo.lock"
 SPEND = PROFILE / "scripts/spend-tracker.py"
 IST = ZoneInfo("Asia/Kolkata")
+
+# Cadence and size, both set from what the site actually is. The sitemap holds 20 URLs
+# (12 static routes + 4 blog posts + 4 active category pages), so the crawl ceiling is
+# 20 and never pays for pages that do not exist. Every other day rather than daily.
+MINIMUM_DAYS_BETWEEN_CRAWLS = 2
+CRAWL_PAGE_LIMIT = 20
 
 sys.path.insert(0, str(PROFILE))
 from cmo_runtime.task_file import TaskFile, TaskFileError, validate_structure  # noqa: E402
@@ -60,14 +66,28 @@ def load_profile_env() -> None:
 
 
 def due(day: str) -> bool:
+    """Every other day, not daily.
+
+    A brochure site with four blog posts does not change between Tuesday and
+    Wednesday, so a daily crawl re-reads unchanged pages and bills for the privilege.
+    Post-deploy regression is already caught by preview_metrics at Gate 2, on the
+    actual change, so nothing depends on a 24-hour detection window here.
+    """
     if not STATE.exists():
         return True
     raw = STATE.read_text(encoding="utf-8").strip()
     try:
         marker = json.loads(raw)
     except (ValueError, TypeError):
-        return raw != day
-    return not isinstance(marker, dict) or marker.get("day") != day
+        marker = None
+    last_day = marker.get("day") if isinstance(marker, dict) else (raw or None)
+    if not last_day:
+        return True
+    try:
+        gap = dt.date.fromisoformat(day) - dt.date.fromisoformat(str(last_day))
+    except ValueError:
+        return True
+    return gap.days >= MINIMUM_DAYS_BETWEEN_CRAWLS
 
 
 def write_daily_marker(day: str, status: str, error: str | None = None) -> None:
@@ -92,7 +112,7 @@ def firecrawl() -> list[dict]:
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     payload = {
         "url": "https://itarang.com",
-        "limit": 20,
+        "limit": CRAWL_PAGE_LIMIT,
         "scrapeOptions": {"formats": ["markdown", "html"], "onlyMainContent": False},
     }
     task_id = f"morning-seo-{now_ist().date().isoformat()}"
@@ -333,8 +353,8 @@ def run(force: bool = False) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--due", action="store_true", help="run only at/after 08:00 IST and once per day")
-    parser.add_argument("--force", action="store_true", help="run before 08:00 for an operator test; still limited to one attempt per day")
+    parser.add_argument("--due", action="store_true", help="run only at/after 08:00 IST and at most once every two days")
+    parser.add_argument("--force", action="store_true", help="run before 08:00 for an operator test; still limited to one attempt per two-day window")
     args = parser.parse_args()
     LOCK.parent.mkdir(parents=True, exist_ok=True)
     with LOCK.open("w", encoding="utf-8") as handle:

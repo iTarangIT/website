@@ -17,6 +17,8 @@ import ceo_artifacts
 import ceo_publish
 import console_board
 from ceo_page import render_page
+from cmo_runtime import topic_proposals
+from cmo_runtime.console_db import ConsoleDBError
 from cmo_runtime.decisions import DecisionConflict, DecisionError, DecisionStore
 from cmo_runtime.task_file import TaskFileError
 
@@ -71,12 +73,24 @@ def _task(task_id: str) -> dict[str, Any]:
     return task
 
 
+def _service() -> topic_proposals.TopicProposalService:
+    """One short-lived service per request; the SQLite connection closes with it."""
+    return topic_proposals.TopicProposalService(PROFILE_DIR)
+
+
 def state_payload(range_days: int = 28, device: str = "all") -> dict[str, Any]:
     board = console_board.read_board(TASKS_FILE, PROFILE_DIR)
     trend_days = range_days if range_days in {7, 28, 90} else 7
     rows, trend_messages = analytics_readers.trending_rows(trend_days)
+    service = _service()
+    try:
+        # Read model only — every value here comes from the database or the board,
+        # never from a live scrape at page load.
+        topics = service.state()
+    finally:
+        service.database.close()
     return {
-        "topics": board["topics"],
+        "topics": topics,
         "blogs": board["blogs"],
         "trending": rows,
         "trending_messages": trend_messages,
@@ -203,11 +217,39 @@ def dispatch(handler: Any, method: str) -> bool:
                 handler.rfile.read(length),
             )
             result = {"ok": True, "filename": destination.name, "slot": slot}
+        elif path in {
+            "/ceo/api/propose",
+            "/ceo/api/proposal/approve",
+            "/ceo/api/proposal/suggest",
+            "/ceo/api/proposal/reject",
+            "/ceo/api/proposal/undo-rejection",
+        }:
+            payload = _body(handler)
+            service = _service()
+            try:
+                if path == "/ceo/api/propose":
+                    run = service.propose(str(payload.get("subject", "")), email)
+                    result = {"ok": True, **run.as_dict()}
+                else:
+                    proposal_id = payload.get("proposal_id")
+                    if not isinstance(proposal_id, int) or proposal_id <= 0:
+                        raise ValueError("a positive proposal_id is required")
+                    if path == "/ceo/api/proposal/approve":
+                        result = service.approve(proposal_id, email)
+                    elif path == "/ceo/api/proposal/suggest":
+                        result = service.suggest_changes(
+                            proposal_id, str(payload.get("comment", "")), email
+                        )
+                        result.pop("proposal", None)
+                    elif path == "/ceo/api/proposal/reject":
+                        result = service.reject(proposal_id, str(payload.get("reason", "")), email)
+                    else:
+                        result = service.undo_rejection(proposal_id, email)
+            finally:
+                service.database.close()
         else:
             payload = _body(handler)
-            if path == "/ceo/api/topics":
-                result = ceo_actions.add_topics(PROFILE_DIR, payload.get("topics"), email)
-            elif path == "/ceo/api/watchlist":
+            if path == "/ceo/api/watchlist":
                 result = {
                     "ok": True,
                     "watchlist": ceo_actions.update_watchlist(
@@ -228,10 +270,6 @@ def dispatch(handler: Any, method: str) -> bool:
                         email,
                     )
                     result = {"ok": True, "revision_round": round_number}
-                elif path in {"/ceo/api/topic-greenlight", "/ceo/api/topic-stage"}:
-                    stage = "approved" if path.endswith("topic-greenlight") else str(payload.get("stage", ""))
-                    ceo_actions.set_topic_stage(PROFILE_DIR, task_id, stage, email)
-                    result = {"ok": True, "topic_stage": stage}
                 elif path == "/ceo/api/decision":
                     decision = str(payload.get("decision", "")).strip()
                     task = _task(task_id)
@@ -250,7 +288,13 @@ def dispatch(handler: Any, method: str) -> bool:
                 else:
                     _json(handler, HTTPStatus.NOT_FOUND, {"error": "not found"})
                     return True
-    except (ValueError, json.JSONDecodeError, TaskFileError) as exc:
+    except (
+        ValueError,
+        json.JSONDecodeError,
+        TaskFileError,
+        ConsoleDBError,
+        topic_proposals.ProposalRefused,
+    ) as exc:
         _json(handler, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         return True
     except LookupError as exc:

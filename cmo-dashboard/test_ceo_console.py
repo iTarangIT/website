@@ -81,8 +81,26 @@ class CEOConsoleTests(unittest.TestCase):
         with patch.dict(os.environ, {"CMO_DASHBOARD_PREVIEW": "1"}), patch.object(
             ceo_console.console_auth, "authorize", return_value=("ceo@example.test", "ceo")
         ):
-            for route in ("/ceo/api/decision", "/ceo/api/revision", "/ceo/api/topic-greenlight"):
-                handler = Handler(route, payload={"task_id": "TASK-001", "decision": "approve", "comment": "change"})
+            for route in (
+                "/ceo/api/decision",
+                "/ceo/api/revision",
+                "/ceo/api/propose",
+                "/ceo/api/proposal/approve",
+                "/ceo/api/proposal/suggest",
+                "/ceo/api/proposal/reject",
+                "/ceo/api/proposal/undo-rejection",
+            ):
+                handler = Handler(
+                    route,
+                    payload={
+                        "task_id": "TASK-001",
+                        "decision": "approve",
+                        "comment": "change",
+                        "subject": "battery data",
+                        "proposal_id": 1,
+                        "reason": "covered",
+                    },
+                )
                 ceo_console.dispatch(handler, "POST")
                 self.assertEqual(handler.status, 403)
 
@@ -108,7 +126,7 @@ class CEOConsoleTests(unittest.TestCase):
             self.assertIsNone(console_board.artifact_for({"attachment": "other/draft.md"}, root))
             self.assertIsNone(console_board.artifact_for({"attachment": "none"}, root))
 
-    def test_content_without_artifact_is_topic_and_with_artifact_is_blog(self):
+    def test_only_artifact_backed_content_reaches_the_blogs_tab(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "artifacts").mkdir()
@@ -117,10 +135,12 @@ class CEOConsoleTests(unittest.TestCase):
             text = board_card("TASK-1", "none") + board_card("TASK-2", "artifacts/draft.md").split("## Human Approval", 1)[1].split("## Completed", 1)[0]
             board.write_text(text, encoding="utf-8")
             result = console_board.read_board(board, root)
-        self.assertEqual([x["id"] for x in result["topics"]], ["TASK-1"])
+        # An unwritten content card is no longer surfaced as a "topic" here; topics
+        # live in the proposals store until they are approved.
+        self.assertNotIn("topics", result)
         self.assertEqual([x["id"] for x in result["blogs"]], ["TASK-2"])
 
-    def test_revision_and_topic_greenlight_are_fields_only(self):
+    def test_revision_is_fields_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "state").mkdir()
@@ -131,10 +151,7 @@ class CEOConsoleTests(unittest.TestCase):
             self.assertIn("## Human Approval", after_revision)
             self.assertIn("- Status: Human Approval", after_revision)
             self.assertIn("- Revision round: 1", after_revision)
-            ceo_actions.greenlight_topic(root, "TASK-1", "ceo@example.test")
-            updated = path.read_text(encoding="utf-8")
-            self.assertIn("- Topic stage: approved", updated)
-            self.assertIn("- Topic approved by: ceo@example.test", updated)
+            self.assertFalse((root / "state" / "human-approvals.json").exists())
 
     def test_page_modules_import_in_both_orders(self):
         for first, second in (("ceo_console", "ceo_page"), ("ceo_page", "ceo_console")):

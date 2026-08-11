@@ -107,28 +107,12 @@ class CeoStageBTests(unittest.TestCase):
         (root / "logs").mkdir()
         return directory, root
 
-    def test_topic_batch_is_atomic_and_duplicates_are_skipped_with_reasons(self):
-        directory, root = self.make_root(empty_board())
-        self.addCleanup(directory.cleanup)
-        result = ceo_actions.add_topics(root, ["Battery health", "battery health", "Fleet charging"], "ceo@test")
-        self.assertEqual([item["title"] for item in result["added"]], ["Battery health", "Fleet charging"])
-        self.assertEqual(result["skipped"], [{"title": "battery health", "reason": "duplicate within this batch"}])
-        before = (root / "tasks.md").read_text(encoding="utf-8")
-        with self.assertRaises(TaskFileError):
-            ceo_actions.add_topics(root, ["A valid topic", "x"], "ceo@test")
-        self.assertEqual((root / "tasks.md").read_text(encoding="utf-8"), before)
-
-    def test_topic_approve_and_decline_are_fields_not_decisions(self):
-        directory, root = self.make_root(empty_board())
-        self.addCleanup(directory.cleanup)
-        task_id = ceo_actions.add_topics(root, ["Battery recycling"], "ceo@test")["added"][0]["id"]
-        ceo_actions.set_topic_stage(root, task_id, "approved", "ceo@test")
-        ceo_actions.set_topic_stage(root, task_id, "declined", "ceo@test")
-        text = (root / "tasks.md").read_text(encoding="utf-8")
-        self.assertIn("- Topic stage: declined", text)
-        self.assertIn("- Topic approved by: ceo@test", text)
-        self.assertIn("- Topic declined by: ceo@test", text)
-        self.assertFalse((root / "state" / "human-approvals.json").exists())
+    def test_the_console_has_no_direct_board_writer_for_topics(self):
+        # `add_topics` and `set_topic_stage` turned a typed subject straight into a
+        # writable card. That is the behaviour the proposal flow replaced.
+        self.assertFalse(hasattr(ceo_actions, "add_topics"))
+        self.assertFalse(hasattr(ceo_actions, "set_topic_stage"))
+        self.assertFalse(hasattr(ceo_actions, "greenlight_topic"))
 
     def test_only_artifact_backed_cards_are_blogs_and_never_topics(self):
         directory, root = self.make_root(card_board())
@@ -136,11 +120,11 @@ class CeoStageBTests(unittest.TestCase):
         (root / "artifacts" / "TASK-001-blog.md").write_text("# Draft\n\nBody", encoding="utf-8")
         value = console_board.read_board(root / "tasks.md", root)
         self.assertEqual([item["id"] for item in value["blogs"]], ["TASK-001"])
-        self.assertEqual(value["topics"], [])
+        self.assertNotIn("topics", value, "the board no longer produces a topics list")
         (root / "artifacts" / "TASK-001-blog.md").unlink()
         value = console_board.read_board(root / "tasks.md", root)
+        # Without an artifact the card is simply not a blog; it is not a topic either.
         self.assertEqual(value["blogs"], [])
-        self.assertEqual([item["id"] for item in value["topics"]], ["TASK-001"])
 
     def test_article_slots_render_unbound_then_bind_to_uploaded_artifact_image(self):
         directory, root = self.make_root(card_board())
@@ -301,14 +285,17 @@ class CeoStageBTests(unittest.TestCase):
             self.assertIn(key, page)
         self.assertNotIn("login-form", page)
         self.assertIn("api(figure.dataset.imageUrl,{raw:true})", page)
-        self.assertIn("if(quiet&&openTask)return", page)
+        self.assertIn("if(quiet&&(openTask||busy))return", page)
         self.assertIn("setInterval(()=>refresh(true),60000)", page)
 
     def test_preview_forbids_every_ceo_write_route(self):
         routes = [
-            ("/ceo/api/topics", {"topics": ["A topic"]}, None, ""),
+            ("/ceo/api/propose", {"subject": "battery data"}, None, ""),
+            ("/ceo/api/proposal/approve", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/proposal/suggest", {"proposal_id": 1, "comment": "narrower"}, None, ""),
+            ("/ceo/api/proposal/reject", {"proposal_id": 1, "reason": "covered"}, None, ""),
+            ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
             ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
-            ("/ceo/api/topic-stage", {"task_id": "TASK-001", "stage": "approved"}, None, ""),
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
             ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
