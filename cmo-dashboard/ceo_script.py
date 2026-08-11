@@ -8,6 +8,7 @@ let state=null;
 let currentView='topics';
 let openTask=null;
 let detailTab='read';
+let publishRequest='';
 let darkReading=false;
 
 function expire(){
@@ -96,7 +97,37 @@ function pipelineHtml(task){
  const item=task.publishing_pipeline;
  if(!item)return '<p class="empty">This card has no website publishing pipeline.</p>';
  const link=(url,label)=>url?`<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`:'—';
- return `<div class="pipeline"><strong>Approval is Gate 1, not publication.</strong><p>${esc(item.waiting_on)}</p><dl><dt>Change status</dt><dd>${value(item.change_status)}</dd><dt>Branch</dt><dd>${value(item.branch)}</dd><dt>Commit</dt><dd>${item.commit_url?link(item.commit_url,esc(item.commit||'Open commit')):value(item.commit)}</dd><dt>Preview</dt><dd>${link(item.preview_url,'Open preview')}</dd><dt>Lighthouse evidence</dt><dd>${value(item.lighthouse_evidence)}</dd></dl></div>`;
+ return `<div class="pipeline"><strong>Approval is Gate 1, not publication.</strong><p>${esc(item.waiting_on)}</p><dl><dt>Change status</dt><dd>${value(item.change_status)}</dd><dt>Branch</dt><dd>${value(item.branch)}</dd><dt>Commit</dt><dd>${item.commit_url?link(item.commit_url,esc(item.commit||'Open commit')):value(item.commit)}</dd><dt>Preview</dt><dd>${link(item.preview_url,'Open preview')}</dd><dt>Lighthouse evidence</dt><dd>${value(item.lighthouse_evidence)}</dd></dl>${publishHtml()}</div>`;
+}
+function publishHtml(){
+ return `<div class="publish" id="publish-block"><h4>Gate 2 — publish to website</h4><p class="meta" id="publish-state">Checking whether this commit can be published…</p><div id="publish-evidence"></div><div class="actions"><button data-publish="1" type="button" disabled>Publish to website</button></div><p class="meta">Publishing merges the approved commit to main. Your name is recorded in approvals.log and in the merge commit trailer.</p></div>`;
+}
+function scoreCell(before,after){
+ if(before==null&&after==null)return '—';
+ const delta=(before!=null&&after!=null)?after-before:null;
+ const arrow=delta==null?'':(delta>0?` (+${delta.toFixed(0)})`:delta<0?` (${delta.toFixed(0)})`:' (no change)');
+ return `${before==null?'—':before}&nbsp;→&nbsp;${after==null?'—':after}${arrow}`;
+}
+function publishEvidenceHtml(check){
+ if(!check.comparison||!check.comparison.length)return '<p class="empty">No baseline-to-preview comparison is attached.</p>';
+ const rows=check.comparison.map(row=>`<tr><td>${esc(row.path)}</td><td>${scoreCell(row.performance_before,row.performance_after)}</td><td>${scoreCell(row.weight_before==null?null:Math.round(row.weight_before/1024),row.weight_after==null?null:Math.round(row.weight_after/1024))}</td></tr>`).join('');
+ return `<table class="evidence"><thead><tr><th>Route</th><th>Performance</th><th>Weight (KB)</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function refreshPublish(task){
+ const block=$('#publish-block');if(!block)return;
+ const state=$('#publish-state'),button=block.querySelector('[data-publish]');
+ try{
+  const check=await api('/ceo/publish-check?task='+encodeURIComponent(task.id));
+  publishRequest=check.request_id||'';
+  $('#publish-evidence').innerHTML=publishEvidenceHtml(check);
+  if(check.eligible){
+   state.textContent=`Ready: commit ${(check.commit||'').slice(0,7)} is current, the preview is deployed and the evidence is attached.`;
+   button.disabled=false;
+  }else{
+   state.innerHTML='Cannot publish yet:<ul>'+check.blockers.map(reason=>`<li>${esc(reason)}</li>`).join('')+'</ul>';
+   button.disabled=true;
+  }
+ }catch(error){state.textContent='Could not check publish eligibility: '+error.message;button.disabled=true;}
 }
 function detailRead(task){
  return `<div class="reader-actions actions"><button data-reader="dark" type="button">${darkReading?'Light':'Dark'} reading</button><button data-reader="download" type="button">Download</button><button data-reader="pdf" type="button">Open as PDF</button><button data-reader="print" type="button">Print/PDF</button></div><p class="meta">${task.article?.word_count??0} words · ${task.article?.read_minutes??0} min read</p><article class="article-sheet${darkReading?' dark':''}">${articleHtml(task)}</article>`;
@@ -115,6 +146,7 @@ async function renderDetail(){
  const render={read:detailRead,impact:detailImpact,discussion:detailDiscussion,files:detailFiles}[detailTab];
  $('#detail-body').innerHTML=render(task);
  if(detailTab==='read')await hydrateImages();
+ if(detailTab==='impact')await refreshPublish(task);
 }
 async function openDetail(id){openTask=id;detailTab='read';await renderDetail();$('#detail').showModal();}
 function closeDetail(){openTask=null;$('#detail').close();}
@@ -138,6 +170,17 @@ async function decide(task,decision){try{await api('/ceo/api/decision',{method:'
 async function revise(task){const comment=$('#revision-comment').value;try{await api('/ceo/api/revision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:task.id,comment})});closeDetail();await refresh();}catch(error){notice(error.message,true);}}
 async function upload(task,slot,file){try{await api(`/ceo/api/upload?task=${encodeURIComponent(task.id)}&slot=${encodeURIComponent(slot)}`,{method:'POST',headers:{'X-Filename':file.name},body:file});await refresh();openTask=task.id;detailTab='files';await renderDetail();}catch(error){notice(error.message,true);}}
 
+async function publish(task){
+ if(!publishRequest){notice('This card has no current publish instruction. Reopen the Impact tab.',true);return;}
+ if(!confirm('Merge '+task.id+' to main and publish it to itarang.com?'))return;
+ const button=$('#publish-block [data-publish]');if(button)button.disabled=true;
+ try{
+  const outcome=await api('/ceo/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:task.id,request_id:publishRequest})});
+  publishRequest='';
+  notice('Published. Merge commit '+(outcome.merge_commit||'').slice(0,7)+'.');
+  await refresh();await renderDetail();
+ }catch(error){notice(error.message,true);publishRequest='';await refreshPublish(task);}
+}
 document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  if(button.dataset.view)showView(button.dataset.view);
@@ -147,6 +190,7 @@ document.addEventListener('click',event=>{
  if(button.dataset.reader){const task=findTask(openTask);if(button.dataset.reader==='dark'){darkReading=!darkReading;renderDetail();}if(button.dataset.reader==='download')downloadArticle(task);if(button.dataset.reader==='pdf')openPdf(task);if(button.dataset.reader==='print')window.print();}
  if(button.dataset.decision)decide(findTask(openTask),button.dataset.decision);
  if(button.dataset.revision)revise(findTask(openTask));
+ if(button.dataset.publish)publish(findTask(openTask));
 });
 document.addEventListener('change',event=>{if(event.target.matches('[data-upload]')&&event.target.files[0])upload(findTask(openTask),event.target.dataset.upload,event.target.files[0]);if(event.target.matches('#range,#device,#metric'))refresh();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&openTask)closeDetail();if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){event.preventDefault();showView('trending');$('#trend-keyword').focus();}if(/^[1-4]$/.test(event.key)&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))showView(['topics','trending','blogs','analytics'][Number(event.key)-1]);});

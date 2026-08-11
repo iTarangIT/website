@@ -270,7 +270,7 @@ class CeoStageBTests(unittest.TestCase):
         self.assertIsNone(value["previous"]["sessions"])
         self.assertIsNone(value["deltas"]["sessions"])
 
-    def test_gate_two_pipeline_is_state_not_a_publish_action(self):
+    def test_gate_two_pipeline_state_is_rendered_for_the_human(self):
         extra = """- Change type: website
 - Branch: cmo-changes
 - Commit hash(es): abc123
@@ -286,9 +286,12 @@ class CeoStageBTests(unittest.TestCase):
         self.assertIn("human to merge", pipeline["waiting_on"])
         self.assertEqual(pipeline["branch"], "cmo-changes")
         self.assertEqual(pipeline["commit"], "abc123")
+        # SOUL.md section 12 clause 4 now permits a console publish control. The
+        # control is inert on its own: it carries no authority, and every refusal
+        # that guards it is proved separately in test_ceo_publish.py.
         page = render_page().decode("utf-8")
-        self.assertNotIn("data-publish", page)
-        self.assertNotRegex(page, r"<button[^>]*>\s*Publish\s*</button>")
+        self.assertIn("data-publish", page)
+        self.assertIn("Publish to website", page)
 
     def test_ceo_page_has_four_nested_tabs_pdf_and_one_login_key_set(self):
         page = render_page().decode("utf-8")

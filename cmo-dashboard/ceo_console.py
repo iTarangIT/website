@@ -14,6 +14,7 @@ import console_auth
 import dashboard_server
 import analytics_readers
 import ceo_artifacts
+import ceo_publish
 import console_board
 from ceo_page import render_page
 from cmo_runtime.decisions import DecisionConflict, DecisionError, DecisionStore
@@ -114,6 +115,42 @@ def dispatch(handler: Any, method: str) -> bool:
         if device not in {"all", "desktop", "mobile", "tablet"}:
             device = "all"
         _json(handler, HTTPStatus.OK, state_payload(range_days, device))
+        return True
+    if method == "GET" and path == "/ceo/publish-check":
+        # Reports eligibility and, only when eligible, mints this human's
+        # single-use instruction. Reporting is not publishing.
+        task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
+        try:
+            check = ceo_publish.preflight(PROFILE_DIR, task_id, github=ceo_publish.GitHubAPI())
+        except ceo_publish.PublicationRefused as error:
+            _json(handler, HTTPStatus.OK, {"eligible": False, "blockers": [str(error)]})
+            return True
+        payload = check.as_dict()
+        payload["request_id"] = (
+            ceo_publish.issue_request(PROFILE_DIR, task_id, actor=email, commit=check.commit)
+            if check.eligible
+            else ""
+        )
+        _json(handler, HTTPStatus.OK, payload)
+        return True
+    if method == "POST" and path == "/ceo/publish":
+        body = _body(handler)
+        try:
+            outcome = ceo_publish.publish(
+                PROFILE_DIR,
+                str(body.get("task", "")),
+                actor=email,
+                role=_role,
+                request_id=str(body.get("request_id", "")),
+                github=ceo_publish.GitHubAPI(),
+            )
+        except ceo_publish.PublicationConflict as error:
+            _json(handler, HTTPStatus.CONFLICT, {"error": str(error)})
+            return True
+        except (ceo_publish.PublicationRefused, TaskFileError) as error:
+            _json(handler, HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return True
+        _json(handler, HTTPStatus.OK, outcome)
         return True
     if method == "GET" and path == "/ceo/artifact":
         task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
