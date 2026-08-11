@@ -158,6 +158,42 @@ animation:shimmer 1.4s ease infinite}
 .skeleton.chart-h{height:200px}
 @keyframes shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
 
+/* ---- a slow action, while it runs and when it fails ----------------------- */
+/* The button that started it says what it is doing and how long it has been
+   doing it. Disabled, but never faded to the point of looking broken. */
+button[aria-busy="true"],button.is-busy{opacity:.82;cursor:progress;
+font-variant-numeric:tabular-nums}
+button[aria-busy="true"]::before,button.is-busy::before{content:"";display:inline-block;
+width:11px;height:11px;margin-right:7px;vertical-align:-1px;border-radius:50%;
+border:2px solid currentColor;border-top-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* A failure stays on screen where the results would have been. A toast that
+   vanishes before it is read is the same as no message at all. */
+.failure{margin:0;padding:16px var(--pad);border:1px solid var(--red);border-left-width:3px;
+border-radius:var(--radius-sm);background:var(--red-soft);color:var(--ink)}
+.failure strong{display:block;margin-bottom:3px}
+.failure p{margin:0;color:var(--ink);overflow-wrap:anywhere}
+.row-error,.form-error{margin:8px 0 0;padding:8px 11px;border-radius:var(--radius-xs);
+background:var(--red-soft);color:var(--red);font-size:var(--f-sm);overflow-wrap:anywhere}
+.row-error[hidden],.form-error[hidden]{display:none}
+
+/* ---- work that arrived while he was looking somewhere else ---------------- */
+/* Never jump him to it. Count it on the tab, or offer one line he can click. */
+.tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;
+height:19px;margin-left:7px;padding:0 6px;border-radius:999px;background:var(--green);
+color:#fff;font-family:var(--mono);font-size:var(--f-xs);font-variant-numeric:tabular-nums}
+.tab-badge[hidden]{display:none}
+.new-line{margin:10px 0 0}
+.new-line[hidden]{display:none}
+.new-line button{padding:6px 12px;min-height:0;border:1px solid var(--green);
+border-radius:999px;background:var(--green-soft);color:var(--green-deep);
+font-size:var(--f-sm);font-weight:600}
+/* Someone else saved over the article he is editing. Say so; touch nothing. */
+.editor-conflict{margin:0 0 10px;padding:10px 13px;border:1px solid var(--amber);
+border-radius:var(--radius-sm);background:var(--amber-soft);color:var(--ink);
+font-size:var(--f-sm)}
+.editor-conflict[hidden]{display:none}
+
 /* ---- pagination ---------------------------------------------------------- */
 .pager{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;
 padding-top:10px;border-top:1px solid var(--line-soft)}

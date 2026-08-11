@@ -287,9 +287,12 @@ class CeoStageBTests(unittest.TestCase):
             self.assertIn(key, page)
         self.assertNotIn("login-form", page)
         self.assertIn("api(frame.dataset.imageUrl,{raw:true})", page)
-        # An open article, a running request or an unsaved edit all hold the reload.
-        self.assertIn("if(quiet&&(openTask||busy||editing))return", page)
-        self.assertIn("setInterval(()=>refresh(true),60000)", page)
+        # There is no blind reload left to hold. A background update is driven by
+        # the version token, it stands down only for an action still in flight,
+        # and what it must not disturb is proved in test_console_live.py.
+        self.assertIn("if(quiet&&busy)return", page)
+        self.assertIn("/ceo/api/version", page)
+        self.assertNotIn("setInterval(()=>refresh(true),60000)", page)
 
     def test_every_ceo_post_route_is_covered_by_the_preview_test(self):
         # A new POST route must be added to the list below, or this fails.

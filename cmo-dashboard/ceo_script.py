@@ -17,7 +17,22 @@ let busy=false;
 let focusIndex=-1;
 let editing=false;
 let editorText='';
+/* The text the editor opened with. Three-way, not two: "he changed it" and "they
+   changed it" are different questions, and only comparing both answers them. */
+let editorBase='';
 let previewTimer=0;
+
+/* ------------------------------------------------------- staying up to date */
+/* One mechanism, not two. A tiny token is polled; the whole state is refetched
+   only when that token moves. The old blind 60-second reload is gone — two
+   refreshers fighting each other is worse than either alone. */
+const POLL_LADDER=[3000,6000,12000,30000];
+let versionToken='';
+let pollStep=0;
+let pollTimer=0;
+/* Cards that arrived from somewhere else and he has not been shown yet. He is
+   never jumped to them; they are counted on the tab, or offered as one line. */
+const fresh={topics:new Set(),blogs:new Set()};
 
 /* ------------------------------------------------------- persisted list state */
 /* Sort, filter, search, page and page size survive the quiet 60-second reload.
@@ -72,6 +87,108 @@ function setHtml(node,html){
  painted.set(node,html);node.innerHTML=html;return true;
 }
 
+/* ------------------------------------------------------------ keyed patching */
+/* A background update replaces the rows that changed and nothing else. Blowing a
+   whole list away with innerHTML is what makes an auto-updating page feel like it
+   is fighting you: the scroll jumps, an open <details> snaps shut, and whatever
+   had focus loses it. Rows carry data-key; a row whose markup is byte-identical
+   to last time is not touched at all. */
+const rowState=new WeakMap();
+function canPatch(node){
+ return Boolean(node&&node.children&&typeof node.insertBefore==='function'
+  &&typeof node.removeChild==='function'&&typeof node.replaceChild==='function');
+}
+function makeRow(html){
+ const stage=document.createElement('div');
+ stage.innerHTML=html;
+ return stage.firstElementChild;
+}
+function rowKey(node){return node&&node.getAttribute?node.getAttribute('data-key'):null;}
+function patchRows(host,entries,fallback){
+ if(!host)return;
+ if(!entries.length||!canPatch(host)){
+  /* Empty state, or a host that cannot be patched: one honest full paint. */
+  rowState.set(host,new Map(entries.map(entry=>[entry.key,entry.html])));
+  setHtml(host,entries.length?entries.map(entry=>entry.html).join(''):(fallback||''));
+  return;
+ }
+ painted.delete(host);
+ const previous=rowState.get(host)||new Map();
+ const standing=new Map();
+ [...host.children].forEach(node=>{const key=rowKey(node);if(key!==null)standing.set(key,node);});
+ const next=new Map();
+ entries.forEach((entry,index)=>{
+  let node=standing.get(entry.key);
+  if(!node||previous.get(entry.key)!==entry.html){
+   const replacement=makeRow(entry.html);
+   if(replacement&&node)host.replaceChild(replacement,node);
+   if(replacement)node=replacement;
+  }
+  next.set(entry.key,entry.html);
+  if(!node)return;
+  const occupant=host.children[index];
+  if(occupant!==node)host.insertBefore(node,occupant||null);
+ });
+ [...host.children].forEach(node=>{
+  const key=rowKey(node);
+  if(key===null||!next.has(key))host.removeChild(node);
+ });
+ rowState.set(host,next);
+}
+
+/* --------------------------------------------------- a slow action, visibly */
+/* Tens of seconds pass between pressing this and anything arriving. For that
+   whole time the button has to say what it is doing and how long it has been
+   doing it, and a skeleton has to hold the space the results will fill, so the
+   layout does not jump when they do. Every slow action on this console goes
+   through here — there is no second way to look busy. */
+function nodeOf(target){return typeof target==='string'?$(target):target||null;}
+function runAction({button,label,slot,surface,shape='card-h',count=1,failTitle='That did not run.'}){
+ const control=nodeOf(button);
+ const place=nodeOf(slot);
+ const line=nodeOf(surface);
+ const original=control?control.textContent:'';
+ const started=Date.now();
+ let failed=false;
+ const paint=()=>{
+  if(control)control.textContent=`${label} ${Math.floor((Date.now()-started)/1000)}s`;
+ };
+ if(control){control.disabled=true;control.classList.add('is-busy');control.setAttribute('aria-busy','true');}
+ paint();
+ const ticker=setInterval(paint,1000);
+ const placed=skeleton(count,shape);
+ if(place){place.hidden=false;place.innerHTML=placed;painted.delete(place);}
+ /* Clear the last failure, and only that: whatever the caller just wrote on this
+    line to say what it is doing stays where it is. */
+ if(line&&line.classList.contains('error')){line.textContent='';line.classList.remove('error');line.hidden=true;}
+ busy=true;
+ return {
+  fail(message){
+   failed=true;
+   const text=String(message||'This did not say why it failed.');
+   if(place){
+    place.hidden=false;
+    place.innerHTML=`<div class="failure" role="alert"><strong>${esc(failTitle)}</strong><p>${esc(text)}</p></div>`;
+    painted.delete(place);
+   }
+   if(line){line.textContent=text;line.classList.add('error');line.hidden=false;}
+   if(!place&&!line)toast(text,true);
+  },
+  done(){
+   clearInterval(ticker);
+   busy=false;
+   if(control){
+    control.textContent=original;control.disabled=false;
+    control.classList.remove('is-busy');control.removeAttribute('aria-busy');
+   }
+   /* A failure stays on screen. Only a success clears the space it was using —
+      and only if the skeleton is still what is in it: when the results render
+      into the same node, taking it down again would blank the answer. */
+   if(place&&!failed&&place.innerHTML===placed){place.hidden=true;place.innerHTML='';painted.delete(place);}
+  }
+ };
+}
+
 /* ----------------------------------------------------------------- vocabulary */
 const STATUS={
  proposed:{glyph:'●',label:'awaiting you',tone:'tone-wait'},
@@ -119,6 +236,47 @@ function deltaHtml(value,kind){
 }
 function findTask(id){return (state?.blogs||[]).find(item=>item.id===id);}
 
+/* ------------------------------------------------- work that arrived elsewhere */
+function idsIn(snapshot){
+ return {
+  topics:new Set((((snapshot||{}).topics||{}).proposals||[]).map(item=>String(item.id))),
+  blogs:new Set(((snapshot||{}).blogs||[]).map(task=>String(task.id)))
+ };
+}
+/* Something appeared while he was looking at a different tab, or a different
+   page of this one. Remember it; do not move him to it. */
+function markArrivals(before,after){
+ const was=idsIn(before),now=idsIn(after);
+ for(const view of ['topics','blogs'])
+  for(const id of now[view])if(!was[view].has(id))fresh[view].add(id);
+}
+/* Once a card is actually on screen it is no longer news. */
+function settleArrivals(view,shownIds){
+ if(currentView===view)shownIds.forEach(id=>fresh[view].delete(String(id)));
+}
+function paintArrivals(){
+ for(const view of ['topics','blogs']){
+  const count=fresh[view].size;
+  const badge=document.querySelector(`[data-badge="${view}"]`);
+  if(badge){
+   badge.hidden=!count||currentView===view;
+   badge.textContent=count?String(count):'';
+  }
+  const line=$(`#${view}-new`);
+  if(!line)continue;
+  const offer=Boolean(count)&&currentView===view;
+  line.hidden=!offer;
+  if(offer)setHtml(line,`<button data-arrivals="${view}" type="button">${grouped.format(count)} new — show ${count===1?'it':'them'}</button>`);
+ }
+}
+/* He clicked the line. Clearing the filter and the search is the only thing that
+   can be guaranteed to bring the new cards into view. */
+function showArrivals(view){
+ setUi(view,{search:'',filter:'all',page:1});
+ const box=$(`#${view}-search`);if(box)box.value='';
+ showView(view);renderAll();
+}
+
 /* ------------------------------------------------------------------- paging */
 function page(items,key){
  const config=ui[key];
@@ -158,6 +316,10 @@ function showView(name){
  $$('.screen').forEach(node=>node.hidden=node.id!==`panel-${name}`);
  $$('.primary button').forEach(node=>node.classList.toggle('active',node.dataset.view===name));
  moveIndicator();applyFocus();
+ /* Arriving on a tab is how its badge clears: what he can now see is not news. */
+ if(state&&name==='topics')renderProposals();
+ if(state&&name==='blogs')renderBlogs();
+ paintArrivals();
  if(name==='analytics')drawChart();
 }
 function rows(){const panel=$(`#panel-${currentView}`);return panel?[...panel.querySelectorAll('[data-row]')]:[];}
@@ -195,7 +357,7 @@ function proposalCard(proposal){
  const round=proposal.round>1?`<span class="meta">revised ${proposal.round-1}×</span>`:'';
  const busyNote=proposal.status==='revising'?'<p class="meta">Re-researching this candidate…</p>':'';
  const history=(proposal.history||[]).length>1?`<details><summary>Earlier rounds</summary>${proposal.history.slice(0,-1).map(item=>`<div class="history-row"><strong>Round ${esc(item.round)}: ${esc(item.title)}</strong><p class="meta">${esc(item.outline)}</p></div>`).join('')}</details>`:'';
- return `<article class="card" role="listitem" data-row="${esc(proposal.id)}" data-proposal="${esc(proposal.id)}">
+ return `<article class="card" role="listitem" data-key="${esc(proposal.id)}" data-row="${esc(proposal.id)}" data-proposal="${esc(proposal.id)}">
 <div class="card-row"><div class="card-main">${pill(proposal.status)} ${round}
 <h3>${esc(proposal.title)}</h3>
 <p class="meta">From your subject: ${esc(proposal.subject)}</p>
@@ -207,9 +369,11 @@ ${sourceLine(proposal)}${busyNote}${history}</div></div>
 <button class="ghost" data-suggest-open="${esc(proposal.id)}" type="button">Suggest changes</button>
 <button class="danger" data-reject-open="${esc(proposal.id)}" type="button">Reject</button>
 </div>
+<p class="row-error" data-card-error hidden></p>
 <div class="inline-form" data-form="${esc(proposal.id)}" hidden>
 <label class="field"><span data-form-label></span><textarea data-form-input rows="2" maxlength="1000"></textarea></label>
 <div class="actions"><button data-form-submit="${esc(proposal.id)}" type="button">Send</button><button class="ghost" data-form-cancel="${esc(proposal.id)}" type="button">Cancel</button></div>
+<p class="form-error" data-form-error hidden></p>
 </div></article>`;
 }
 function matchesProposal(proposal,term){
@@ -232,9 +396,11 @@ function renderProposals(){
  $('#topics-count').textContent=filtered.length===all.length
   ?`${grouped.format(all.length)} candidate${all.length===1?'':'s'}`
   :`${grouped.format(filtered.length)} of ${grouped.format(all.length)}`;
- setHtml($('#proposal-list'),view.items.map(proposalCard).join('')||(all.length
+ patchRows($('#proposal-list'),view.items.map(item=>({key:String(item.id),html:proposalCard(item)})),all.length
   ?emptyState('Nothing matches','No candidate matches this search and filter.','Clear the filters','data-clear="topics"')
-  :emptyState('No candidates yet','No topic research has run yet. Enter a rough subject above and Hermes will research it into candidates you can decide on.','Enter a subject','data-focus="subject"')));
+  :emptyState('No candidates yet','No topic research has run yet. Enter a rough subject above and Hermes will research it into candidates you can decide on.','Enter a subject','data-focus="subject"'));
+ settleArrivals('topics',view.items.map(item=>item.id));
+ paintArrivals();
  renderPager('#topics-pager','topics',view,'candidates');
 
  const queue=state.research_queue||[];
@@ -258,14 +424,18 @@ function renderCredits(){
 }
 async function researchSubject(subject){
  subject=(subject||$('#subject').value).trim();
- if(!subject){$('#propose-result').textContent='Enter a rough subject first.';$('#subject').focus();return;}
+ const result=$('#propose-result');
+ if(!subject){result.classList.add('error');result.textContent='Enter a rough subject first.';$('#subject').focus();return;}
  if(busy)return;
- busy=true;
- const button=$('#research-subject');button.disabled=true;
- $('#propose-result').classList.remove('error');
- $('#propose-result').textContent='Researching… Search Console first, then up to five pages of Firecrawl.';
- $('#proposal-list').insertAdjacentHTML('afterbegin',skeleton(1,'card-h'));
- toast('Researching…');
+ result.classList.remove('error');
+ result.textContent='Researching… Search Console first, then up to five pages of Firecrawl.';
+ /* Runs for tens of seconds. The button goes dead and starts counting before the
+    request leaves, and a candidate-height skeleton holds the space below it. */
+ const action=runAction({
+  button:'#research-subject',label:'Researching…',
+  slot:'#topics-pending',shape:'card-h',count:1,
+  failTitle:'The research run did not finish.'
+ });
  try{
   const run=await post('/ceo/api/propose',{subject});
   const parts=[`${run.added.length} candidate${run.added.length===1?'':'s'} proposed.`];
@@ -275,29 +445,45 @@ async function researchSubject(subject){
   if(run.duplicates.length)parts.push(`${run.duplicates.length} already proposed.`);
   if(run.dropped.length)parts.push(`${run.dropped.length} dropped without a source.`);
   (run.messages||[]).forEach(message=>parts.push(message));
-  $('#propose-result').textContent=parts.join(' ');
-  toast(`${run.added.length} candidate${run.added.length===1?'':'s'} proposed.`);
   $('#subject').value='';
   setUi('topics',{filter:'all',page:1});
+  /* The skeleton comes down only once the real candidates are in the DOM. */
   await refresh();
- }catch(error){$('#propose-result').textContent=error.message;$('#propose-result').classList.add('error');toast(error.message,true);}
- finally{busy=false;button.disabled=false;}
+  result.classList.remove('error');
+  result.textContent=parts.join(' ');
+ }catch(error){
+  action.fail(error.message);
+  result.classList.add('error');
+  result.textContent=error.message;
+ }finally{action.done();}
 }
 function openInlineForm(id,kind){
  const form=document.querySelector(`[data-form="${id}"]`);if(!form)return;
  form.hidden=false;form.dataset.kind=kind;
  form.querySelector('[data-form-label]').textContent=kind==='suggest'?'What should be different about this topic?':'Why are you rejecting it? (remembered, so it is not proposed again)';
+ const failure=form.querySelector('[data-form-error]');
+ if(failure){failure.hidden=true;failure.textContent='';}
  form.querySelector('[data-form-input]').focus();
 }
 async function submitInlineForm(id){
  const form=document.querySelector(`[data-form="${id}"]`);if(!form||busy)return;
  const text=form.querySelector('[data-form-input]').value.trim();
- if(!text){notice(form.dataset.kind==='suggest'?'Say what should change.':'Give a reason so it can be remembered.',true);return;}
- busy=true;
+ const failure=form.querySelector('[data-form-error]');
+ const suggesting=form.dataset.kind==='suggest';
+ if(!text){
+  const missing=suggesting?'Say what should change.':'Give a reason so it can be remembered.';
+  if(failure){failure.hidden=false;failure.textContent=missing;}else notice(missing,true);
+  return;
+ }
  const card=document.querySelector(`[data-proposal="${id}"]`);
  card?.classList.add('is-pending');
- const suggesting=form.dataset.kind==='suggest';
- toast(suggesting?'Re-researching this candidate…':'Rejecting…');
+ /* Suggesting changes re-runs the research, so it is as slow as the first run. */
+ const action=runAction({
+  button:form.querySelector('[data-form-submit]'),
+  label:suggesting?'Re-researching…':'Rejecting…',
+  surface:failure,
+  failTitle:suggesting?'The re-research did not finish.':'The rejection was not recorded.'
+ });
  try{
   if(suggesting){
    const result=await post('/ceo/api/proposal/suggest',{proposal_id:Number(id),comment:text});
@@ -307,40 +493,53 @@ async function submitInlineForm(id){
    toast('Rejected and remembered.');
   }
   await refresh();
- }catch(error){card?.classList.remove('is-pending');form.hidden=false;toast(error.message,true);notice(error.message,true);}
- finally{busy=false;}
+ }catch(error){
+  card?.classList.remove('is-pending');form.hidden=false;
+  action.fail(error.message);
+ }finally{action.done();}
 }
 async function approveProposal(id){
- if(busy)return;busy=true;
+ if(busy)return;
  const card=document.querySelector(`[data-proposal="${id}"]`);
  card?.classList.add('is-pending');
- toast('Approving…');
+ const action=runAction({
+  button:document.querySelector(`[data-approve="${id}"]`),label:'Approving…',
+  surface:card?.querySelector('[data-card-error]'),
+  failTitle:'The approval was not recorded.'
+ });
  try{
   const result=await post('/ceo/api/proposal/approve',{proposal_id:Number(id)});
   toast(`Approved. Board card ${result.task_id} is queued for writing.`);
   await refresh();
- }catch(error){card?.classList.remove('is-pending');toast(error.message,true);notice(error.message,true);}
- finally{busy=false;}
+ }catch(error){card?.classList.remove('is-pending');action.fail(error.message);}
+ finally{action.done();}
 }
 async function undoRejection(id){
- if(busy)return;busy=true;
- toast('Returning it to the pool…');
+ if(busy)return;
+ const action=runAction({
+  button:document.querySelector(`[data-undo="${id}"]`),label:'Returning…',
+  failTitle:'The undo did not go through.'
+ });
  try{await post('/ceo/api/proposal/undo-rejection',{proposal_id:Number(id)});toast('Rejection undone.');await refresh();}
- catch(error){toast(error.message,true);notice(error.message,true);}
- finally{busy=false;}
+ catch(error){action.fail(error.message);}
+ finally{action.done();}
 }
 async function queueSubject(subject,reason,action){
+ if(busy)return;
  const card=document.querySelector(`[data-opportunity="${CSS.escape(subject)}"]`);
- card?.classList.toggle('is-queued',action==='add');
- toast(action==='add'?'Queued in Topics & Research.':'Removed from the queue.');
+ const run=runAction({
+  button:document.querySelector(`[data-queue="${CSS.escape(subject)}"]`),
+  label:action==='add'?'Queuing…':'Removing…',
+  surface:card?.querySelector('[data-card-error]'),
+  failTitle:'The queue was not changed.'
+ });
  try{
   const result=await post('/ceo/api/research-queue',{subject,reason,action});
   if(state)state.research_queue=result.research_queue;
+  toast(action==='add'?'Queued in Topics & Research.':'Removed from the queue.');
   renderProposals();renderOpportunities();
- }catch(error){
-  card?.classList.toggle('is-queued',action!=='add');
-  toast(error.message,true);notice(error.message,true);
- }
+ }catch(error){run.fail(error.message);}
+ finally{run.done();}
 }
 
 /* ------------------------------------------------------------------- trends */
@@ -365,7 +564,7 @@ function blogStatus(task){
 function blogCard(task){
  const words=task.article?.word_count??0;
  const minutes=task.article?.read_minutes??0;
- return `<article class="card" role="listitem" data-row="${esc(task.id)}"><div class="card-row">
+ return `<article class="card" role="listitem" data-key="${esc(task.id)}" data-row="${esc(task.id)}"><div class="card-row">
 <div class="card-main"><button class="open" data-open="${esc(task.id)}" type="button">${pill(task.decision_status)}
 <h3>${esc(task.title||task.id)}</h3>
 <p class="meta"><span class="num">${esc(task.id)}</span> · <span class="num">${grouped.format(words)}</span> words · <span class="num">${minutes}</span> min read${task.change_status?` · ${esc(task.change_status)}`:''}</p></button></div>
@@ -391,9 +590,11 @@ function renderBlogs(){
  $('#blogs-count').textContent=filtered.length===all.length
   ?`${grouped.format(all.length)} article${all.length===1?'':'s'}`
   :`${grouped.format(filtered.length)} of ${grouped.format(all.length)}`;
- setHtml($('#blog-list'),view.items.map(blogCard).join('')||(all.length
+ patchRows($('#blog-list'),view.items.map(task=>({key:String(task.id),html:blogCard(task)})),all.length
   ?emptyState('Nothing matches','No article matches this search and filter.','Clear the filters','data-clear="blogs"')
-  :emptyState('No article yet','A topic has to be approved in Topics & Research before the writer can produce one.','Go to Topics & Research','data-view="topics"')));
+  :emptyState('No article yet','A topic has to be approved in Topics & Research before the writer can produce one.','Go to Topics & Research','data-view="topics"'));
+ settleArrivals('blogs',view.items.map(task=>task.id));
+ paintArrivals();
  renderPager('#blogs-pager','blogs',view,'articles');
 }
 
@@ -477,6 +678,7 @@ function renderOpportunities(){
 <span><span class="stat">${cell(item.impressions)}</span><span class="label">impressions</span></span>
 <span><span class="stat">${cell(item.position,'position')}</span><span class="label">position</span></span></div>
 <button class="${isQueued?'ghost':''}" data-queue="${esc(item.subject)}" data-queue-action="${isQueued?'remove':'add'}" data-queue-reason="${esc(item.reason)}" type="button">${isQueued?'Queued ✓':'Research this'}</button>
+<p class="row-error" data-card-error hidden></p>
 </article>`;
  }).join('')||emptyState(
   report.status==='ready'?'Nothing qualifies yet':'Nothing to suggest yet',
@@ -626,7 +828,8 @@ function gapRow(finding){
 <p class="meta">Them: <a href="${esc(finding.their_url)}" target="_blank" rel="noopener">${esc(String(finding.their_url).replace(/^https?:\/\//,'').slice(0,70))}</a></p>
 <p class="meta">Us: ${esc(position)}</p>
 <p class="outline">${esc(finding.recommendation)}</p></div>
-<button class="ghost small" data-queue="${esc(finding.topic)}" data-queue-action="add" data-queue-reason="${esc(finding.recommendation)}" type="button">Research this</button></div></article>`;
+<button class="ghost small" data-queue="${esc(finding.topic)}" data-queue-action="add" data-queue-reason="${esc(finding.recommendation)}" type="button">Research this</button></div>
+<p class="row-error" data-card-error hidden></p></article>`;
 }
 function renderCompetitor(){
  const data=state.analytics?.competitor||{};
@@ -650,18 +853,25 @@ ${data.message?`<p class="meta">${esc(data.message)}</p>`:''}
 }
 async function analyseCompetitor(){
  const target=$('#competitor').value.trim();
- if(!target){toast('Enter a competitor website first.',true);$('#competitor').focus();return;}
- if(busy)return;busy=true;
- const button=$('#analyse-competitor');button.disabled=true;
- setHtml($('#competitor-panel'),skeleton(4,'card-h'));
- toast('Reading their sitemap, then up to 10 pages…');
+ const line=$('#competitor-result');
+ if(!target){line.hidden=false;line.classList.add('error');line.textContent='Enter a competitor website first.';$('#competitor').focus();return;}
+ if(busy)return;
+ line.classList.remove('error');
+ line.hidden=false;
+ line.textContent='Reading their sitemap, then up to 10 of their pages.';
+ const action=runAction({
+  button:'#analyse-competitor',label:'Analysing…',
+  slot:'#competitor-panel',shape:'card-h',count:4,surface:line,
+  failTitle:'The competitor read did not finish.'
+ });
  try{
   const result=await post('/ceo/api/competitor',{target});
-  toast(`${result.domain}: ${(result.findings||[]).length} topics scored for ${result.credits_used} credits.`);
   setUi('competitor',{page:1});
   await refresh();
- }catch(error){toast(error.message,true);notice(error.message,true);await refresh();}
- finally{busy=false;button.disabled=false;}
+  line.classList.remove('error');
+  line.textContent=`${result.domain}: ${(result.findings||[]).length} topics scored for ${result.credits_used} credits.`;
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
 }
 
 function renderSkeletons(){
@@ -712,6 +922,7 @@ ${reviewNotesHtml(task)}`;
 }
 function editorHtml(task){
  return `<div class="editor">
+<p class="editor-conflict" id="editor-conflict" role="status" hidden></p>
 <p class="meta">Saving writes a new revision. The version on screen now is kept as a numbered file, and the change is recorded in the thread as your edit — it does not approve anything.</p>
 <div class="editor-grid">
 <div class="editor-pane"><span class="label">Markdown source</span>
@@ -737,24 +948,30 @@ function schedulePreview(){
  },350);
 }
 async function saveEdit(task){
- if(busy)return;busy=true;
- const button=document.querySelector('[data-editor="save"]');if(button)button.disabled=true;
- const line=$('#editor-state');if(line)line.textContent='Saving…';
- toast('Saving revision…');
+ if(busy)return;
+ const action=runAction({
+  button:document.querySelector('[data-editor="save"]'),label:'Saving…',
+  surface:'#editor-state',failTitle:'The revision was not saved.'
+ });
  try{
   const result=await post('/ceo/api/article/edit',{task_id:task.id,text:editorText});
   toast(`Saved as revision ${result.revision_round}. The previous version is kept as ${result.archived_as}.`);
-  editing=false;editorText='';
-  await refresh();await renderDetail();
- }catch(error){
-  if(button)button.disabled=false;
-  if(line)line.textContent=error.message;
-  toast(error.message,true);
- }finally{busy=false;}
+  editing=false;editorText='';editorBase='';
+  await refresh();
+  await renderDetail(true);
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
 }
 function cancelEdit(task){
- if(editorText!==(task.article?.text||'')&&!confirm('Discard your edit?'))return;
- editing=false;editorText='';renderDetail();
+ if(editorText!==editorBase&&!confirm('Discard your edit?'))return;
+ editing=false;editorText='';editorBase='';renderDetail(true);
+}
+/* Someone else saved this article while he has it open with unsaved text. His
+   textarea is not touched: the only correct move is to tell him and stop. */
+function showEditorConflict(){
+ const line=$('#editor-conflict');if(!line)return;
+ line.hidden=false;
+ line.textContent='This article changed elsewhere. Save yours, or reload to see theirs.';
 }
 function pipelineHtml(task){
  const item=task.publishing_pipeline;
@@ -799,6 +1016,8 @@ function detailDiscussion(task){
 <div class="actions"><button data-decision="approve" type="button" ${task.decision_approved?'disabled':''}>Approve</button></div>
 <label class="field">Ask for changes<textarea id="revision-comment" rows="3" placeholder="State the exact change needed"></textarea></label>
 <div class="actions"><button class="ghost" data-revision="1" type="button">Ask for changes</button></div>
+<div id="detail-pending" class="rows" aria-live="polite" hidden></div>
+<p class="row-error" id="detail-error" role="alert" hidden></p>
 <p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>. A revision keeps the card in its current lane and is refused after any human decision.</p>
 ${thread?`<h3>Thread</h3>${thread}`:''}`;
 }
@@ -811,21 +1030,48 @@ function detailFiles(task){
 <h3>Image slots</h3><div class="rows">${slots||'<p class="empty">The article declares no image slots.</p>'}</div>
 <p class="meta">Images: PNG, JPG, JPEG, WEBP or GIF, maximum 5 MB. SVG is not accepted for upload.</p>`;
 }
-async function renderDetail(){
+/* `force` is for a tab or mode change, where the body must be rebuilt. Left alone,
+   this paints only when the markup actually differs, and puts the reading position
+   back where it was — a background update must not scroll the open article. */
+async function renderDetail(force=false){
  const task=findTask(openTask);if(!task)return;
  $('#detail-id').textContent=task.id;$('#detail-title').textContent=task.title||task.id;
  $$('.nested button').forEach(node=>node.classList.toggle('active',node.dataset.detail===detailTab));
+ const body=$('#detail-body');
  const render={read:detailRead,impact:detailImpact,discussion:detailDiscussion,files:detailFiles}[detailTab];
- $('#detail-body').innerHTML=render(task);
- painted.delete($('#detail-body'));
+ if(force)painted.delete(body);
+ const where=body?body.scrollTop||0:0;
+ if(!setHtml(body,render(task)))return;
+ if(body&&where)body.scrollTop=where;
  if(detailTab==='read'&&!editing)await hydrateImages();
  if(detailTab==='read'&&editing)$('#editor-input')?.focus();
+ /* Publish eligibility asks GitHub. Only when the tab was actually repainted. */
  if(detailTab==='impact')await refreshPublish(task);
 }
-async function openDetail(id){openTask=id;detailTab='read';editing=false;editorText='';await renderDetail();$('#detail').showModal();}
+/* What a background update is allowed to do to an open card. */
+async function syncDetail(){
+ const task=findTask(openTask);
+ if(!task)return;
+ if(!editing){await renderDetail();return;}
+ const theirs=task.article?.text||'';
+ if(theirs===editorBase)return;
+ if(editorText!==editorBase){
+  /* He has typed. Losing that once would end his trust in the console. */
+  showEditorConflict();
+  return;
+ }
+ /* Nothing of his to lose, so take theirs and say so. */
+ editorBase=theirs;editorText=theirs;
+ const input=$('#editor-input');if(input)input.value=theirs;
+ const line=$('#editor-state');if(line)line.textContent='Updated to the version saved elsewhere.';
+}
+async function openDetail(id){
+ openTask=id;detailTab='read';editing=false;editorText='';editorBase='';
+ await renderDetail(true);$('#detail').showModal();
+}
 function closeDetail(){
- if(editing&&editorText!==(findTask(openTask)?.article?.text||'')&&!confirm('Discard your edit?'))return;
- openTask=null;editing=false;editorText='';$('#detail').close();
+ if(editing&&editorText!==editorBase&&!confirm('Discard your edit?'))return;
+ openTask=null;editing=false;editorText='';editorBase='';$('#detail').close();
 }
 function downloadArticle(task){
  const blob=new Blob([task.article?.text||''],{type:'text/markdown;charset=utf-8'});
@@ -842,13 +1088,57 @@ function stateQuery(){
  if(analytics.range==='custom'){params.set('start',analytics.start||'');params.set('end',analytics.end||'');}
  return params.toString();
 }
+/* One refresh, two callers. `quiet` means nobody asked for this — it came from the
+   version poller — so it must survive being unwelcome: no scroll moved, no open
+   editor touched, no in-flight action interrupted, and the rows patched rather
+   than repainted. Pagination, sort, filter and search all live in `ui`, which
+   this never writes. */
 async function refresh(quiet=false){
- if(quiet&&(openTask||busy||editing))return;
+ if(quiet&&busy)return;
+ let next;
+ try{next=await api('/ceo/api/state?'+stateQuery());}
+ catch(error){if(!quiet)notice(error.message,true);return;}
+ /* Read the scroll after the fetch, not before: if he scrolled while it was in
+    the air that is where he wants to be, and only our own render may move him. */
+ const scrolled=quiet?(window.scrollY||window.pageYOffset||0):0;
+ const previous=state;
+ state=next;
+ if(quiet&&previous)markArrivals(previous,next);
+ renderAll();
+ if(openTask)await syncDetail();
+ if(quiet&&window.scrollTo)window.scrollTo(0,scrolled);
+ if(!quiet)notice('');
+}
+
+/* ------------------------------------------------------------ the one poller */
+function schedulePoll(delay){
+ clearTimeout(pollTimer);pollTimer=0;
+ /* No point polling a phone in his pocket. visibilitychange starts it again. */
+ if(document.hidden)return;
+ pollTimer=setTimeout(pollVersion,delay===undefined?POLL_LADDER[pollStep]:delay);
+}
+async function pollVersion(){
+ pollTimer=0;
+ if(document.hidden)return;
+ /* An action he started owns the screen until it finishes. */
+ if(busy){schedulePoll(POLL_LADDER[0]);return;}
  try{
-  state=await api('/ceo/api/state?'+stateQuery());
-  renderAll();
-  if(!quiet)notice('');
- }catch(error){if(!quiet)notice(error.message,true);}
+  const result=await api('/ceo/api/version');
+  pollStep=0;
+  if(result.version&&result.version!==versionToken){
+   versionToken=result.version;
+   await refresh(true);
+  }
+ }catch(error){
+  /* 3s → 6s → 12s → 30s, and back to 3s on the first success. A server that is
+     restarting comes back; hammering it while it does helps nobody. */
+  pollStep=Math.min(POLL_LADDER.length-1,pollStep+1);
+ }
+ schedulePoll();
+}
+function resumePolling(){
+ if(document.hidden)return;
+ pollStep=0;schedulePoll(0);
 }
 async function updateWatch(keyword,action){
  toast(action==='add'?'Added to the watchlist.':'Removed from the watchlist.');
@@ -856,35 +1146,61 @@ async function updateWatch(keyword,action){
  catch(error){toast(error.message,true);notice(error.message,true);}
 }
 async function decide(task,decision){
- toast('Recording your decision…');
+ if(busy)return;
+ const action=runAction({
+  button:document.querySelector(`[data-decision="${decision}"]`),label:'Recording…',
+  slot:'#detail-pending',shape:'row-h',count:1,surface:'#detail-error',
+  failTitle:'The decision was not recorded.'
+ });
  try{await post('/ceo/api/decision',{task_id:task.id,decision});toast('Decision recorded.');closeDetail();await refresh();}
- catch(error){toast(error.message,true);notice(error.message,true);}
+ catch(error){action.fail(error.message);}
+ finally{action.done();}
 }
 async function revise(task){
+ if(busy)return;
  const comment=$('#revision-comment').value;
- toast('Sending the change request…');
+ const action=runAction({
+  button:document.querySelector('[data-revision]'),label:'Sending…',
+  slot:'#detail-pending',shape:'row-h',count:1,surface:'#detail-error',
+  failTitle:'The change request was not sent.'
+ });
  try{await post('/ceo/api/revision',{task_id:task.id,comment});toast('Change requested.');closeDetail();await refresh();}
- catch(error){toast(error.message,true);notice(error.message,true);}
+ catch(error){action.fail(error.message);}
+ finally{action.done();}
 }
 async function upload(task,slot,file){
- toast('Uploading the image…');
+ if(busy)return;
+ const action=runAction({
+  button:document.querySelector(`[data-upload="${slot}"]`),label:'Uploading…',
+  failTitle:'The image was not bound.'
+ });
  try{
   await api(`/ceo/api/upload?task=${encodeURIComponent(task.id)}&slot=${encodeURIComponent(slot)}`,{method:'POST',headers:{'X-Filename':file.name},body:file});
   toast('Image bound to the slot.');
-  await refresh();openTask=task.id;detailTab='files';await renderDetail();
- }catch(error){toast(error.message,true);notice(error.message,true);}
+  await refresh();openTask=task.id;detailTab='files';await renderDetail(true);
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
 }
 async function publish(task){
- if(!publishRequest){notice('This card has no current publish instruction. Reopen the Impact tab.',true);return;}
+ const line=$('#publish-state');
+ if(!publishRequest){
+  if(line)line.textContent='This card has no current publish instruction. Reopen the Impact tab.';
+  return;
+ }
  if(!confirm('Merge '+task.id+' to main and publish it to itarang.com?'))return;
- const button=$('#publish-block [data-publish]');if(button)button.disabled=true;
- toast('Publishing…');
+ if(busy)return;
+ const action=runAction({
+  button:document.querySelector('#publish-block [data-publish]'),label:'Publishing…',
+  surface:line,failTitle:'The publish did not go through.'
+ });
  try{
   const outcome=await post('/ceo/publish',{task:task.id,request_id:publishRequest});
   publishRequest='';
   toast('Published. Merge commit '+(outcome.merge_commit||'').slice(0,7)+'.');
-  await refresh();await renderDetail();
- }catch(error){toast(error.message,true);notice(error.message,true);publishRequest='';await refreshPublish(task);}
+  await refresh();await renderDetail(true);
+ }catch(error){
+  action.fail(error.message);publishRequest='';
+ }finally{action.done();}
 }
 
 /* ------------------------------------------------------------------- events */
@@ -905,7 +1221,8 @@ document.addEventListener('click',event=>{
  if(data.view)showView(data.view);
  if(data.focus){showView(data.focus==='competitor'?'analytics':'topics');$('#'+data.focus)?.focus();}
  if(data.open)openDetail(data.open);
- if(data.detail){detailTab=data.detail;renderDetail();}
+ if(data.detail){detailTab=data.detail;renderDetail(true);}
+ if(data.arrivals)showArrivals(data.arrivals);
  if(data.clear){setUi(data.clear,{search:'',filter:'all',page:1});$(`#${data.clear}-search`).value='';renderAll();}
  if(data.page){const [key,value]=data.page.split(':');setUi(key,{page:Number(value)},false);renderAll();}
  if(data.topicsFilter!==undefined){setUi('topics',{filter:data.topicsFilter});renderProposals();}
@@ -928,7 +1245,7 @@ document.addEventListener('click',event=>{
  if(data.undo)undoRejection(data.undo);
  if(data.reader){
   const task=findTask(openTask);
-  if(data.reader==='edit'){editing=true;editorText=task.article?.text||'';renderDetail();}
+  if(data.reader==='edit'){editing=true;editorText=task.article?.text||'';editorBase=editorText;renderDetail(true);}
   if(data.reader==='download')downloadArticle(task);
   if(data.reader==='print')window.print();
  }
@@ -983,6 +1300,10 @@ document.addEventListener('keydown',event=>{
  if(event.key==='k'){event.preventDefault();moveFocus(-1);}
  if(event.key==='Enter'&&focusIndex>=0){event.preventDefault();openFocused();}
 });
+/* Restraint: nothing is polled while the tab is hidden, and the moment it comes
+   back the check happens immediately rather than waiting out the interval. */
+document.addEventListener('visibilitychange',resumePolling);
+window.addEventListener('focus',resumePolling);
 let resizeTimer=0;
 window.addEventListener('resize',()=>{
  moveIndicator();
@@ -1017,8 +1338,12 @@ async function boot(){
   sessionStorage.setItem('cmo_email',email);sessionStorage.setItem('cmo_role',role);
   if(session.console!=='/ceo'){location.replace(session.console);return;}
   $('#account').textContent=email;
+  /* Read the token before the state, never after: a change that lands between the
+     two then shows up as a difference on the next poll instead of being adopted
+     silently and never noticed again. */
+  try{versionToken=(await api('/ceo/api/version')).version||'';}catch(error){versionToken='';}
   await refresh();
-  setInterval(()=>refresh(true),60000);
+  schedulePoll();
  }catch(error){notice(error.message,true);}
 }
 boot();'''

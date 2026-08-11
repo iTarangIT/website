@@ -17,6 +17,7 @@ import analytics_readers
 import ceo_artifacts
 import ceo_publish
 import ceo_reader
+import ceo_version
 import console_board
 from ceo_page import page_build_header, render_page
 from cmo_runtime import competitors, topic_proposals
@@ -150,6 +151,12 @@ def dispatch(handler: Any, method: str) -> bool:
     if auth is None:
         return True
     email, _role = auth
+    if method == "GET" and path == "/ceo/api/version":
+        # Asked every few seconds by every open console, so it stays a handful of
+        # stat calls: no board parse, no Search Console, no Firecrawl, no network.
+        # The client refetches state only when this token moves.
+        _json(handler, HTTPStatus.OK, ceo_version.version_payload(PROFILE_DIR))
+        return True
     if method == "GET" and path == "/ceo/api/state":
         query = parse_qs(urlparse(handler.path).query)
         range_key = query.get("range", ["28"])[0].strip().casefold()

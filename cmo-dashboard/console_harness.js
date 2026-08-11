@@ -85,6 +85,10 @@ const nestedButtons = ['read', 'impact', 'discussion', 'files'].map(name => {
 
 const document = {
   activeElement: { tagName: 'BODY', blur() {} },
+  // This harness renders one frame and exits; it is not a visible tab, so the
+  // version poller correctly never starts here. console_live_harness.js is the
+  // one that drives polling, and it owns `hidden` as a settable flag.
+  hidden: true,
   addEventListener() {},
   createElement(tag) { return makeElement('', tag); },
   querySelector(selector) {
@@ -191,5 +195,5 @@ setTimeout(() => {
     queued: html('queued-list'),
     read: readHtml,
     editor: editorHtmlOut,
-  }));
+  }), () => process.exit(0));
 }, 20);

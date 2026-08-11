@@ -114,7 +114,12 @@ class ServedPageTests(unittest.TestCase):
             "CMO_DASHBOARD_HOST": "127.0.0.1",
             "CMO_DASHBOARD_USERNAME": USERNAME,
             "CMO_DASHBOARD_PASSWORD": PASSWORD,
-            "PYTHONPATH": str(HERE),
+            # On the deployed tree cmo_runtime sits at the profile root, not beside
+            # the dashboard, so an inherited PYTHONPATH has to survive rather than
+            # be replaced — otherwise this suite can only ever run from a checkout.
+            "PYTHONPATH": os.pathsep.join(
+                path for path in (str(HERE), os.environ.get("PYTHONPATH", "")) if path
+            ),
         }
         for name in ("GSC_CREDENTIALS_PATH", "GSC_PROPERTY", "GA4_PROPERTY_ID"):
             environment.pop(name, None)
@@ -278,7 +283,50 @@ class ServedPageTests(unittest.TestCase):
 
         self.assertEqual(status, 401)
 
-    # ---- invariant 7, on the wire ----------------------------------------
+    # ---- marker: the console updates itself ------------------------------
+
+    def test_the_served_page_polls_one_version_endpoint(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn("/ceo/api/version", page, "the served page has no change check")
+        self.assertIn("POLL_LADDER=[3000,6000,12000,30000]", page,
+                      "the served page does not carry the 3s check or its backoff")
+        self.assertIn("document.hidden", page, "the served page polls a tab nobody is looking at")
+
+    def test_the_old_sixty_second_reload_is_gone_from_the_served_bytes(self) -> None:
+        # Two refreshers fighting each other is worse than either alone, and the
+        # one that survives is the one that knows whether anything changed.
+        page = self.text("/ceo")
+
+        self.assertNotIn("60000", page, "the blind 60-second refresh is still being served")
+        self.assertNotIn("refresh(true),6", page)
+        for legacy in ("EventSource", "/api/events"):
+            self.assertNotIn(legacy, page, f"a second update mechanism ({legacy}) is being served")
+
+    def test_the_served_page_carries_the_busy_state_for_a_slow_action(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn('id="topics-pending"', page, "no place for the skeleton to sit")
+        self.assertIn("Researching…", page)
+        self.assertIn('aria-busy', page, "the busy button announces nothing")
+        self.assertIn('class="failure"', page, "a failed action has nowhere to say why")
+
+    def test_the_served_page_carries_keyed_rows_and_arrival_counts(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn("data-key=", page, "rows are not keyed, so an update cannot patch them")
+        self.assertIn('data-badge="blogs"', page, "no count can appear on the Blogs tab")
+        self.assertIn('id="topics-new"', page)
+        self.assertIn("This article changed elsewhere. Save yours, or reload to see theirs.", page,
+                      "the editor has no conflict line")
+
+    def test_the_version_endpoint_is_served_and_refuses_an_unauthenticated_read(self) -> None:
+        status, _headers, body = self.fetch("/ceo/api/version")
+
+        self.assertEqual(status, 401, "the change token is readable without a session")
+        self.assertIn(b"bearer", body.lower())
+
+    # ---- invariant 8, on the wire ----------------------------------------
 
     def test_the_served_page_requests_nothing_from_another_host(self) -> None:
         page = self.text("/ceo")

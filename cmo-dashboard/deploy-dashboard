@@ -47,7 +47,10 @@ printf 'live build before : %s\n' "$before"
 
 # --- what differs ------------------------------------------------------------
 changed=()
-for path in "$SOURCE"/*.py "$SOURCE"/console_harness.js; do
+# Every module and every harness: a deployed tree missing a harness has suites
+# that error instead of running, which reads as a broken console rather than a
+# missing file.
+for path in "$SOURCE"/*.py "$SOURCE"/*.js; do
   [[ -e "$path" ]] || continue
   name="$(basename "$path")"
   if [[ ! -e "$TARGET/$name" ]] || ! cmp -s "$path" "$TARGET/$name"; then

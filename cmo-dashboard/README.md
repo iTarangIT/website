@@ -81,6 +81,46 @@ how a reader that printed raw Markdown stayed green for weeks:
   `console_harness.js` and asserts on what each panel rendered.
 - `test_ceo_reader.py` renders every `.md` in the live profile and fails on any raw
   Markdown that reaches the page.
+- `test_console_live.py` executes the browser script under `console_live_harness.js`,
+  whose DOM has node identity, a settable `document.hidden` and a `fetch` that can be
+  made to fail or to never answer. That is what makes "the button went dead before the
+  reply came back", "the unchanged row is still the same node" and "the textarea was
+  not overwritten" checkable at all.
+
+## The console updates itself
+
+Sanchit never presses refresh. Two separate mechanisms, because the two problems are
+not the same problem.
+
+**An action he just triggered.** Every slow action — research a subject, suggest
+changes, ask for changes, save an edit, queue a subject, analyse a competitor, publish
+— goes through one helper, `runAction()` in `ceo_script.py`. There is no second way to
+look busy. It disables the button, relabels it (`Researching… 7s`, ticking), drops a
+skeleton at the real height where the results will land, and on failure leaves the
+reason on screen in that same space. `Firecrawl returned 402: monthly credits
+exhausted` is useful; a toast that fades in three seconds is not.
+
+**A change made somewhere else.** `GET /ceo/api/version` (`ceo_version.py`) returns one
+short token computed from `tasks.md`'s mtime and size, `console.db`'s own file change
+counter plus its `-wal` sidecar, the newest entry in `artifacts/`, and the newest
+`state/*.json`. No board parse, no Search Console, no Firecrawl, no network — a handful
+of `stat` calls, two shallow `scandir`s and a 28-byte read. The browser polls it every
+3 seconds and refetches `/ceo/api/state` **only when the token differs**. It backs off
+3s → 6s → 12s → 30s on failure and resets on the first success, and it stops entirely
+while `document.hidden`, resuming on `visibilitychange` or `focus`.
+
+SSE at `/api/events` was not reused: a stdlib `ThreadingHTTPServer` holds a thread per
+open connection, and this console needs to survive two people and a phone, not scale.
+**The old blind 60-second reload is gone** — one mechanism, not two.
+
+What a background update is not allowed to disturb: an open editor with unsaved text
+(it shows `This article changed elsewhere. Save yours, or reload to see theirs.` and
+touches nothing), the open article and its scroll position, pagination, sort, filter,
+the search box, or an action still in flight. Lists are **patched, not re-rendered**:
+rows carry `data-key`, and a row whose markup is byte-identical is not touched, so
+scroll, focus and open `<details>` all survive. Anything that arrives on a tab or a
+page he is not looking at is counted — `Blogs 2` on the tab, or a `1 new` line above
+the list — never jumped to.
 
 ## The topic flow
 

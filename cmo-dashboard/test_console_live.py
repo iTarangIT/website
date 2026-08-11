@@ -1,0 +1,394 @@
+"""The console keeps itself up to date — checked by running it, not reading it.
+
+Seven of the eight invariants for "Sanchit never presses refresh" are about what
+the page *does* over time, and none of them can be established from markup. So
+this suite boots ceo_script.py under `console_live_harness.js`, whose DOM has node
+identity, a settable `document.hidden`, and a scripted `fetch` that can be made to
+fail or to never answer at all.
+
+Covered here:
+
+  1. a slow action shows busy state before the request comes back
+  2. a change made elsewhere is picked up by the poller, with no reload
+  3. an open editor with unsaved text is never overwritten
+  4. paging, sort, filter, search text and scroll survive a background update
+  6. nothing is polled while the tab is hidden; focus resumes it immediately
+  7. one mechanism — the failure ladder, and no blind 60-second reload
+
+Invariant 5 lives in `test_ceo_version.py` (the endpoint's cost) and invariant 8
+in `test_served_bytes.py` (the wire).
+
+Skipped when node is unavailable; `run-tests` reports the skip rather than
+passing quietly.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from ceo_script import SCRIPT
+
+HERE = Path(__file__).resolve().parent
+NODE = shutil.which("node")
+HARNESS = HERE / "console_live_harness.js"
+
+
+def _proposal(number: int, title: str = "", status: str = "proposed") -> dict:
+    return {
+        "id": number,
+        "title": title or f"Candidate topic {number}",
+        "subject": "battery data",
+        "outline": "An outline that is long enough to look like one.",
+        "keywords": ["battery", "range"],
+        "status": status,
+        "round": 1,
+        "source_kind": "search_console",
+        "source_refs": [f"gsc:battery {number}"],
+        "history": [],
+    }
+
+
+def _blog(task_id: str, title: str, text: str = "First draft.") -> dict:
+    return {
+        "id": task_id,
+        "title": title,
+        "decision_status": "awaiting decision",
+        "decision_approved": False,
+        "change_status": "",
+        "revision_round": "0",
+        "approval_thread": [],
+        "publishing_pipeline": None,
+        "article": {
+            "text": text,
+            "html": f"<p>{text}</p>",
+            "metadata": {"slug": "slug"},
+            "word_count": 120,
+            "read_minutes": 1,
+            "files": [],
+            "revisions": [],
+            "image_slots": [],
+            "review_notes_html": "",
+            "review_note_titles": [],
+        },
+    }
+
+
+def _state(proposals: list[dict], blogs: list[dict]) -> dict:
+    return {
+        "topics": {"proposals": proposals, "rejected": [], "carded": [], "budget": {}},
+        "blogs": blogs,
+        "trending": [],
+        "trending_messages": [],
+        "watchlist": [],
+        "research_queue": [],
+        "analytics": {
+            "search": {"status": "none", "message": "not connected"},
+            "search_console": {},
+            "ga4": {"status": "none"},
+            "competitor": {"status": "none"},
+        },
+        "controls": {"range": "28", "range_days": 28, "device": "all"},
+    }
+
+
+BASE = _state([_proposal(n) for n in range(1, 4)], [_blog("TASK-1", "First article")])
+
+
+@unittest.skipIf(NODE is None, "node is unavailable")
+@unittest.skipIf(not HARNESS.exists(), f"{HARNESS.name} was not deployed alongside the suite")
+class ConsoleStaysCurrent(unittest.TestCase):
+    """Nothing here reads the script as text. Everything is executed."""
+
+    def drive(self, plan: dict) -> dict:
+        plan.setdefault("state", BASE)
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "console.js"
+            script.write_text(SCRIPT, encoding="utf-8")
+            spec = Path(folder) / "plan.json"
+            spec.write_text(json.dumps(plan), encoding="utf-8")
+            result = subprocess.run(
+                [NODE, str(HARNESS), str(script), str(spec)],
+                capture_output=True, text=True, timeout=60,
+            )
+        if result.returncode != 0:
+            self.fail(f"the console failed to run:\n{result.stderr}")
+        return json.loads(result.stdout)
+
+    def steps(self, plan: dict) -> list[dict]:
+        return self.drive(plan)["steps"]
+
+    # ---- invariant 1: a slow action shows itself immediately ---------------
+
+    def test_a_slow_action_goes_busy_before_the_request_answers(self) -> None:
+        # The propose call never resolves, so everything observed here is what is
+        # on screen while the run is still going.
+        step = self.steps({
+            "steps": [{
+                "do": "research", "subject": "battery data",
+                "hang": "/ceo/api/propose",
+            }],
+        })[0]
+
+        self.assertTrue(step["immediate"]["disabled"], "the button stayed clickable")
+        self.assertTrue(step["immediate"]["label"].startswith("Researching…"))
+        self.assertRegex(step["immediate"]["label"], r"Researching… \d+s", "no elapsed seconds")
+        self.assertTrue(step["immediate"]["busy"])
+
+    def test_a_slow_action_holds_the_space_its_results_will_fill(self) -> None:
+        step = self.steps({
+            "steps": [{
+                "do": "research", "subject": "battery data",
+                "hang": "/ceo/api/propose",
+            }],
+        })[0]
+
+        self.assertFalse(step["immediate"]["skeletonHidden"], "no skeleton while it runs")
+        self.assertIn('class="skeleton card-h"', step["immediate"]["skeleton"],
+                      "the skeleton is not at candidate-card height")
+
+    def test_a_failed_action_leaves_the_reason_where_the_results_would_be(self) -> None:
+        step = self.steps({
+            "steps": [{
+                "do": "research", "subject": "battery data",
+                "fail": {"path": "/ceo/api/propose", "status": 402,
+                         "error": "Firecrawl returned 402: monthly credits exhausted"},
+            }],
+        })[0]
+
+        self.assertFalse(step["topicsPendingHidden"], "the failure was taken off screen")
+        self.assertIn("Firecrawl returned 402: monthly credits exhausted", step["topicsPending"])
+        self.assertIn('class="failure"', step["topicsPending"])
+        self.assertIn("Firecrawl returned 402", step["proposeResult"])
+
+    def test_a_finished_action_never_asks_for_a_reload(self) -> None:
+        step = self.steps({"steps": [{"do": "research", "subject": "battery data"}]})[0]
+
+        self.assertIn("/ceo/api/propose", " ".join(step["requests"]))
+        self.assertIn("/ceo/api/state", " ".join(step["requests"]),
+                      "results have to arrive without a page load")
+        self.assertTrue(step["topicsPendingHidden"], "the skeleton outlived the results")
+
+    # ---- invariant 2: a change made elsewhere arrives -----------------------
+
+    def test_a_board_change_is_picked_up_when_the_token_moves(self) -> None:
+        arrived = _state(
+            [_proposal(n) for n in range(1, 4)],
+            [_blog("TASK-1", "First article"), _blog("TASK-2", "Written elsewhere")],
+        )
+        steps = self.steps({
+            "steps": [
+                {"name": "same token", "do": "poll"},
+                {"name": "moved token", "do": "poll", "version": "v2", "state": arrived},
+            ],
+        })
+
+        self.assertNotIn("/ceo/api/state", " ".join(steps[0]["requests"]),
+                         "an unchanged token still refetched everything")
+        self.assertIn("/ceo/api/state", " ".join(steps[1]["requests"]))
+        self.assertIn("Written elsewhere", steps[1]["blogsHtml"])
+
+    def test_the_poll_interval_starts_at_three_seconds(self) -> None:
+        step = self.steps({"steps": [{"do": "poll"}]})[0]
+
+        self.assertEqual(step["pollDelay"], 3000)
+        self.assertTrue(step["pollActive"], "the poller did not schedule its next check")
+
+    # ---- invariant 3: an open editor is sacred -----------------------------
+
+    def test_an_editor_with_unsaved_text_is_not_overwritten(self) -> None:
+        theirs = _state([_proposal(1)], [_blog("TASK-1", "First article", "Their newer text.")])
+        step = self.steps({
+            "state": _state([_proposal(1)], [_blog("TASK-1", "First article", "First draft.")]),
+            "steps": [{
+                "do": "poll", "version": "v2", "state": theirs,
+                "editing": {"task": "TASK-1", "base": "First draft.", "text": "My unsaved sentence."},
+            }],
+        })[0]
+
+        self.assertEqual(step["editorText"], "My unsaved sentence.", "typed work was destroyed")
+        self.assertFalse(step["editorConflictHidden"], "he was never told theirs changed")
+        self.assertEqual(
+            step["editorConflict"],
+            "This article changed elsewhere. Save yours, or reload to see theirs.",
+        )
+
+    def test_an_untouched_editor_quietly_takes_the_newer_version(self) -> None:
+        theirs = _state([_proposal(1)], [_blog("TASK-1", "First article", "Their newer text.")])
+        step = self.steps({
+            "state": _state([_proposal(1)], [_blog("TASK-1", "First article", "First draft.")]),
+            "steps": [{
+                "do": "poll", "version": "v2", "state": theirs,
+                "editing": {"task": "TASK-1", "base": "First draft.", "text": "First draft."},
+            }],
+        })[0]
+
+        self.assertEqual(step["editorText"], "Their newer text.")
+        self.assertTrue(step["editorConflictHidden"], "nothing was at risk, so nothing to warn about")
+
+    # ---- invariant 4: his place on the page survives ------------------------
+
+    def test_paging_filter_and_search_survive_a_background_update(self) -> None:
+        many = _state([_proposal(n) for n in range(1, 30)], [_blog("TASK-1", "First article")])
+        grown = _state([_proposal(n) for n in range(1, 31)], [_blog("TASK-1", "First article")])
+        step = self.steps({
+            "state": many,
+            "ui": {"topics": {"page": 2, "size": 10, "search": "candidate", "filter": "proposed"}},
+            "steps": [{
+                "do": "poll", "version": "v2", "state": grown,
+                "searchBox": {"view": "topics", "text": "candidate"},
+            }],
+        })[0]
+
+        self.assertEqual(step["ui"]["topics"]["page"], 2, "he was thrown back to page one")
+        self.assertEqual(step["ui"]["topics"]["size"], 10)
+        self.assertEqual(step["ui"]["topics"]["filter"], "proposed")
+        self.assertEqual(step["ui"]["topics"]["search"], "candidate")
+        self.assertEqual(step["searchBoxes"]["topics"], "candidate", "the search box was cleared")
+
+    def test_a_background_update_puts_the_scroll_position_back(self) -> None:
+        grown = _state([_proposal(n) for n in range(1, 5)], [_blog("TASK-1", "First article")])
+        step = self.steps({"steps": [{"do": "poll", "version": "v2", "state": grown}]})[0]
+
+        self.assertTrue(step["scrolls"], "a background update never restored the scroll")
+
+    def test_only_the_rows_that_changed_are_replaced(self) -> None:
+        changed = _state(
+            [_proposal(1), _proposal(2, title="Candidate topic 2 — reworded"), _proposal(3)],
+            [_blog("TASK-1", "First article")],
+        )
+        step = self.steps({"steps": [{"do": "poll", "version": "v2", "state": changed}]})[0]
+
+        before = {row["key"]: row["uid"] for row in step["rowsBefore"]["proposals"]}
+        after = {row["key"]: row["uid"] for row in step["rowsAfter"]["proposals"]}
+
+        self.assertEqual(sorted(before), ["1", "2", "3"], "the list was not rendered as keyed rows")
+        self.assertEqual(before["1"], after["1"], "an unchanged row was rebuilt")
+        self.assertEqual(before["3"], after["3"], "an unchanged row was rebuilt")
+        self.assertNotEqual(before["2"], after["2"], "the changed row was not replaced")
+        self.assertIn("reworded", step["proposalsHtml"])
+
+    def test_a_removed_row_goes_and_a_new_row_arrives_in_order(self) -> None:
+        changed = _state([_proposal(1), _proposal(4)], [_blog("TASK-1", "First article")])
+        step = self.steps({"steps": [{"do": "poll", "version": "v2", "state": changed}]})[0]
+
+        self.assertEqual([row["key"] for row in step["rowsAfter"]["proposals"]], ["1", "4"])
+
+    # ---- work that arrived somewhere he is not looking ----------------------
+
+    def test_a_card_on_another_tab_is_counted_not_jumped_to(self) -> None:
+        arrived = _state(
+            [_proposal(n) for n in range(1, 4)],
+            [_blog("TASK-1", "First article"), _blog("TASK-2", "Written elsewhere")],
+        )
+        step = self.steps({"steps": [{"do": "poll", "version": "v2", "state": arrived}]})[0]
+
+        badge = {item["view"]: item for item in step["badges"]}["blogs"]
+        self.assertFalse(badge["hidden"], "a new article on another tab said nothing")
+        self.assertEqual(badge["text"], "1")
+        self.assertEqual(step["ui"]["blogs"]["page"], 1)
+
+    def test_the_badge_clears_once_he_opens_that_tab(self) -> None:
+        arrived = _state(
+            [_proposal(n) for n in range(1, 4)],
+            [_blog("TASK-1", "First article"), _blog("TASK-2", "Written elsewhere")],
+        )
+        steps = self.steps({
+            "steps": [
+                {"do": "poll", "version": "v2", "state": arrived},
+                {"do": "showView", "view": "blogs"},
+            ],
+        })
+
+        badge = {item["view"]: item for item in steps[1]["badges"]}["blogs"]
+        self.assertTrue(badge["hidden"], "the count stayed up after he read it")
+
+    def test_a_card_hidden_by_the_current_filter_is_offered_not_forced(self) -> None:
+        many = _state([_proposal(n) for n in range(1, 30)], [_blog("TASK-1", "First article")])
+        grown = _state([_proposal(n) for n in range(1, 31)], [_blog("TASK-1", "First article")])
+        step = self.steps({
+            "state": many,
+            "ui": {"topics": {"page": 1, "size": 10, "search": "", "filter": "all"}},
+            "steps": [{"do": "poll", "version": "v2", "state": grown}],
+        })[0]
+
+        self.assertFalse(step["topicsNewHidden"], "a candidate on page three arrived silently")
+        self.assertIn("1 new", step["topicsNew"])
+        self.assertIn('data-arrivals="topics"', step["topicsNew"])
+        self.assertEqual(step["ui"]["topics"]["page"], 1, "he was moved to where the new one is")
+
+    # ---- invariant 6: restraint --------------------------------------------
+
+    def test_a_hidden_tab_is_not_polled(self) -> None:
+        step = self.steps({"steps": [{"do": "poll", "hidden": True, "version": "v2"}]})[0]
+
+        self.assertNotIn("/ceo/api/version", " ".join(step["requests"]),
+                         "a tab nobody is looking at was still polled")
+        self.assertFalse(step["pollActive"], "the poller kept a timer alive while hidden")
+
+    def test_coming_back_to_the_tab_checks_at_once(self) -> None:
+        steps = self.steps({
+            "steps": [
+                {"do": "poll", "hidden": True},
+                {"do": "fire", "event": "visibilitychange", "hidden": False},
+            ],
+        })
+
+        self.assertFalse(steps[0]["pollActive"])
+        self.assertTrue(steps[1]["pollActive"], "returning to the tab did not restart the poller")
+        self.assertEqual(steps[1]["pollDelay"], 3000)
+
+    # ---- invariant 7: one mechanism, and it backs off ----------------------
+
+    def test_the_interval_climbs_on_failure_and_resets_on_the_first_success(self) -> None:
+        steps = self.steps({
+            "steps": [
+                {"name": "fail 1", "do": "poll", "fail": {"path": "/ceo/api/version", "status": 502,
+                                                          "error": "gateway"}},
+                {"name": "fail 2", "do": "poll"},
+                {"name": "fail 3", "do": "poll"},
+                {"name": "fail 4", "do": "poll"},
+                {"name": "recover", "do": "poll", "fail": None},
+            ],
+        })
+
+        self.assertEqual([step["pollDelay"] for step in steps], [6000, 12000, 30000, 30000, 3000])
+
+    def test_a_failing_poll_never_disturbs_what_is_on_screen(self) -> None:
+        steps = self.steps({
+            "steps": [
+                {"do": "poll"},
+                {"do": "poll", "fail": {"path": "/ceo/api/version", "status": 502, "error": "gateway"}},
+            ],
+        })
+
+        self.assertEqual(steps[0]["rowsAfter"]["proposals"], steps[1]["rowsAfter"]["proposals"])
+
+    def test_an_action_in_flight_is_never_interrupted_by_a_poll(self) -> None:
+        # The propose call hangs; the poll that lands on top of it must stand down
+        # rather than refetch state underneath a running action.
+        steps = self.steps({
+            "steps": [
+                {"do": "research", "subject": "battery data", "hang": "/ceo/api/propose"},
+                {"do": "poll", "version": "v2"},
+            ],
+        })
+
+        self.assertNotIn("/ceo/api/version", " ".join(steps[1]["requests"]))
+        self.assertNotIn("/ceo/api/state", " ".join(steps[1]["requests"]))
+
+    def test_boot_reads_the_token_before_the_state_and_then_polls(self) -> None:
+        requests = self.drive({"steps": []})["requests"]
+
+        self.assertEqual(requests[0], "/api/session")
+        self.assertEqual(requests[1], "/ceo/api/version")
+        self.assertTrue(requests[2].startswith("/ceo/api/state"))
+        self.assertEqual(len(requests), 3, f"boot made an extra request: {requests}")
+
+
+if __name__ == "__main__":
+    unittest.main()

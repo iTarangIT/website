@@ -8,8 +8,8 @@ it, because none of these lists is short.
 BODY = '''<main id="app">
 <header class="topbar"><div class="mark" aria-hidden="true">iT</div><div class="topbar-title"><p class="eyebrow">iTarang CEO Console</p><h1>Content flow</h1></div><span id="account" class="meta"></span><button id="signout" class="ghost small" type="button">Sign out</button></header>
 <nav class="primary" aria-label="CEO workflow">
-<button class="active" data-view="topics" type="button"><kbd>1</kbd> Topics &amp; Research</button>
-<button data-view="blogs" type="button"><kbd>2</kbd> Blogs</button>
+<button class="active" data-view="topics" type="button"><kbd>1</kbd> Topics &amp; Research<span class="tab-badge" data-badge="topics" hidden></span></button>
+<button data-view="blogs" type="button"><kbd>2</kbd> Blogs<span class="tab-badge" data-badge="blogs" hidden></span></button>
 <button data-view="analytics" type="button"><kbd>3</kbd> Analytics</button>
 <span class="tab-indicator" aria-hidden="true"></span>
 </nav>
@@ -31,6 +31,10 @@ BODY = '''<main id="app">
 <div class="chip-group"><span class="label">Show</span><div class="chips" id="topics-filter"></div></div>
 <span class="count" id="topics-count"></span>
 </div>
+<!-- Where a slow action shows itself: the skeleton while it runs, the reason it
+     failed if it did. Both sit where the results will land, not in a toast. -->
+<div id="topics-pending" class="rows" aria-live="polite" hidden></div>
+<p id="topics-new" class="new-line" role="status" hidden></p>
 <div id="proposal-list" class="rows" role="list"></div>
 <nav class="pager" id="topics-pager" aria-label="Candidate topics pages"></nav>
 
@@ -53,6 +57,8 @@ BODY = '''<main id="app">
 <div class="chip-group"><span class="label">Status</span><div class="chips" id="blogs-filter"></div></div>
 <span class="count" id="blogs-count"></span>
 </div>
+<div id="blogs-pending" class="rows" aria-live="polite" hidden></div>
+<p id="blogs-new" class="new-line" role="status" hidden></p>
 <div id="blog-list" class="rows" role="list"></div>
 <nav class="pager" id="blogs-pager" aria-label="Blog pages"></nav>
 </section>
@@ -112,6 +118,7 @@ BODY = '''<main id="app">
 
 <h3 class="rule">Which website do you want to replicate?<span class="meta">Reads their sitemap free, then up to 10 of their pages, and scores each topic against our own Search Console position.</span></h3>
 <div class="subject-box"><label class="field">Competitor website<input id="competitor" type="text" maxlength="253" placeholder="example.com"></label><button id="analyse-competitor" type="button">Analyse</button></div>
+<p id="competitor-result" class="notice" hidden></p>
 <div id="competitor-panel"></div>
 <nav class="pager" id="competitor-pager" aria-label="Competitor finding pages"></nav>
 </section>
