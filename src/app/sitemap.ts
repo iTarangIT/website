@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { blogPosts } from "@/data/blog-posts";
+import { activeBlogCategories, blogPosts, latestPostDateInCategory } from "@/data/blog-posts";
 
 const BASE_URL = "https://www.itarang.com";
 
@@ -31,6 +31,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: post.date,
       changeFrequency: "yearly" as const,
       priority: 0.6,
+    })),
+    ...activeBlogCategories.map((category) => ({
+      url: `${BASE_URL}/blog/category/${category.slug}`,
+      lastModified: latestPostDateInCategory(category.slug) ?? new Date(),
+      changeFrequency: "weekly" as const,
+      priority: 0.5,
     })),
   ];
 }

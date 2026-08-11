@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createMetadata } from "@/lib/metadata";
-import { blogCategories, blogPosts, type BlogCategorySlug } from "@/data/blog-posts";
+import { blogCategories, blogPosts, categoryHasPosts, type BlogCategorySlug } from "@/data/blog-posts";
 import BlogCard from "@/components/blog/BlogCard";
 
 interface CategoryPageProps {
@@ -23,7 +23,9 @@ export async function generateMetadata({ params }: CategoryPageProps) {
       description: category.description,
       path: `/blog/category/${category.slug}`,
     }),
-    robots: { index: false, follow: true },
+    // Indexable only while the archive has posts — matches the sitemap, which
+    // lists exactly the same set (activeBlogCategories).
+    robots: { index: categoryHasPosts(category.slug), follow: true },
   };
 }
 

@@ -73,3 +73,24 @@ export const blogPosts: BlogPost[] = [
     coverImage: "/images/blog/e-rickshaw-battery-maintenance-cover.webp",
   },
 ];
+
+export function categoryHasPosts(slug: BlogCategorySlug): boolean {
+  return blogPosts.some((post) => post.category === slug);
+}
+
+// Categories with at least one post. Single source of truth for both the
+// sitemap and the category route's robots directive, so an empty archive is
+// never submitted to Google and never indexed.
+export const activeBlogCategories: BlogCategory[] = blogCategories.filter(({ slug }) =>
+  categoryHasPosts(slug),
+);
+
+// ISO YYYY-MM-DD dates compare correctly as strings.
+export function latestPostDateInCategory(slug: BlogCategorySlug): string | undefined {
+  return blogPosts
+    .filter((post) => post.category === slug)
+    .reduce<string | undefined>(
+      (latest, post) => (latest === undefined || post.date > latest ? post.date : latest),
+      undefined,
+    );
+}
