@@ -17,7 +17,7 @@ import ceo_artifacts
 import ceo_publish
 import console_board
 from ceo_page import render_page
-from cmo_runtime import topic_proposals
+from cmo_runtime import competitors, topic_proposals
 from cmo_runtime.console_db import ConsoleDBError
 from cmo_runtime.decisions import DecisionConflict, DecisionError, DecisionStore
 from cmo_runtime.task_file import TaskFileError
@@ -87,6 +87,9 @@ def state_payload(range_days: int = 28, device: str = "all") -> dict[str, Any]:
         # Read model only — every value here comes from the database or the board,
         # never from a live scrape at page load.
         topics = service.state()
+        competitor = competitors.CompetitorService(
+            PROFILE_DIR, database=service.database
+        ).latest()
     finally:
         service.database.close()
     return {
@@ -98,6 +101,7 @@ def state_payload(range_days: int = 28, device: str = "all") -> dict[str, Any]:
         "analytics": {
             "search_console": dashboard_server.gsc_summary(),
             "ga4": analytics_readers.ga4_summary(range_days, device),
+            "competitor": competitor,
         },
         "controls": {"range_days": range_days, "device": device},
     }
@@ -223,11 +227,16 @@ def dispatch(handler: Any, method: str) -> bool:
             "/ceo/api/proposal/suggest",
             "/ceo/api/proposal/reject",
             "/ceo/api/proposal/undo-rejection",
+            "/ceo/api/competitor",
         }:
             payload = _body(handler)
             service = _service()
             try:
-                if path == "/ceo/api/propose":
+                if path == "/ceo/api/competitor":
+                    result = competitors.CompetitorService(
+                        PROFILE_DIR, database=service.database
+                    ).analyse(str(payload.get("target", "")), email)
+                elif path == "/ceo/api/propose":
                     run = service.propose(str(payload.get("subject", "")), email)
                     result = {"ok": True, **run.as_dict()}
                 else:
@@ -294,6 +303,7 @@ def dispatch(handler: Any, method: str) -> bool:
         TaskFileError,
         ConsoleDBError,
         topic_proposals.ProposalRefused,
+        competitors.CompetitorRefused,
     ) as exc:
         _json(handler, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         return True

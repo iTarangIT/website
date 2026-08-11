@@ -12,6 +12,7 @@ let detailTab='read';
 let publishRequest='';
 let darkReading=false;
 let busy=false;
+let focusIndex=-1;
 
 function expire(){
  sessionStorage.removeItem('cmo_token');sessionStorage.removeItem('cmo_email');sessionStorage.removeItem('cmo_role');
@@ -29,14 +30,63 @@ async function api(path,options={}){
 }
 function post(path,body){return api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
 function notice(message,error=false){const node=$('#notice');node.textContent=message||'';node.classList.toggle('error',error);}
+/* One status vocabulary for every card in the console: glyph, word, tone. */
+const STATUS={
+ proposed:{glyph:'\u25CF',label:'awaiting you',tone:''},
+ revising:{glyph:'\u21BB',label:'re-researching',tone:'tone-wait'},
+ approved:{glyph:'\u2713',label:'approved',tone:''},
+ carded:{glyph:'\u2713',label:'queued for writing',tone:''},
+ rejected:{glyph:'\u2717',label:'rejected',tone:'tone-stop'},
+ 'awaiting decision':{glyph:'\u25CF',label:'awaiting you',tone:'tone-wait'},
+ uncontested:{glyph:'\u25C6',label:'uncontested',tone:''},
+ weak_position:{glyph:'\u25B2',label:'we rank weakly',tone:'tone-wait'},
+ covered:{glyph:'\u2713',label:'we hold this',tone:'tone-mute'}
+};
+function pill(key,override){const item=STATUS[key]||{glyph:'\u25CF',label:key||'unknown',tone:'tone-mute'};
+ return `<span class="pill ${item.tone}" data-glyph="${item.glyph}">${esc(override||item.label)}</span>`;}
+let toastTimer=0;
+function toast(message,error=false){
+ const node=$('#toast');node.textContent=message;node.classList.toggle('error',error);
+ node.hidden=false;requestAnimationFrame(()=>node.classList.add('show'));
+ clearTimeout(toastTimer);toastTimer=setTimeout(()=>{node.classList.remove('show');setTimeout(()=>{node.hidden=true;},200);},3200);
+}
+function skeleton(count,rowClass){return Array.from({length:count},()=>`<div class="skeleton ${rowClass||''}"></div>`).join('');}
+function emptyState(text,actionLabel,actionAttribute){
+ return `<div class="empty"><strong>Nothing here yet</strong>${esc(text)}${actionLabel?`<div><button ${actionAttribute} type="button">${esc(actionLabel)}</button></div>`:''}</div>`;
+}
 function value(item){return item===null||item===undefined||item===''?'—':esc(item);}
 function delta(item){return item===null||item===undefined?'':`<span class="delta">${item>0?'+':''}${esc(item)} vs previous window</span>`;}
 function findTask(id){return (state?.blogs||[]).find(item=>item.id===id);}
 
+function moveIndicator(){
+ const active=$('.primary button.active'),bar=$('.tab-indicator');
+ if(!active||!bar)return;
+ bar.style.width=active.offsetWidth+'px';
+ bar.style.transform=`translateX(${active.offsetLeft}px)`;
+}
 function showView(name){
- currentView=name;
+ currentView=name;focusIndex=-1;
  $$('.screen').forEach(node=>node.hidden=node.id!==`panel-${name}`);
  $$('.primary button').forEach(node=>node.classList.toggle('active',node.dataset.view===name));
+ moveIndicator();applyFocus();
+}
+/* j/k walk the rows of whichever list this tab is about; Enter opens the focused one. */
+function rows(){const panel=$(`#panel-${currentView}`);return panel?[...panel.querySelectorAll('[data-row]')]:[];}
+function applyFocus(){
+ const all=rows();
+ all.forEach((node,index)=>node.classList.toggle('is-focused',index===focusIndex));
+ if(focusIndex>=0&&all[focusIndex])all[focusIndex].scrollIntoView({block:'nearest'});
+}
+function moveFocus(step){
+ const all=rows();if(!all.length)return;
+ focusIndex=focusIndex<0?(step>0?0:all.length-1):Math.min(all.length-1,Math.max(0,focusIndex+step));
+ applyFocus();
+}
+function openFocused(){
+ const node=rows()[focusIndex];if(!node)return;
+ const open=node.querySelector('[data-open]');
+ if(open){openDetail(open.dataset.open);return;}
+ node.querySelector('details')?.toggleAttribute('open');
 }
 
 /* ---------------------------------------------------------------- proposals */
@@ -57,8 +107,8 @@ function proposalCard(proposal){
  const round=proposal.round>1?`<span class="meta">revised ${proposal.round-1}×</span>`:'';
  const busyNote=proposal.status==='revising'?'<p class="meta">Re-researching this candidate…</p>':'';
  const history=(proposal.history||[]).length>1?`<details><summary>Earlier rounds</summary>${proposal.history.slice(0,-1).map(item=>`<div class="history-row"><strong>Round ${esc(item.round)}: ${esc(item.title)}</strong><p class="meta">${esc(item.outline)}</p></div>`).join('')}</details>`:'';
- return `<article class="card" data-proposal="${esc(proposal.id)}">
-<div class="card-row"><div><span class="pill status-${esc(proposal.status)}">${esc(proposal.status)}</span> ${round}
+ return `<article class="card" role="listitem" data-row="${esc(proposal.id)}" data-proposal="${esc(proposal.id)}">
+<div class="card-row"><div>${pill(proposal.status)} ${round}
 <h3>${esc(proposal.title)}</h3>
 <p class="meta">From your subject: ${esc(proposal.subject)}</p>
 <div class="keywords">${keywords}</div>
@@ -77,7 +127,7 @@ ${sourceLine(proposal)}${busyNote}${history}</div></div>
 function renderProposals(){
  const topics=state.topics||{};
  const proposals=topics.proposals||[];
- $('#proposal-list').innerHTML=proposals.map(proposalCard).join('')||'<p class="empty">No candidate topics are waiting. Enter a rough subject above and Hermes will research it into candidates.</p>';
+ $('#proposal-list').innerHTML=proposals.map(proposalCard).join('')||emptyState('No candidate topics are waiting. Enter a rough subject above and Hermes will research it into candidates.','Enter a subject','data-focus="subject"');
  const rejected=topics.rejected||[];
  $('#rejected-count').textContent=rejected.length?`(${rejected.length})`:'(none)';
  $('#rejected-list').innerHTML=rejected.map(item=>`<div class="watch-row"><div><strong>${esc(item.title)}</strong><p class="meta">${esc(item.reason||'no reason recorded')} · ${esc(item.actor)} · ${esc(item.created_at)}</p></div><button class="ghost" data-undo="${esc(item.proposal_id)}" type="button">Undo</button></div>`).join('')||'<p class="empty">Nothing has been rejected.</p>';
@@ -101,6 +151,8 @@ async function researchSubject(){
  const button=$('#research-subject');button.disabled=true;
  $('#propose-result').classList.remove('error');
  $('#propose-result').textContent='Researching… Search Console first, then up to five pages of Firecrawl.';
+ $('#proposal-list').insertAdjacentHTML('afterbegin',skeleton(1));
+ toast('Researching…');
  try{
   const run=await post('/ceo/api/propose',{subject});
   const parts=[`${run.added.length} candidate${run.added.length===1?'':'s'} proposed.`];
@@ -111,6 +163,7 @@ async function researchSubject(){
   if(run.dropped.length)parts.push(`${run.dropped.length} dropped without a source.`);
   (run.messages||[]).forEach(message=>parts.push(message));
   $('#propose-result').textContent=parts.join(' ');
+  toast(`${run.added.length} candidate${run.added.length===1?'':'s'} proposed.`);
   $('#subject').value='';
   await refresh();
  }catch(error){$('#propose-result').textContent=error.message;$('#propose-result').classList.add('error');}
@@ -127,26 +180,33 @@ async function submitInlineForm(id){
  const text=form.querySelector('[data-form-input]').value.trim();
  if(!text){notice(form.dataset.kind==='suggest'?'Say what should change.':'Give a reason so it can be remembered.',true);return;}
  busy=true;
+ const card=document.querySelector(`[data-proposal="${id}"]`);
+ card?.classList.add('is-pending');
+ const suggesting=form.dataset.kind==='suggest';
+ toast(suggesting?'Re-researching this candidate…':'Rejecting…');
  try{
-  if(form.dataset.kind==='suggest'){
-   notice('Re-researching this candidate…');
+  if(suggesting){
    const result=await post('/ceo/api/proposal/suggest',{proposal_id:Number(id),comment:text});
-   notice(`Revised. Cost ${result.credits_used} credits.`);
+   toast(`Revised. Cost ${result.credits_used} credits.`);
   }else{
    await post('/ceo/api/proposal/reject',{proposal_id:Number(id),reason:text});
-   notice('Rejected and remembered.');
+   toast('Rejected and remembered.');
   }
   await refresh();
- }catch(error){notice(error.message,true);}
+ }catch(error){card?.classList.remove('is-pending');form.hidden=false;toast(error.message,true);notice(error.message,true);}
  finally{busy=false;}
 }
 async function approveProposal(id){
  if(busy)return;busy=true;
+ /* Optimistic: the card dims and the toast fires now; a failure puts it back. */
+ const card=document.querySelector(`[data-proposal="${id}"]`);
+ card?.classList.add('is-pending');
+ toast('Approving…');
  try{
   const result=await post('/ceo/api/proposal/approve',{proposal_id:Number(id)});
-  notice(`Approved. Board card ${result.task_id} is queued for writing.`);
+  toast(`Approved. Board card ${result.task_id} is queued for writing.`);
   await refresh();
- }catch(error){notice(error.message,true);}
+ }catch(error){card?.classList.remove('is-pending');toast(error.message,true);notice(error.message,true);}
  finally{busy=false;}
 }
 async function undoRejection(id){
@@ -166,7 +226,7 @@ function renderTrends(){
  $('#watchlist').innerHTML=(state.watchlist||[]).map(keyword=>`<div class="watch-row"><span>${esc(keyword)}</span><button class="ghost" data-unwatch="${esc(keyword)}" type="button">Remove</button></div>`).join('')||'<p class="empty">Nothing is being watched. Watchlist entries never create board cards.</p>';
 }
 function renderBlogs(){
- $('#blog-list').innerHTML=(state.blogs||[]).map(task=>`<article class="card"><div class="card-row"><button class="open" data-open="${esc(task.id)}" type="button"><span class="pill">${esc(task.decision_status)}</span><h3>${esc(task.title||task.id)}</h3><p class="meta">${esc(task.id)} · ${task.article?.word_count??0} words · ${task.article?.read_minutes??0} min read</p></button><span class="meta">${esc(task.change_status||task.status||'')}</span></div></article>`).join('')||'<p class="empty">No blog has been written yet. A topic has to be approved in Topics &amp; Research before the writer can produce one.</p>';
+ $('#blog-list').innerHTML=(state.blogs||[]).map(task=>`<article class="card" role="listitem" data-row="${esc(task.id)}"><div class="card-row"><button class="open" data-open="${esc(task.id)}" type="button">${pill(task.decision_status)}<h3>${esc(task.title||task.id)}</h3><p class="meta">${esc(task.id)} · ${task.article?.word_count??0} words · ${task.article?.read_minutes??0} min read</p></button><span class="meta">${esc(task.change_status||task.status||'')}</span></div></article>`).join('')||emptyState('No blog has been written yet. A topic has to be approved in Topics & Research before the writer can produce one.','Go to Topics & Research','data-view="topics"');
 }
 function renderGsc(){
  const data=state.analytics?.search_console||{};
@@ -184,7 +244,54 @@ function renderGa4(){
  const selected=$('#metric').value in labels?$('#metric').value:'sessions';
  $('#ga4-panel').innerHTML=`<div class="metrics"><div class="metric"><span>${labels[selected]}</span><strong>${value(data.metrics?.[selected])}</strong>${delta(data.deltas?.[selected])}</div></div>`;
 }
-function renderAll(){renderProposals();renderTrends();renderBlogs();renderGsc();renderGa4();}
+function gapRow(finding){
+ const position=finding.our_position==null?'no Search Console data for this topic'
+  :`we average position ${Number(finding.our_position).toFixed(1)}${finding.our_impressions!=null?` on ${esc(finding.our_impressions)} impressions`:''}`;
+ return `<article class="card" role="listitem" data-row="gap-${esc(finding.topic)}">
+<div class="card-row"><div>${pill(finding.kind)}
+<h3>${esc(finding.topic)}</h3>
+<p class="meta">Them: <a href="${esc(finding.their_url)}" target="_blank" rel="noopener">${esc(String(finding.their_url).replace(/^https?:\/\//,'').slice(0,70))}</a></p>
+<p class="meta">Us: ${esc(position)}</p>
+<p class="outline">${esc(finding.recommendation)}</p></div></div></article>`;
+}
+function renderCompetitor(){
+ const data=state.analytics?.competitor||{};
+ const node=$('#competitor-panel');
+ if(data.status==='none'){
+  node.innerHTML=emptyState('No competitor has been analysed yet. Enter a website above to see which of their topics we do not cover.','Enter a website','data-focus="competitor"');
+  return;
+ }
+ const counts=(data.findings||[]).reduce((total,item)=>{total[item.kind]=(total[item.kind]||0)+1;return total;},{});
+ const chips=['uncontested','weak_position','covered'].filter(kind=>counts[kind])
+  .map(kind=>pill(kind,`${counts[kind]} ${STATUS[kind].label}`)).join(' ');
+ const cost=data.credits_used?`${data.credits_used} credits`:'no credits';
+ node.innerHTML=`<p class="meta">${esc(data.domain)} · ${esc(data.sitemap_url_count??0)} pages in their sitemap (free) · ${esc(data.pages_fetched??0)} read for ${esc(cost)} · measured ${esc(data.measured_at||'—')}</p>
+${data.message?`<p class="meta error">${esc(data.message)}</p>`:''}
+<p class="meta">${esc(data.volume_message||'')}</p>
+<div class="gap-kind">${chips}</div>
+<div class="rows" role="list">${(data.findings||[]).slice(0,40).map(gapRow).join('')||emptyState('Their pages produced no comparable topic.')}</div>`;
+}
+async function analyseCompetitor(){
+ const target=$('#competitor').value.trim();
+ if(!target){toast('Enter a competitor website first.',true);return;}
+ if(busy)return;busy=true;
+ const button=$('#analyse-competitor');button.disabled=true;
+ $('#competitor-panel').innerHTML=skeleton(4);
+ toast('Reading their sitemap, then up to 10 pages…');
+ try{
+  const result=await post('/ceo/api/competitor',{target});
+  toast(`${result.domain}: ${(result.findings||[]).length} topics scored for ${result.credits_used} credits.`);
+  await refresh();
+ }catch(error){toast(error.message,true);notice(error.message,true);await refresh();}
+ finally{busy=false;button.disabled=false;}
+}
+function renderSkeletons(){
+ $('#proposal-list').innerHTML=skeleton(3);
+ $('#blog-list').innerHTML=skeleton(3);
+ $('#competitor-panel').innerHTML=skeleton(2);
+ $('#trend-list').innerHTML=skeleton(3,'row');
+}
+function renderAll(){renderProposals();renderTrends();renderBlogs();renderGsc();renderGa4();renderCompetitor();applyFocus();}
 
 /* ------------------------------------------------------------- blog reading */
 
@@ -296,6 +403,7 @@ document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  const data=button.dataset;
  if(data.view)showView(data.view);
+ if(data.focus){showView(data.focus==='competitor'?'analytics':'topics');$('#'+data.focus)?.focus();}
  if(data.open)openDetail(data.open);
  if(data.detail){detailTab=data.detail;renderDetail();}
  if(data.unwatch)updateWatch(data.unwatch,'remove');
@@ -313,11 +421,19 @@ document.addEventListener('click',event=>{
 document.addEventListener('change',event=>{if(event.target.matches('[data-upload]')&&event.target.files[0])upload(findTask(openTask),event.target.dataset.upload,event.target.files[0]);if(event.target.matches('#range,#device,#metric'))refresh();});
 document.addEventListener('keydown',event=>{
  const typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
- if(event.key==='Escape'&&openTask)closeDetail();
- if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!typing){event.preventDefault();showView('topics');$('#subject').focus();}
- if(/^[1-3]$/.test(event.key)&&!typing)showView(VIEWS[Number(event.key)-1]);
+ if(event.key==='Escape'){if(openTask)closeDetail();else if(typing)document.activeElement.blur();else if(focusIndex>=0){focusIndex=-1;applyFocus();}}
+ if(typing||event.ctrlKey||event.metaKey||event.altKey)return;
+ if(event.key==='/'){event.preventDefault();showView('topics');$('#subject').focus();return;}
+ if(/^[1-3]$/.test(event.key)){showView(VIEWS[Number(event.key)-1]);return;}
+ if(openTask)return;
+ if(event.key==='j'){event.preventDefault();moveFocus(1);}
+ if(event.key==='k'){event.preventDefault();moveFocus(-1);}
+ if(event.key==='Enter'&&focusIndex>=0){event.preventDefault();openFocused();}
 });
+window.addEventListener('resize',moveIndicator);
 $('#research-subject').addEventListener('click',researchSubject);
+$('#analyse-competitor').addEventListener('click',analyseCompetitor);
+$('#competitor').addEventListener('keydown',event=>{if(event.key==='Enter')analyseCompetitor();});
 $('#subject').addEventListener('keydown',event=>{if(event.key==='Enter')researchSubject();});
 $('#trend-keyword').addEventListener('input',renderTrends);
 $('#watch-keyword').addEventListener('click',()=>{const keyword=$('#trend-keyword').value.trim();if(keyword)updateWatch(keyword,'add');});
@@ -326,6 +442,7 @@ $('#signout').addEventListener('click',expire);
 
 async function boot(){
  if(!token){expire();return;}
+ renderSkeletons();moveIndicator();
  try{const session=await api('/api/session');email=session.email;role=session.role;sessionStorage.setItem('cmo_email',email);sessionStorage.setItem('cmo_role',role);if(session.console!=='/ceo'){location.replace(session.console);return;}$('#account').textContent=email;await refresh();setInterval(()=>refresh(true),60000);}
  catch(error){notice(error.message,true);}
 }

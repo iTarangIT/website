@@ -23,6 +23,7 @@ import ceo_console
 from ceo_markup import MARKUP
 from ceo_page import render_page
 from ceo_script import SCRIPT
+from ceo_style import CSS
 from cmo_runtime import topic_proposals
 from cmo_runtime.console_db import ConsoleDB
 
@@ -55,7 +56,13 @@ class ThreeTabsAndNoFourth(unittest.TestCase):
 
     def test_the_rendered_page_exposes_no_fourth_view(self) -> None:
         page = render_page().decode("utf-8")
-        self.assertEqual(len(re.findall(r'data-view="', page)), 3)
+        nav = page.split('<nav class="primary"', 1)[1].split("</nav>", 1)[0]
+        self.assertEqual(re.findall(r'data-view="([a-z-]+)"', nav), ["analytics", "topics", "blogs"])
+        # Nothing anywhere on the page — nav, script or empty-state action — may
+        # target a view outside the three.
+        self.assertEqual(
+            set(re.findall(r'data-view="([a-z-]+)"', page)), {"analytics", "topics", "blogs"}
+        )
 
 
 class TopicSubmissionIsNoLongerAWritingInstruction(unittest.TestCase):
@@ -164,6 +171,105 @@ class PageMakesNoExternalRequest(unittest.TestCase):
         with ConsoleDB(root) as database:
             self.assertEqual(database.path, root / "state" / "console.db")
             self.assertTrue(database.path.is_file())
+
+
+class ProductFinish(unittest.TestCase):
+    """Section 6: the craft, checked rather than asserted."""
+
+    def test_one_card_grammar_covers_proposals_blogs_and_competitor_findings(self) -> None:
+        for builder in ("function proposalCard(", "function gapRow(", "function renderBlogs("):
+            body = SCRIPT.split(builder, 1)[1][:1200]
+            self.assertIn('class="card"', body, builder)
+
+    def test_status_is_never_colour_alone(self) -> None:
+        # Every pill renders a glyph and a word; the tone class only tints them.
+        self.assertIn("data-glyph=", SCRIPT)
+        self.assertIn(".pill::before{content:attr(data-glyph)}", CSS)
+        for key in ("proposed", "revising", "rejected", "uncontested", "weak_position"):
+            self.assertIn(f"{key}:" if ":" in key else key, SCRIPT)
+        for tone in ("tone-wait", "tone-stop", "tone-mute"):
+            self.assertIn(f".pill.{tone}", CSS)
+
+    def test_the_status_vocabulary_covers_the_whole_lifecycle(self) -> None:
+        vocabulary = SCRIPT.split("const STATUS={", 1)[1].split("};", 1)[0]
+        for state in ("proposed", "revising", "approved", "carded", "rejected"):
+            self.assertIn(state, vocabulary)
+
+    def test_empty_states_name_the_next_action(self) -> None:
+        self.assertIn("function emptyState(", SCRIPT)
+        self.assertIn("A topic has to be approved in Topics & Research", SCRIPT)
+        self.assertIn("'Go to Topics & Research','data-view=\"topics\"'", SCRIPT)
+        self.assertIn("'Enter a subject','data-focus=\"subject\"'", SCRIPT)
+
+    def test_loading_is_skeletal_and_not_a_spinner(self) -> None:
+        self.assertIn("function skeleton(", SCRIPT)
+        self.assertIn("renderSkeletons();", SCRIPT)
+        self.assertIn(".skeleton{height:104px", CSS, "skeletons must occupy the real row height")
+        self.assertNotIn("spinner", SCRIPT.lower())
+
+    def test_actions_are_optimistic_and_roll_back_visibly(self) -> None:
+        approve = SCRIPT.split("async function approveProposal(", 1)[1].split("\n}", 1)[0]
+        self.assertIn("classList.add('is-pending')", approve)
+        self.assertIn("toast(", approve)
+        self.assertIn("classList.remove('is-pending')", approve, "a failure must restore the card")
+        self.assertIn(".card.is-pending", CSS)
+
+    def test_every_documented_shortcut_is_bound_and_shown(self) -> None:
+        for binding in ("event.key==='j'", "event.key==='k'", "event.key==='Enter'", "event.key==='/'"):
+            self.assertIn(binding, SCRIPT)
+        self.assertIn("/^[1-3]$/", SCRIPT)
+        self.assertIn("event.key==='Escape'", SCRIPT)
+        for label in ("tabs", "search", "move", "open", "close"):
+            self.assertIn(label, MARKUP.split('<footer class="shortcuts">', 1)[1])
+
+    def test_typing_in_a_field_does_not_trigger_shortcuts(self) -> None:
+        handler = SCRIPT.split("document.addEventListener('keydown'", 1)[1]
+        self.assertIn("if(typing||event.ctrlKey||event.metaKey||event.altKey)return;", handler)
+
+    def test_motion_is_disabled_under_reduced_motion(self) -> None:
+        self.assertIn("@media(prefers-reduced-motion:reduce)", CSS)
+        reduced = CSS.split("@media(prefers-reduced-motion:reduce)", 1)[1]
+        self.assertIn("animation-duration:.001ms!important", reduced)
+        self.assertIn("transition-duration:.001ms!important", reduced)
+
+    def test_the_layout_answers_a_phone(self) -> None:
+        self.assertIn("@media(max-width:760px)", CSS)
+        phone = CSS.split("@media(max-width:760px)", 1)[1]
+        for rule in (".analytics-grid,.metrics{grid-template-columns:1fr}", "dialog{width:100%"):
+            self.assertIn(rule, phone)
+        self.assertIn("--tap:44px", CSS, "touch targets need a floor")
+        self.assertIn("min-height:var(--tap)", CSS)
+
+    def test_the_reader_stays_generous_while_lists_stay_tight(self) -> None:
+        self.assertIn(".article-sheet{max-width:720px", CSS)
+        self.assertIn("line-height:1.7", CSS.split(".article-sheet{", 1)[1][:200])
+        self.assertIn(".rows{display:flex;flex-direction:column;gap:10px}", CSS)
+
+    def test_focus_is_visible_for_keyboard_users(self) -> None:
+        self.assertIn(":focus-visible", CSS)
+
+
+class CompetitorPanelIsHonest(unittest.TestCase):
+    """Invariant 5 at the console layer."""
+
+    def test_an_unanalysed_competitor_renders_an_empty_state_not_zeroes(self) -> None:
+        renderer = SCRIPT.split("function renderCompetitor(", 1)[1].split("\n}", 1)[0]
+        self.assertIn("data.status==='none'", renderer)
+        self.assertIn("emptyState(", renderer)
+
+    def test_a_missing_position_says_so_rather_than_showing_zero(self) -> None:
+        row = SCRIPT.split("function gapRow(", 1)[1].split("\n}", 1)[0]
+        self.assertIn("finding.our_position==null", row)
+        self.assertIn("no Search Console data for this topic", row)
+
+    def test_the_volume_gap_is_surfaced_on_the_panel(self) -> None:
+        self.assertIn("data.volume_message", SCRIPT)
+
+    def test_the_panel_reports_what_the_analysis_cost(self) -> None:
+        renderer = SCRIPT.split("function renderCompetitor(", 1)[1].split("\n}", 1)[0]
+        self.assertIn("credits_used", renderer)
+        self.assertIn("sitemap_url_count", renderer)
+        self.assertIn("free", renderer)
 
 
 class WatchlistStillNeverCreatesACard(unittest.TestCase):

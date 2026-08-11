@@ -21,6 +21,69 @@ This creates session `cmo-dashboard`; the session runs `/opt/data/profiles/itara
 
 `/opt/data/profiles/itarang_cmo/bin/dashboard-session-healthy` requires all of the following: the expected tmux session has a live pane, its process tree contains the expected server script owned by `hermes`, and that same process owns the expected listening port. A session name or live pane by itself is not considered healthy.
 
+## Tests
+
+```bash
+./run-tests
+```
+
+Runs the console suites, every `tests/*.py` module and the board validator under
+`/opt/hermes/.venv/bin/python` — the interpreter the deployed server actually uses.
+**Do not run the suites under `/usr/bin/python3`**: it has no PyYAML and cannot get it
+(the distro disables pip and the agent is not root), so `tests/test_approval_cards.py`
+fails to import and its 13 tests silently disappear from the run. Override with
+`CMO_TEST_PYTHON` only if you know the target has PyYAML.
+
+## The topic flow
+
+A rough subject typed into the CEO Console is **not** a writing instruction. It is
+researched into candidate topics, each carrying a title, its keywords, an outline and
+the source that produced it; the CEO then approves, suggests changes to, or rejects
+each candidate. Only an approved candidate mints a board card.
+
+Proposals live in SQLite at `state/console.db` (`cmo_runtime/console_db.py`), never on
+the board — so an unapproved candidate is not filtered out of `tasks.md`, it was never
+on it, and neither `Runtime.execute()` nor `ContentRuntime._select()` can reach it.
+Rejections are remembered by a fingerprint that survives rewording, and suppress future
+re-proposals until explicitly undone.
+
+Firecrawl is **discovery then retrieval**, never search-with-scrape: `/v2/search`
+without `scrapeOptions` returns URLs, then `/v2/scrape` reads at most
+`PROPOSAL_PAGE_CAP` of them at roughly one credit each. Search Console answers demand
+questions first because it is free. A repeat subject replays cached research for
+nothing. Runs refuse above `FIRECRAWL_PROPOSAL_STOP` measured credits rather than
+degrading quietly.
+
+Cards that predate this flow are set aside with
+`cmo_runtime.topic_proposals.hold_legacy_cards()`: the card stays on the board at
+`Change status: pending human decision`, both selectors skip it, and it reappears as a
+proposal naming the card as its source.
+
+## Competitor analytics
+
+`cmo_runtime/competitors.py` answers "which website do you want to replicate" from what
+we already have: their `sitemap.xml` (a plain GET, free), up to `COMPETITOR_PAGE_CAP` of
+their pages scraped directly (one credit each), and our own Search Console position for
+each topic they cover. Findings are `uncontested`, `weak_position` or `covered`.
+
+What it cannot answer — what they actually rank for, their traffic, and search volume
+for terms we do not already rank for — renders as unavailable and names what would
+supply it. Nothing is estimated and nothing shows as zero. Search volume slots in behind
+`VolumeProvider` when Google Ads Keyword Planner credentials arrive:
+
+```dotenv
+GOOGLE_ADS_DEVELOPER_TOKEN=
+GOOGLE_ADS_CUSTOMER_ID=
+GOOGLE_ADS_CREDENTIALS_PATH=
+```
+
+## Site crawl cadence
+
+`scripts/morning-seo-job.py` crawls itarang.com when the deployed commit
+(`refs/heads/main`) differs from the last crawled SHA, with a weekly floor for drift a
+SHA cannot see and a one-per-day ceiling. The page limit is 20, matching the sitemap.
+An unreadable SHA holds until the weekly floor rather than crawling every cycle.
+
 ## Behavior
 
 - The browser polls `GET /api/state` every 10 seconds.

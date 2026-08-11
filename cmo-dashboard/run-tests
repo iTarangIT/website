@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Run every dashboard suite on the interpreter the dashboard actually runs on.
+#
+# /usr/bin/python3 has no PyYAML and cannot get it (distro pip is disabled, and the
+# agent is not root), so running the suites there silently skipped
+# tests/test_approval_cards.py for weeks. The deployed server runs under
+# /opt/hermes/.venv/bin/python — so that is what the tests run under too.
+set -uo pipefail
+cd "$(dirname "$0")"
+
+PYTHON="${CMO_TEST_PYTHON:-/opt/hermes/.venv/bin/python}"
+if [[ ! -x "$PYTHON" ]]; then
+  printf 'Test interpreter is missing: %s\n' "$PYTHON" >&2
+  exit 1
+fi
+if ! "$PYTHON" -c 'import yaml' 2>/dev/null; then
+  printf 'PyYAML is missing from %s; tests/test_approval_cards.py would be skipped.\n' "$PYTHON" >&2
+  exit 1
+fi
+
+status=0
+printf '== console suites ==\n'
+"$PYTHON" -m unittest discover -s . -p 'test_*.py' || status=1
+
+printf '\n== cmo_runtime suites ==\n'
+# tests/ is not a package, so each module is executed directly.
+for file in tests/test_*.py; do
+  if PYTHONPATH=. "$PYTHON" "$file" >/dev/null 2>&1; then
+    printf '  ok    %s\n' "$file"
+  else
+    printf '  FAIL  %s\n' "$file"
+    PYTHONPATH=. "$PYTHON" "$file" 2>&1 | tail -25
+    status=1
+  fi
+done
+
+printf '\n== board validator ==\n'
+BOARD="${CMO_DASHBOARD_PROFILE_DIR:-/opt/data/profiles/itarang_cmo}/tasks.md"
+if [[ -f "$BOARD" ]]; then
+  if PYTHONPATH=. "$PYTHON" -m cmo_runtime.task_file --file "$BOARD" validate; then
+    printf '  ok    %s\n' "$BOARD"
+  else
+    printf '  FAIL  %s\n' "$BOARD"
+    status=1
+  fi
+else
+  printf '  skipped: no board at %s\n' "$BOARD"
+fi
+
+[[ $status -eq 0 ]] && printf '\nALL GREEN\n' || printf '\nFAILURES ABOVE\n'
+exit $status
