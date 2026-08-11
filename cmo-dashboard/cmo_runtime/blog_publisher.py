@@ -133,7 +133,7 @@ class BlogPublisher:
         blog_posts_path = self.website_root / "src/data/blog-posts.ts"
         blog_posts = blog_posts_path.read_text(encoding="utf-8")
         read_time = _read_time(public_body)
-        cover_image = f"/images/blog/{slug}.svg"
+        image_src = f"/images/blog/{slug}.svg"
         page_source = _render_page(
             fields=fields,
             body=public_body,
@@ -142,7 +142,7 @@ class BlogPublisher:
             read_time=read_time,
             marker=marker.group(0),
             caption=caption,
-            cover_image=cover_image,
+            image_src=image_src,
             alt_text=alt_text,
             width=width,
             height=height,
@@ -155,7 +155,6 @@ class BlogPublisher:
             publication_date=publication_date.isoformat(),
             read_time=read_time,
             category=category,
-            cover_image=cover_image,
         )
         return PublishPlan(
             task_id=task_id,
@@ -393,7 +392,7 @@ def _render_blocks(
     *,
     marker: str,
     caption: str,
-    cover_image: str,
+    image_src: str,
     alt_text: str,
     width: int,
     height: int,
@@ -420,7 +419,7 @@ def _render_blocks(
                 [
                     '      <figure className="my-10">',
                     "        <Image",
-                    f'          src="{html.escape(cover_image, quote=True)}"',
+                    f'          src="{html.escape(image_src, quote=True)}"',
                     f'          alt="{html.escape(alt_text, quote=True)}"',
                     f"          width={{{width}}}",
                     f"          height={{{height}}}",
@@ -526,7 +525,7 @@ def _render_page(
     read_time: str,
     marker: str,
     caption: str,
-    cover_image: str,
+    image_src: str,
     alt_text: str,
     width: int,
     height: int,
@@ -535,7 +534,7 @@ def _render_page(
         body,
         marker=marker,
         caption=caption,
-        cover_image=cover_image,
+        image_src=image_src,
         alt_text=alt_text,
         width=width,
         height=height,
@@ -578,7 +577,6 @@ def _insert_blog_post(
     publication_date: str,
     read_time: str,
     category: str,
-    cover_image: str,
 ) -> str:
     if re.search(rf'^\s+slug:\s*{re.escape(json.dumps(slug))},?\s*$', source, re.M):
         raise BlogPublishRefused(f"blogPosts already contains slug: {slug}")
@@ -597,7 +595,6 @@ def _insert_blog_post(
             f"    date: {json.dumps(publication_date)},",
             f"    readTime: {json.dumps(read_time)},",
             f"    category: {json.dumps(category)},",
-            f"    coverImage: {json.dumps(cover_image)},",
             "  },",
         ]
     )

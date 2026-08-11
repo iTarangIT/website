@@ -13,7 +13,8 @@ export interface BlogPost {
   date: string;
   readTime: string;
   category: BlogCategorySlug;
-  coverImage: string;
+  /** Optional. `BlogCard` renders a category gradient, so no post needs one today. */
+  coverImage?: string;
 }
 
 export interface BlogCategory {
@@ -40,7 +41,6 @@ export const blogPosts: BlogPost[] = [
     date: "2026-03-20",
     readTime: "6 min read",
     category: "financing",
-    coverImage: "/images/blog/informal-financing-cover.webp",
   },
   {
     slug: "battery-passport",
@@ -50,7 +50,6 @@ export const blogPosts: BlogPost[] = [
     date: "2026-03-15",
     readTime: "8 min read",
     category: "partners-industry",
-    coverImage: "/images/blog/battery-passport-cover.webp",
   },
   {
     slug: "e-rickshaw-lithium-battery-compatibility-installation",
@@ -60,7 +59,6 @@ export const blogPosts: BlogPost[] = [
     date: "2026-07-24",
     readTime: "7 min read",
     category: "battery-selection",
-    coverImage: "/images/blog/e-rickshaw-battery-compatibility-cover.webp",
   },
   {
     slug: "e-rickshaw-battery-maintenance-alerts-troubleshooting",
@@ -70,7 +68,6 @@ export const blogPosts: BlogPost[] = [
     date: "2026-07-27",
     readTime: "8 min read",
     category: "charging-maintenance",
-    coverImage: "/images/blog/e-rickshaw-battery-maintenance-cover.webp",
   },
 ];
 

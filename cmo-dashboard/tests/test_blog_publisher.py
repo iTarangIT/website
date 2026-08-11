@@ -27,7 +27,7 @@ export interface BlogPost {
   date: string;
   readTime: string;
   category: BlogCategorySlug;
-  coverImage: string;
+  coverImage?: string;
 }
 
 export const blogPosts: BlogPost[] = [
@@ -136,7 +136,8 @@ class BlogPublisherTest(unittest.TestCase):
         self.assertNotIn("<h1", plan.page_source)
         self.assertIn('excerpt:', plan.updated_blog_posts)
         self.assertIn('"A concise description copied exactly into the blog index."', plan.updated_blog_posts)
-        self.assertIn('coverImage: "/images/blog/useful-finance-guide.svg"', plan.updated_blog_posts)
+        # the interface still declares `coverImage?`; no generated record sets one
+        self.assertNotIn("coverImage:", plan.updated_blog_posts)
         self.assertEqual(plan.image_source, SVG.encode("utf-8"))
         self.assertFalse(plan.page_path.exists())
         self.assertFalse(plan.image_path.exists())
