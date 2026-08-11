@@ -14,6 +14,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 
 REPO = Path(os.getenv("CMO_DASHBOARD_GIT_REPO", "/opt/data/work/itarang-website"))
@@ -37,19 +38,29 @@ def live_url() -> str:
 
 def affected_pages(task: dict[str, Any]) -> list[str]:
     """Read page URLs from the task card; never invent a measurement target."""
+    base = live_url() + "/"
+    live_host = urlsplit(base).netloc.casefold()
     for key in ("affected_pages", "page_urls", "urls", "pages"):
         raw = str(task.get(key, "")).strip()
         if raw:
-            return [item for item in re.split(r"[\s,]+", raw) if item.startswith(("http://", "https://"))]
+            urls = []
+            for item in re.split(r"[\s,]+", raw):
+                if not item:
+                    continue
+                candidate = urljoin(base, item) if item.startswith("/") else item
+                parsed = urlsplit(candidate)
+                if parsed.scheme in {"http", "https"} and parsed.netloc.casefold() == live_host:
+                    urls.append(candidate)
+            return urls
     return []
 
 
-def _record_spend(task_id: str, provider: str, model: str, status: str = "unknown") -> None:
+def _record_spend(task_id: str, provider: str, model: str, status: str = "unknown", cost: float = 0.0) -> None:
     if not SPEND_TRACKER.exists():
         return
     subprocess.run(
         [str(SPEND_TRACKER), "record", "--provider", provider, "--model", model,
-         "--task-id", task_id, "--cost", "none", "--status", status],
+         "--task-id", task_id, "--cost", str(cost), "--status", status],
         check=False, timeout=30, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
@@ -69,6 +80,8 @@ def _lighthouse(url: str, runner: Callable[..., Any] = subprocess.run) -> dict[s
     categories = report.get("categories", {})
     performance = categories.get("performance", {}).get("score")
     load_ms = report.get("timing", {}).get("total")
+    if load_ms is None:
+        load_ms = audits.get("interactive", {}).get("numericValue")
     weight = audits.get("total-byte-weight", {}).get("numericValue")
     seo_audits = {
         key: {
@@ -88,6 +101,25 @@ def _lighthouse(url: str, runner: Callable[..., Any] = subprocess.run) -> dict[s
     }
 
 
+def _fetch_seo_elements(url: str) -> dict[str, str]:
+    """Fetch a bounded HTML document and return only measurable SEO elements."""
+    request = Request(url, headers={"User-Agent": "iTarang-CMO-Metrics/1.0"})
+    with urlopen(request, timeout=30) as response:
+        html = response.read(2_000_000).decode("utf-8", errors="replace")
+    fields: dict[str, str] = {}
+    patterns = {
+        "title": r"<title[^>]*>\s*(.*?)\s*</title>",
+        "h1": r"<h1[^>]*>\s*(.*?)\s*</h1>",
+        "meta_description": r"<meta[^>]+name=[\"']description[\"'][^>]+content=[\"'](.*?)[\"']",
+        "canonical": r"<link[^>]+rel=[\"']canonical[\"'][^>]+href=[\"'](.*?)[\"']",
+    }
+    for name, pattern in patterns.items():
+        match = re.search(pattern, html, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            fields[name] = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+    return fields
+
+
 def capture_metrics(task: dict[str, Any], phase: str, runner: Callable[..., Any] = subprocess.run) -> dict[str, Any]:
     task_id = str(task.get("id", "unknown"))
     urls = affected_pages(task)
@@ -98,12 +130,16 @@ def capture_metrics(task: dict[str, Any], phase: str, runner: Callable[..., Any]
         result["reason"] = "task has no Affected pages/Page URLs field"
     else:
         try:
-            result["pages"] = [_lighthouse(url, runner) for url in urls]
+            result["pages"] = []
+            for url in urls:
+                page = _lighthouse(url, runner)
+                page["seo_elements"] = _fetch_seo_elements(url)
+                result["pages"].append(page)
             result["status"] = "captured"
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError, ValueError) as exc:
             result["status"] = "failed"
             result["reason"] = f"{type(exc).__name__}: {exc}"
-        _record_spend(task_id, "lighthouse", "lighthouse-ci", result["status"])
+        _record_spend(task_id, "lighthouse", "lighthouse-ci", result["status"], 0.0)
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     path = METRICS_DIR / f"{task_id}.{phase}.json"
     path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -131,8 +167,8 @@ def deploy_preview(task_id: str, commit: str) -> dict[str, Any]:
 def evidence_message(task: dict[str, Any], commit: str, preview_url: str = PREVIEW_URL) -> str:
     lines = [str(task.get(f"agent_summary_{n}", "")).strip() for n in (1, 2, 3)]
     lines = [line for line in lines if line]
-    while len(lines) < 3:
-        lines.append("Review the affected page and confirm the approved scope only.")
+    if len(lines) != 3:
+        raise ValueError("preview evidence requires exactly three change-specific summary lines")
     return (f"{task.get('id', 'task')}: visual preview ready\n"
             f"Preview: {preview_url}\nLive: {LIVE_URL}\n"
             f"Commit: {commit}\nWhat to look at:\n- {lines[0]}\n- {lines[1]}\n- {lines[2]}")
@@ -153,31 +189,45 @@ def post_discord(task_id: str, message: str) -> None:
 
 def compare(baseline: dict[str, Any], live: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
-    for before, after in zip(baseline.get("pages", []), live.get("pages", [])):
+    before_by_url = {page.get("url"): page for page in baseline.get("pages", [])}
+    for after in live.get("pages", []):
+        before = before_by_url.get(after.get("url"))
+        if before is None:
+            continue
         for metric, label in (("page_weight_bytes", "page weight"), ("performance_score", "performance score"), ("load_time_ms", "load time")):
             left, right = before.get(metric), after.get(metric)
             rows.append({"metric": f"{label} · {after.get('url')}", "before": left, "after": right,
                          "delta": right - left if isinstance(left, (int, float)) and isinstance(right, (int, float)) else None})
-        seo_before, seo_after = before.get("seo", {}), after.get("seo", {})
-        changed = sum(1 for key in set(seo_before) | set(seo_after) if seo_before.get(key) != seo_after.get(key))
+        seo_before, seo_after = before.get("seo_elements", {}), after.get("seo_elements", {})
+        changed = "changed" if seo_before != seo_after else "unchanged"
         rows.append({"metric": f"SEO elements · {after.get('url')}", "before": seo_before, "after": seo_after, "delta": changed})
     return rows
 
 
-def weekly_summary(_as_of: dt.date | None = None) -> dict[str, Any]:
+def weekly_summary(at: dt.datetime | None = None) -> dict[str, Any]:
+    at = at or dt.datetime.now(dt.timezone.utc)
+    week_start = (at - dt.timedelta(days=at.weekday())).date()
     totals = {"page_weight_saved_bytes": 0, "performance_score_delta": 0, "seo_fixes_shipped": 0, "changes": 0}
     for path in METRICS_DIR.glob("*.live.json"):
         task_id = path.name.split(".", 1)[0]
         baseline_path = METRICS_DIR / f"{task_id}.baseline.json"
         if not baseline_path.exists():
             continue
-        rows = compare(json.loads(baseline_path.read_text()), json.loads(path.read_text()))
+        live = json.loads(path.read_text())
+        captured = live.get("captured_at")
+        try:
+            captured_date = dt.datetime.fromisoformat(str(captured).replace("Z", "+00:00")).date()
+        except (TypeError, ValueError):
+            continue
+        if captured_date < week_start or captured_date > at.date():
+            continue
+        rows = compare(json.loads(baseline_path.read_text()), live)
         totals["changes"] += 1
         for row in rows:
             if row["metric"].startswith("page weight") and isinstance(row["delta"], (int, float)):
                 totals["page_weight_saved_bytes"] -= row["delta"]
             if row["metric"].startswith("performance score") and isinstance(row["delta"], (int, float)):
                 totals["performance_score_delta"] += row["delta"]
-            if row["metric"].startswith("SEO elements"):
-                totals["seo_fixes_shipped"] += row["delta"] if isinstance(row["delta"], int) else 0
+            if row["metric"].startswith("SEO elements") and row["delta"] == "changed":
+                totals["seo_fixes_shipped"] += 1
     return totals

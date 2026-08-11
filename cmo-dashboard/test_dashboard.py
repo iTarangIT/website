@@ -1,73 +1,17 @@
 import base64
+import json
 import os
 import tempfile
 import unittest
-import json
 from pathlib import Path
 from unittest.mock import patch
 
 import dashboard_server
-from dashboard_server import apply_approval, build_snapshot, parse_tasks, valid_basic_auth
+from dashboard_server import (apply_approval, build_snapshot, load_task_attachment,
+                              parse_tasks, summarize_gsc, valid_basic_auth)
 
 
 class DashboardDataTests(unittest.TestCase):
-    def test_snapshot_derives_structure_and_reads_live_ledgers(self):
-        text = '''# Board\n\n## Backlog\n\n### TASK-1 — Draft\n- ID: TASK-1\n- Owner: new-agent\n- Status: Backlog\n- Latest summary: waiting\n\n## New Column\n\n### TASK-2 — New\n- ID: TASK-2\n- Owner: content\n- Status: New Column\n'''
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            board = root / 'tasks.md'
-            board.write_text(text, encoding='utf-8')
-            cycle = root / 'hourly-cycle.log'
-            cycle.write_text('2026-07-27T10:00:00+00:00 cycle changes=1 active=1\n', encoding='utf-8')
-            spend = root / 'spend.log'
-            spend.write_text(json.dumps({'estimated_cost_usd': 1.25}) + '\n', encoding='utf-8')
-            approvals = root / 'approvals.log'
-            approvals.write_text(json.dumps({'task_id': 'TASK-1', 'decision': 'approve'}) + '\n', encoding='utf-8')
-            with patch.object(dashboard_server, 'CYCLE_LOG', cycle), \
-                 patch.object(dashboard_server, 'SPEND_LOG', spend), \
-                 patch.object(dashboard_server, 'APPROVAL_LOG', approvals), \
-                 patch('dashboard_server.subprocess.run') as run:
-                run.return_value.stdout = 'cmo-new-agent: 1 windows\ncmo-watchdog: 1 windows\n'
-                run.return_value.returncode = 0
-                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
-        self.assertIn('content', snapshot['agents'])
-        self.assertIn('new-agent', snapshot['agents'])
-        self.assertEqual(snapshot['board_columns'], ['Task List', 'New Column'])
-        self.assertEqual(snapshot['spend_total'], 1.25)
-        self.assertEqual(snapshot['approval_count'], 1)
-        self.assertEqual(snapshot['last_cycle_ran'], '2026-07-27T10:00:00+00:00')
-
-    def test_board_counts_match_rendered_columns(self):
-        text = '''# Board\n\n## Backlog\n\n### TASK-1 — Draft\n- ID: TASK-1\n- Owner: content\n- Status: Backlog\n\n## In Progress\n\n### TASK-2 — SEO\n- ID: TASK-2\n- Owner: seo\n- Status: In Progress\n\n## New Column\n\n### TASK-3 — New\n- ID: TASK-3\n- Owner: ops\n- Status: New Column\n'''
-        with tempfile.TemporaryDirectory() as tmp:
-            board = Path(tmp) / 'tasks.md'
-            board.write_text(text, encoding='utf-8')
-            with patch('dashboard_server.subprocess.run') as run:
-                run.return_value.stdout = ''
-                run.return_value.returncode = 0
-                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
-        counts = snapshot['board_counts']
-        self.assertEqual(sorted(counts), sorted(snapshot['board_columns']))
-        self.assertEqual(counts['Task List'], 2)
-        self.assertEqual(counts['New Column'], 1)
-        for column in snapshot['board_columns']:
-            self.assertEqual(counts[column], len([t for t in snapshot['tasks'] if t['board_column'] == column]))
-
-    def test_board_counts_are_empty_without_tasks(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            board = Path(tmp) / 'tasks.md'
-            board.write_text('## Backlog\n_No tasks._\n', encoding='utf-8')
-            with patch('dashboard_server.subprocess.run') as run:
-                run.return_value.stdout = ''
-                run.return_value.returncode = 0
-                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
-        self.assertEqual(snapshot['board_counts'], {})
-        self.assertEqual(snapshot['board_columns'], [])
-
-    def test_dashboard_ui_renders_singular_and_plural_counts(self):
-        self.assertIn("`${n} ${n===1?'task':'tasks'}`", dashboard_server.INDEX_HTML)
-        self.assertIn('countLabel(counts[column]||0)', dashboard_server.INDEX_HTML)
-
     def test_parse_tasks_maps_workflow_columns_and_agent_tasks(self):
         text = '''# Board\n\n## Backlog\n\n### TASK-1 — Draft\n- ID: TASK-1\n- Title: Draft\n- Owner: content\n- Priority: low\n- Status: Backlog\n- Start date: not started\n- Completed date: not completed\n- Objective: Make a draft.\n- Acceptance criteria:\n  - Be concise.\n- Latest summary: waiting\n\n## In Progress\n\n### TASK-2 — SEO\n- ID: TASK-2\n- Title: SEO\n- Owner: seo\n- Status: In Progress\n- Latest summary: researching\n\n## CMO Review\n\n### TASK-3 — Review\n- ID: TASK-3\n- Title: Review\n- Owner: content\n- Status: CMO Review\n- Latest summary: ready\n\n## Human Approval\n\n### TASK-4 — Approve\n- ID: TASK-4\n- Title: Approve\n- Owner: ads\n- Status: Human Approval\n- Latest summary: waiting\n\n## Completed\n\n### TASK-5 — Done\n- ID: TASK-5\n- Title: Done\n- Owner: ops\n- Status: Completed\n- Completed date: 2026-01-01\n- Latest summary: shipped\n'''
         tasks = parse_tasks(text)
@@ -93,7 +37,9 @@ class DashboardDataTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             board = Path(tmp) / 'tasks.md'
             board.write_text('## Backlog\n_No tasks._\n', encoding='utf-8')
-            with patch('dashboard_server.subprocess.run') as run:
+            with patch('dashboard_server.subprocess.run') as run, \
+                 patch('dashboard_server.gsc_summary',
+                       return_value=summarize_gsc([], {})):
                 run.return_value.stdout = 'cmo-content: 1 windows\ncmo-seo: 1 windows\n'
                 run.return_value.returncode = 0
                 snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
@@ -101,6 +47,116 @@ class DashboardDataTests(unittest.TestCase):
         self.assertEqual(snapshot['health']['seo'], 'alive')
         self.assertEqual(snapshot['health']['social'], 'dead')
         self.assertEqual(snapshot['health']['watchdog'], 'dead')
+
+
+    def test_snapshot_exposes_one_active_task_drafts_and_skill_lanes(self):
+        board_text = '''## Backlog\n\n### TASK-1 — Queue\n- ID: TASK-1\n- Owner: seo\n- Skill: seo\n- Priority: high\n- Status: Backlog\n- Attachment: none\n\n## In Progress\n\n### TASK-2 — Active\n- ID: TASK-2\n- Owner: content\n- Skill: content\n- Priority: critical\n- Status: In Progress\n- Attachment: artifacts/TASK-2.md\n\n## CMO Review\n_No tasks._\n\n## Human Approval\n_No tasks._\n\n## Completed\n\n### TASK-3 — Done\n- ID: TASK-3\n- Owner: content\n- Skill: content\n- Priority: low\n- Status: Completed\n- Attachment: none\n'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board = root / 'tasks.md'
+            board.write_text(board_text, encoding='utf-8')
+            (root / 'artifacts').mkdir()
+            (root / 'artifacts' / 'TASK-2.md').write_text('# Draft', encoding='utf-8')
+            with patch.object(dashboard_server, 'PROFILE_DIR', root), \
+                 patch.object(dashboard_server, 'git_change_metadata', return_value={
+                     'branch': '', 'commits': '', 'files_changed': '', 'commit_url': '',
+                     'branch_url': '', 'evidence': 'no branch evidence'}), \
+                 patch.object(dashboard_server, 'tmux_health', return_value={}), \
+                 patch.object(dashboard_server, 'gsc_summary',
+                              return_value=summarize_gsc([], {})):
+                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
+        self.assertEqual(snapshot['current_work']['id'], 'TASK-2')
+        self.assertEqual([task['id'] for task in snapshot['drafts']], ['TASK-2'])
+        self.assertEqual(snapshot['drafts'][0]['attachment_url'], '/api/attachment?task=TASK-2')
+        self.assertEqual([task['id'] for task in snapshot['skill_lanes']['seo']['queue']], ['TASK-1'])
+        self.assertEqual([task['id'] for task in snapshot['skill_lanes']['content']['completed']], ['TASK-3'])
+        self.assertEqual(set(snapshot['skill_lanes']), {'seo', 'content', 'social', 'ads', 'ops'})
+
+    def test_board_counts_combine_task_list_and_track_dynamic_columns(self):
+        board_text = '''## Backlog\n\n### TASK-1 — Queued\n- ID: TASK-1\n- Owner: seo\n- Skill: seo\n- Status: Backlog\n\n## In Progress\n\n### TASK-2 — Active\n- ID: TASK-2\n- Owner: content\n- Skill: content\n- Status: In Progress\n\n## Research\n\n### TASK-3 — Dynamic column\n- ID: TASK-3\n- Owner: ops\n- Skill: ops\n- Status: Research\n'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board = root / 'tasks.md'
+            board.write_text(board_text, encoding='utf-8')
+            with patch.object(dashboard_server, 'PROFILE_DIR', root), \
+                 patch.object(dashboard_server, 'git_change_metadata', return_value={
+                     'branch': '', 'commits': '', 'files_changed': '', 'commit_url': '',
+                     'branch_url': '', 'evidence': 'no branch evidence'}), \
+                 patch.object(dashboard_server, 'tmux_health', return_value={}), \
+                 patch.object(dashboard_server, 'gsc_summary',
+                              return_value=summarize_gsc([], {})):
+                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
+        counts = snapshot['board_counts']
+        self.assertEqual(snapshot['board_columns'], ['Task List', 'Research'])
+        self.assertEqual(counts['Task List'], 2)
+        self.assertEqual(counts['Research'], 1)
+        self.assertEqual(sorted(counts), sorted(snapshot['board_columns']))
+        for column in snapshot['board_columns']:
+            self.assertEqual(counts[column],
+                             len([task for task in snapshot['tasks'] if task['board_column'] == column]))
+
+    def test_board_counts_are_empty_without_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board = root / 'tasks.md'
+            board.write_text('## Backlog\n_No tasks._\n', encoding='utf-8')
+            with patch.object(dashboard_server, 'PROFILE_DIR', root), \
+                 patch.object(dashboard_server, 'tmux_health', return_value={}), \
+                 patch.object(dashboard_server, 'gsc_summary',
+                              return_value=summarize_gsc([], {})):
+                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
+        self.assertEqual(snapshot['board_counts'], {})
+        self.assertEqual(snapshot['board_columns'], [])
+
+    def test_effective_board_renderer_shows_snapshot_backed_column_counts(self):
+        effective = dashboard_server.INDEX_HTML.rsplit('render=function(next)', 1)[1]
+        self.assertIn("const countLabel=n=>`${n} ${n===1?'task':'tasks'}`;", dashboard_server.INDEX_HTML)
+        self.assertIn('.column-count{', dashboard_server.INDEX_HTML)
+        self.assertIn('const counts=next.board_counts||{};', effective)
+        self.assertIn('<span class="column-count">${esc(countLabel(counts[column]||0))}</span>', effective)
+
+    def test_task_attachment_is_resolved_from_parser_and_markdown_renders_safely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = root / 'artifacts' / 'TASK-9.md'
+            artifact.parent.mkdir()
+            artifact.write_text('# Draft\n\n<script>alert(1)</script>', encoding='utf-8')
+            board = root / 'tasks.md'
+            board.write_text('''## CMO Review\n\n### TASK-9 — Draft\n- ID: TASK-9\n- Owner: content\n- Skill: content\n- Status: CMO Review\n- Attachment: artifacts/TASK-9.md\n''', encoding='utf-8')
+            content_type, body = load_task_attachment('TASK-9', board, root)
+        rendered = body.decode('utf-8')
+        self.assertEqual(content_type, 'text/html; charset=utf-8')
+        self.assertIn('<h1>Draft</h1>', rendered)
+        self.assertNotIn('<script>', rendered)
+        self.assertIn('&lt;script&gt;', rendered)
+
+    def test_task_attachment_refuses_paths_outside_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board = root / 'tasks.md'
+            board.write_text('''## CMO Review\n\n### TASK-9 — Draft\n- ID: TASK-9\n- Owner: content\n- Status: CMO Review\n- Attachment: /etc/passwd\n''', encoding='utf-8')
+            with self.assertRaises(PermissionError):
+                load_task_attachment('TASK-9', board, root)
+
+    def test_gsc_empty_rows_are_collecting_not_zero_or_declining(self):
+        summary = summarize_gsc([], {'sitemap': []})
+        self.assertEqual(summary['status'], 'collecting')
+        self.assertIsNone(summary['impressions'])
+        self.assertIsNone(summary['clicks'])
+        self.assertIsNone(summary['average_position'])
+        self.assertIsNone(summary['indexed_pages'])
+        self.assertEqual(summary['collection_start'], '2026-08-04')
+
+    def test_gsc_summary_uses_aggregate_row_and_sitemap_indexed_pages(self):
+        summary = summarize_gsc(
+            [{'clicks': 3, 'impressions': 20, 'position': 7.25}],
+            {'sitemap': [{'contents': [{'type': 'WEB', 'submitted': '12', 'indexed': '9'}]}]},
+        )
+        self.assertEqual(summary['status'], 'ready')
+        self.assertEqual(summary['clicks'], 3)
+        self.assertEqual(summary['impressions'], 20)
+        self.assertEqual(summary['average_position'], 7.25)
+        self.assertEqual(summary['indexed_pages'], 9)
 
 
 class AuthTests(unittest.TestCase):
@@ -112,52 +168,6 @@ class AuthTests(unittest.TestCase):
 
 
 class ApprovalTests(unittest.TestCase):
-    def test_task_metadata_exposes_rejection_thread_and_outstanding_round(self):
-        task = parse_tasks('''## Human Approval
-
-### TASK-8 — Threaded review
-- ID: TASK-8
-- Owner: content
-- Status: Human Approval
-- Approval thread 1 rejection: alice: update the CTA contrast
-- Approval thread 1 reply: content: changed CTA contrast and added a regression check
-- Approval thread 2 rejection: alice: also verify the mobile breakpoint
-''')[0]
-        metadata = dashboard_server.task_change_metadata(task)
-        self.assertEqual([event['type'] for event in metadata['approval_thread']], ['rejection', 'reply', 'rejection'])
-        outstanding = dashboard_server.outstanding_rejection(task)
-        self.assertIsNotNone(outstanding)
-        self.assertEqual('2', outstanding['round'])
-
-    def test_reject_appends_thread_event_to_task_card(self):
-        board = '''## Human Approval
-
-### TASK-8 — Threaded review
-- ID: TASK-8
-- Owner: content
-- Status: Human Approval
-- Decision summary:
-  - Change one is limited.
-  - Change two is reversible.
-  - No spend is required.
-
-## In Progress
-_No tasks._
-'''
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            board_path = root / 'tasks.md'
-            board_path.write_text(board, encoding='utf-8')
-            with patch.object(dashboard_server, 'TASKS_FILE', board_path), \
-                 patch.object(dashboard_server, 'BOARD_LOCK', root / 'tasks.lock'), \
-                 patch.object(dashboard_server, 'APPROVAL_LOG', root / 'approvals.log'), \
-                 patch.object(dashboard_server, 'HUMAN_APPROVALS', root / 'approvals.json'), \
-                 patch.object(dashboard_server, '_queue_approved_work'):
-                result = apply_approval('TASK-8', 'reject', 'Please fix the mobile breakpoint.', 'alice')
-            updated = board_path.read_text(encoding='utf-8')
-        self.assertTrue(result['ok'])
-        self.assertIn('- Approval thread 1 rejection: alice: Please fix the mobile breakpoint.', updated)
-
     def test_reject_requires_comment_without_touching_board(self):
         with self.assertRaises(ValueError):
             apply_approval('TASK-4', 'reject', '', 'alice')
@@ -195,33 +205,51 @@ _No tasks._
         self.assertIn('- Human decision by: alice', updated)
         queue.assert_called_once()
         self.assertIn('"task_id": "TASK-4"', approval_log)
-    def test_website_approval_deploys_preview_without_queueing_worker(self):
-        board = '''## Human Approval\n\n### TASK-7 — Landing page\n- ID: TASK-7\n- Title: Landing page\n- Owner: content\n- Status: Human Approval\n- Affected pages: https://itarang.com/\n- Change commit: abcdef1234567\n- Decision summary:\n  - Hero copy changes on the landing page.\n  - CTA remains unchanged.\n  - Mobile layout is visually reviewed in preview.\n\n## In Progress\n_No tasks._\n'''
+
+    def test_website_approval_deploys_existing_commit_then_waits_for_human_merge(self):
+        board = '''## Human Approval\n\n### TASK-7 — Website hero\n- ID: TASK-7\n- Title: Website hero\n- Owner: content\n- Status: Human Approval\n- Change type: website\n- Affected pages: /\n- Change commit: abc1234\n- Agent summary 1: Compare the hero headline.\n- Agent summary 2: Compare the primary CTA.\n- Agent summary 3: Check mobile spacing.\n- Decision summary:\n  - The branch implementation changes only the homepage hero.\n  - The CTA target remains unchanged.\n  - The commit is reversible before merge.\n- Last updated: old\n\n## In Progress\n_No tasks._\n'''
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             board_path = root / 'tasks.md'
             board_path.write_text(board, encoding='utf-8')
-            metrics = root / 'metrics'
+            metrics = root / 'website-metrics'
             metrics.mkdir()
-            (metrics / 'TASK-7.baseline.json').write_text(json.dumps({'status': 'captured'}), encoding='utf-8')
-            active = root / 'active.json'
-            with (patch.object(dashboard_server, 'TASKS_FILE', board_path),
-                  patch.object(dashboard_server, 'BOARD_LOCK', root / 'tasks.lock'),
-                  patch.object(dashboard_server, 'ACTIVE_FILE', active),
-                  patch.object(dashboard_server, 'APPROVAL_LOG', root / 'approvals.log'),
-                  patch.object(dashboard_server, 'HUMAN_APPROVALS', root / 'approvals.json'),
-                  patch.object(dashboard_server, 'METRICS_DIR', metrics),
-                  patch.object(dashboard_server, 'deploy_preview', return_value={'preview_url': 'https://itarangwebsite.vercel.app'}) as deploy,
-                  patch.object(dashboard_server, 'post_discord') as discord,
-                  patch.object(dashboard_server, '_queue_approved_work') as queue):
-                result = apply_approval('TASK-7', 'approve', 'looks good', 'alice')
-            self.assertTrue(result['ok'])
-            deploy.assert_called_once_with('TASK-7', 'abcdef1234567')
-            discord.assert_called_once()
-            queue.assert_not_called()
-            state = json.loads(active.read_text(encoding='utf-8'))
-            self.assertTrue(state['TASK-7']['awaiting_merge'])
-            self.assertEqual('abcdef1234567', state['TASK-7']['commit'])
+            (metrics / 'TASK-7.baseline.json').write_text('{"status":"captured","pages":[]}', encoding='utf-8')
+            with patch.object(dashboard_server, 'TASKS_FILE', board_path), \
+                 patch.object(dashboard_server, 'BOARD_LOCK', root / 'tasks.lock'), \
+                 patch.object(dashboard_server, 'APPROVAL_LOG', root / 'approvals.log'), \
+                 patch.object(dashboard_server, 'ACTIVE_FILE', root / 'active.json'), \
+                 patch.object(dashboard_server, 'METRICS_DIR', metrics), \
+                 patch.object(dashboard_server, 'deploy_preview', return_value={'preview_url': 'https://preview.example'}) as deploy, \
+                 patch.object(dashboard_server, 'evidence_message', return_value='preview evidence') as evidence, \
+                 patch.object(dashboard_server, '_post_discord') as post, \
+                 patch.object(dashboard_server, '_queue_approved_work') as queue:
+                result = apply_approval('TASK-7', 'approve', 'preview it', 'alice')
+            updated = board_path.read_text(encoding='utf-8')
+            active = json.loads((root / 'active.json').read_text(encoding='utf-8'))
+        deploy.assert_called_once_with('TASK-7', 'abc1234')
+        evidence.assert_called_once()
+        post.assert_called_once_with('preview evidence')
+        queue.assert_not_called()
+        self.assertEqual(result['preview_url'], 'https://preview.example')
+        self.assertTrue(active['TASK-7']['awaiting_merge'])
+        self.assertEqual(active['TASK-7']['commit'], 'abc1234')
+        self.assertIn('- Preview URL: https://preview.example', updated)
+        self.assertIn('- Change status: Preview ready; awaiting human merge to main.', updated)
+        self.assertIn('- Status: In Progress', updated)
+
+    def test_website_approval_refuses_missing_baseline_or_three_line_note(self):
+        board = '''## Human Approval\n\n### TASK-8 — Website hero\n- ID: TASK-8\n- Owner: content\n- Status: Human Approval\n- Change type: website\n- Affected pages: /\n- Change commit: abc1234\n- Agent summary 1: One line only.\n- Decision summary:\n  - First concrete review point.\n  - Second concrete review point.\n  - Third concrete review point.\n\n## In Progress\n_No tasks._\n'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board_path = root / 'tasks.md'
+            board_path.write_text(board, encoding='utf-8')
+            with patch.object(dashboard_server, 'TASKS_FILE', board_path), \
+                 patch.object(dashboard_server, 'BOARD_LOCK', root / 'tasks.lock'), \
+                 patch.object(dashboard_server, 'METRICS_DIR', root / 'website-metrics'):
+                with self.assertRaises(RuntimeError):
+                    apply_approval('TASK-8', 'approve', '', 'alice')
+            self.assertEqual(board_path.read_text(encoding='utf-8'), board)
 
 
 if __name__ == '__main__':

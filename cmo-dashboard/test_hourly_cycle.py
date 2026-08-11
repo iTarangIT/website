@@ -2,7 +2,17 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent / 'scripts' / 'hourly-cycle.py'
+def _tracked(relative: str) -> Path:
+    """Resolve a tracked source asset from either the repo or the profile layout."""
+    here = Path(__file__).resolve().parent
+    for base in (here, *here.parents):
+        candidate = base / relative
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(relative)
+
+
+SCRIPT = _tracked('scripts/hourly-cycle.py')
 spec = importlib.util.spec_from_file_location('hourly_cycle', SCRIPT)
 hourly = importlib.util.module_from_spec(spec)
 assert spec.loader
@@ -16,18 +26,8 @@ class HourlyCycleContractTests(unittest.TestCase):
         )
         self.assertEqual('abcdef1', result['commit'])
         self.assertEqual(3, len(result['look']))
-        self.assertEqual('', result['reply'])
         with self.assertRaises(ValueError):
             hourly.parse_implementation_result('{"commit":"abcdef1","look":["Only one"]}')
-
-    def test_rejection_reply_is_detected_and_thread_is_mirrored(self):
-        task = {'fields': {
-            'Approval thread 1 rejection': 'alice: fix contrast',
-            'Approval thread 1 reply': 'content: fixed contrast',
-            'Approval thread 2 rejection': 'alice: check mobile',
-        }}
-        self.assertEqual('2', hourly.outstanding_rejection(task)['round'])
-        self.assertIn('Round 1 reply: content: fixed contrast', hourly.thread_message(task))
 
     def test_website_task_is_explicit_not_guessed_from_free_text(self):
         task = {'fields': {'Change type': 'website'}}

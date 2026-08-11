@@ -17,7 +17,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+def _source_dir(marker: str) -> str:
+    """Locate tracked source, preferring this checkout over the legacy profile layout."""
+    base = Path(__file__).resolve().parent.parent
+    profile = Path(os.getenv("CMO_DASHBOARD_PROFILE_DIR", "/opt/data/profiles/itarang_cmo"))
+    for candidate in (base, base / "dashboard", profile, profile / "dashboard"):
+        if (candidate / marker).exists():
+            return str(candidate)
+    raise ModuleNotFoundError(marker)
+
+
+sys.path.insert(0, _source_dir("preview_metrics.py"))
+sys.path.insert(0, _source_dir("cmo_runtime"))
+from cmo_runtime.task_file import TaskFile, TaskFileError, validate_structure  # noqa: E402
 from preview_metrics import (  # noqa: E402
     METRICS_DIR,
     capture_metrics,
@@ -26,7 +38,7 @@ from preview_metrics import (  # noqa: E402
     weekly_summary,
 )
 
-PROFILE = Path(os.environ.get("CMO_DASHBOARD_PROFILE_DIR", "/opt/data/profiles/itarang_cmo"))
+PROFILE = Path("/opt/data/profiles/itarang_cmo")
 BOARD = PROFILE / "tasks.md"
 LOG = PROFILE / "logs/hourly-cycle.log"
 STATE_DIR = PROFILE / "state"
@@ -35,7 +47,6 @@ APPROVALS = STATE_DIR / "human-approvals.json"
 FAILURE_STATE = STATE_DIR / "hourly-failure.json"
 LOCK = STATE_DIR / "tasks.lock"
 TMUX = PROFILE / "bin/tmux"
-TARGET = os.environ.get("CMO_DISCORD_TARGET", "discord:1526833186657796153")
 ROLES = {"social", "seo", "ads", "content", "ops"}
 STATUSES = {"Backlog", "In Progress", "CMO Review", "Human Approval", "Completed"}
 CANONICAL_SECTIONS = ("Backlog", "In Progress", "CMO Review", "Human Approval", "Completed")
@@ -148,7 +159,9 @@ def move_card(text: str, task: dict, destination: str, summary: str | None = Non
         card = field(card, "Completed date", now().date().isoformat())
     if summary is not None:
         card = field(card, "Latest summary", summary)
-    card = field(card, "Last updated", stamp())
+    timestamp = stamp()
+    card = field(card, "Last updated", timestamp)
+    card = field(card, "Updated", timestamp)
     card = card.strip() + "\n\n"
     source_start = task["start"]
     source_end = task["end"]
@@ -174,7 +187,9 @@ def update_in_place(text: str, task: dict, status: str | None = None, summary: s
         card = field(card, "Status", status)
     if summary is not None:
         card = field(card, "Latest summary", summary)
-    card = field(card, "Last updated", stamp())
+    timestamp = stamp()
+    card = field(card, "Last updated", timestamp)
+    card = field(card, "Updated", timestamp)
     return replace_card(text, task, card)
 
 
@@ -249,14 +264,6 @@ def human_approved(task: dict, approvals: dict) -> bool:
     return decision == "approve" or explicit_approval(task["id"], approvals)
 
 
-def safe_review(task: dict) -> bool:
-    card = task["card"].lower()
-    no_publication = "do not publish" in card or "publishing actions" in card or "do not make" in card and "publishing" in card
-    no_external = "external" in card and ("no " in card or "do not " in card)
-    no_website = "website" in card and ("no " in card or "do not " in card)
-    return no_publication and no_external and no_website
-
-
 def commit_hash(summary: str) -> str | None:
     match = re.search(r"\b[0-9a-f]{7,40}\b", summary.lower())
     return match.group(0) if match else None
@@ -277,32 +284,7 @@ def parse_implementation_result(summary: str) -> dict:
         raise ValueError("implementation result needs a commit hash")
     if not isinstance(look, list) or len(look) != 3 or any(not str(item).strip() for item in look):
         raise ValueError("implementation result needs exactly three review lines")
-    return {"commit": commit, "look": [str(item).strip() for item in look], "reply": str(value.get("reply", "")).strip()}
-
-
-def approval_thread(task: dict) -> list[dict[str, str]]:
-    events = []
-    for key, value in task.get("fields", {}).items():
-        match = re.fullmatch(r"Approval thread (\d+) (rejection|reply)", key)
-        if match and value.strip():
-            events.append({"round": match.group(1), "type": match.group(2), "text": value.strip()})
-    return sorted(events, key=lambda item: (int(item["round"]), 0 if item["type"] == "rejection" else 1))
-
-
-def outstanding_rejection(task: dict) -> dict[str, str] | None:
-    events = approval_thread(task)
-    replied_rounds = {event["round"] for event in events if event["type"] == "reply"}
-    for event in reversed([event for event in events if event["type"] == "rejection"]):
-        if event["round"] not in replied_rounds:
-            return event
-    return None
-
-
-def thread_message(task: dict) -> str:
-    events = approval_thread(task)
-    return "Approval thread:\n" + "\n".join(
-        f"- Round {event['round']} {event['type']}: {event['text']}" for event in events
-    ) if events else ""
+    return {"commit": commit, "look": [str(item).strip() for item in look]}
 
 
 def metric_summary(rows: list[dict]) -> str:
@@ -314,7 +296,7 @@ def metric_summary(rows: list[dict]) -> str:
 
 
 def merged_into_main(commit: str) -> bool:
-    repo = os.environ.get("CMO_DASHBOARD_GIT_REPO", str(Path(__file__).resolve().parents[2]))
+    repo = os.environ.get("CMO_DASHBOARD_GIT_REPO", "/opt/data/work/itarang-website")
     git_fetch(repo, "fetch", "origin", "main")
     result = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", commit, "origin/main"],
                             check=False, timeout=10)
@@ -338,8 +320,7 @@ def add_card_fields(text: str, task: dict, updates: dict[str, str]) -> str:
 def post_changes(changes: list[str]) -> None:
     if not changes:
         return
-    message = "\n".join(changes)
-    subprocess.run(["/opt/hermes/.venv/bin/hermes", "--profile", "itarang_cmo", "send", "--to", TARGET, message, "--quiet"], check=True, timeout=60)
+    log(f"LOG_ONLY notification={json.dumps(chr(10).join(changes), ensure_ascii=False)}")
 
 
 def post_failure_alert(exc: Exception) -> None:
@@ -369,7 +350,8 @@ def clear_failure_alert() -> None:
 
 
 def run_cycle() -> int:
-    text = ensure_board_sections(BOARD.read_text(encoding="utf-8"))
+    original = BOARD.read_text(encoding="utf-8")
+    text = ensure_board_sections(original)
     active = load_json(ACTIVE, {})
     approvals = load_json(APPROVALS, {})
     changes: list[str] = []
@@ -389,15 +371,6 @@ def run_cycle() -> int:
                 changes.append(f"{task_id}: website handoff invalid; retained for retry")
                 active.pop(task_id, None)
                 continue
-            pending_rejection = outstanding_rejection(task) if task else None
-            if pending_rejection and not result.get("reply"):
-                if task:
-                    text = update_in_place(text, task, status="In Progress", summary=(
-                        f"Website resubmission bounced: reply to rejection round {pending_rejection['round']} is required."
-                    ))
-                changes.append(f"{task_id}: resubmission bounced; missing rejection reply\n{thread_message(task) if task else ''}")
-                active.pop(task_id, None)
-                continue
             if task:
                 text = add_card_fields(text, task, {
                     "Branch": "cmo-changes",
@@ -406,13 +379,9 @@ def run_cycle() -> int:
                     "Agent summary 2": result["look"][1],
                     "Agent summary 3": result["look"][2],
                 })
-                if pending_rejection:
-                    text = add_card_fields(text, task, {
-                        f"Approval thread {pending_rejection['round']} reply": result["reply"],
-                    })
                 task = next(x for x in parse_tasks(text) if x["id"] == task_id)
                 text = move_card(text, task, "CMO Review", "Website implementation committed on cmo-changes; ready for Gate 1 review.")
-                changes.append(f"{task_id}: website implemented on cmo-changes; moved to CMO Review\n{thread_message(task)}")
+                changes.append(f"{task_id}: website implemented on cmo-changes; moved to CMO Review")
             active.pop(task_id, None)
             continue
         if item.get("implementation") or item.get("awaiting_merge"):
@@ -472,9 +441,8 @@ def run_cycle() -> int:
             else:
                 text = move_card(text, task, "Human Approval", "Website change is implemented on cmo-changes; Gate 1 visual-preview approval required.")
                 changes.append(f"{task['id']}: website change escalated CMO Review → Human Approval")
-        elif safe_review(task) and summary and "awaiting dispatch" not in summary.lower():
-            text = move_card(text, task, "Completed", f"CMO approved safe review work: {summary}")
-            changes.append(f"{task['id']}: CMO review approved safe work; moved CMO Review → Completed")
+        # safe_review removed 2026-08-04: auto-completed TASK-030/033/037 with no human gate.
+        # CMO Review -> Completed requires an approval record. Do not reintroduce.
         elif human_approved(task, approvals):
             owner = task["fields"].get("Owner", "").lower()
             if owner_free(owner, active):
@@ -536,7 +504,6 @@ def run_cycle() -> int:
             "Live URL": live_url(),
             "Metrics evidence": str(evidence_path),
             "Metrics summary": metric_summary(rows),
-            "Metrics table": evidence,
             "Change status": "Merged to main; live metrics captured.",
         })
         task = next(x for x in parse_tasks(text) if x["id"] == task_id)
@@ -555,7 +522,15 @@ def run_cycle() -> int:
         week_marker.write_text(week_key + "\n", encoding="utf-8")
 
     text = board_timestamp(text)
-    BOARD.write_text(text, encoding="utf-8")
+    task_file = TaskFile(BOARD, lock_path=LOCK)
+    issues = task_file._validate_candidate(text)
+    if issues:
+        detail = "; ".join(issue.message for issue in issues)
+        raise TaskFileError(f"hourly cycle would make tasks.md invalid: {detail}")
+    task_file._atomic_write(text)
+    if BOARD.read_text(encoding="utf-8") != text or validate_structure(BOARD):
+        task_file._atomic_write(original)
+        raise TaskFileError("hourly cycle verification failed; original tasks.md restored")
     save_json(ACTIVE, active)
     log(f"cycle changes={len(changes)} active={len(active)}")
     for change in changes:

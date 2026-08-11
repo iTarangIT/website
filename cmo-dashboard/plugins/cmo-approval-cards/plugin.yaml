@@ -1,0 +1,5 @@
+name: cmo-approval-cards
+version: 1.0.0
+description: Intercepts authorized Discord replies to the single active iTarang approval card.
+provides_hooks:
+  - pre_gateway_dispatch
