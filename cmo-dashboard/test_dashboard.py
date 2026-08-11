@@ -37,6 +37,37 @@ class DashboardDataTests(unittest.TestCase):
         self.assertEqual(snapshot['approval_count'], 1)
         self.assertEqual(snapshot['last_cycle_ran'], '2026-07-27T10:00:00+00:00')
 
+    def test_board_counts_match_rendered_columns(self):
+        text = '''# Board\n\n## Backlog\n\n### TASK-1 — Draft\n- ID: TASK-1\n- Owner: content\n- Status: Backlog\n\n## In Progress\n\n### TASK-2 — SEO\n- ID: TASK-2\n- Owner: seo\n- Status: In Progress\n\n## New Column\n\n### TASK-3 — New\n- ID: TASK-3\n- Owner: ops\n- Status: New Column\n'''
+        with tempfile.TemporaryDirectory() as tmp:
+            board = Path(tmp) / 'tasks.md'
+            board.write_text(text, encoding='utf-8')
+            with patch('dashboard_server.subprocess.run') as run:
+                run.return_value.stdout = ''
+                run.return_value.returncode = 0
+                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
+        counts = snapshot['board_counts']
+        self.assertEqual(sorted(counts), sorted(snapshot['board_columns']))
+        self.assertEqual(counts['Task List'], 2)
+        self.assertEqual(counts['New Column'], 1)
+        for column in snapshot['board_columns']:
+            self.assertEqual(counts[column], len([t for t in snapshot['tasks'] if t['board_column'] == column]))
+
+    def test_board_counts_are_empty_without_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board = Path(tmp) / 'tasks.md'
+            board.write_text('## Backlog\n_No tasks._\n', encoding='utf-8')
+            with patch('dashboard_server.subprocess.run') as run:
+                run.return_value.stdout = ''
+                run.return_value.returncode = 0
+                snapshot = build_snapshot(board, tmux_bin='/bin/tmux')
+        self.assertEqual(snapshot['board_counts'], {})
+        self.assertEqual(snapshot['board_columns'], [])
+
+    def test_dashboard_ui_renders_singular_and_plural_counts(self):
+        self.assertIn("`${n} ${n===1?'task':'tasks'}`", dashboard_server.INDEX_HTML)
+        self.assertIn('countLabel(counts[column]||0)', dashboard_server.INDEX_HTML)
+
     def test_parse_tasks_maps_workflow_columns_and_agent_tasks(self):
         text = '''# Board\n\n## Backlog\n\n### TASK-1 — Draft\n- ID: TASK-1\n- Title: Draft\n- Owner: content\n- Priority: low\n- Status: Backlog\n- Start date: not started\n- Completed date: not completed\n- Objective: Make a draft.\n- Acceptance criteria:\n  - Be concise.\n- Latest summary: waiting\n\n## In Progress\n\n### TASK-2 — SEO\n- ID: TASK-2\n- Title: SEO\n- Owner: seo\n- Status: In Progress\n- Latest summary: researching\n\n## CMO Review\n\n### TASK-3 — Review\n- ID: TASK-3\n- Title: Review\n- Owner: content\n- Status: CMO Review\n- Latest summary: ready\n\n## Human Approval\n\n### TASK-4 — Approve\n- ID: TASK-4\n- Title: Approve\n- Owner: ads\n- Status: Human Approval\n- Latest summary: waiting\n\n## Completed\n\n### TASK-5 — Done\n- ID: TASK-5\n- Title: Done\n- Owner: ops\n- Status: Completed\n- Completed date: 2026-01-01\n- Latest summary: shipped\n'''
         tasks = parse_tasks(text)
