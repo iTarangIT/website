@@ -18,7 +18,7 @@ import ceo_artifacts
 import ceo_publish
 import ceo_reader
 import console_board
-from ceo_page import render_page
+from ceo_page import page_build_header, render_page
 from cmo_runtime import competitors, topic_proposals
 from cmo_runtime.console_db import ConsoleDBError
 from cmo_runtime.decisions import DecisionConflict, DecisionError, DecisionStore
@@ -44,11 +44,19 @@ def _json(handler: Any, status: int, payload: Any) -> None:
     handler.wfile.write(body)
 
 
-def _bytes(handler: Any, status: int, content_type: str, body: bytes) -> None:
+def _bytes(
+    handler: Any,
+    status: int,
+    content_type: str,
+    body: bytes,
+    extra_headers: dict[str, str] | None = None,
+) -> None:
     handler.send_response(status)
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Cache-Control", "no-store")
+    for name, value in (extra_headers or {}).items():
+        handler.send_header(name, value)
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -125,7 +133,15 @@ def dispatch(handler: Any, method: str) -> bool:
     if not handles(path):
         return False
     if method == "GET" and path in {"/ceo", "/ceo/"}:
-        _bytes(handler, HTTPStatus.OK, "text/html; charset=utf-8", render_page())
+        # The same build identity the footer shows, readable without a browser.
+        body = render_page()
+        _bytes(
+            handler,
+            HTTPStatus.OK,
+            "text/html; charset=utf-8",
+            body,
+            extra_headers={"X-CMO-Build": page_build_header()},
+        )
         return True
     if method == "GET" and path == "/ceo/api/config":
         _json(handler, HTTPStatus.OK, console_auth.supabase_browser_config())

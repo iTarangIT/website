@@ -117,6 +117,9 @@ BODY = '''<main id="app">
 </section>
 
 <footer class="shortcuts"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> tabs</span><span><kbd>/</kbd> search</span><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></footer>
+<!-- Rendered server-side, never by the script: it identifies the bytes that were
+     served. Visible at every width, including the phone. -->
+<p class="build" id="build-stamp">@@CMO_BUILD_STAMP@@</p>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <dialog id="detail" aria-labelledby="detail-title">

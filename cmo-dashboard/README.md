@@ -21,6 +21,43 @@ This creates session `cmo-dashboard`; the session runs `/opt/data/profiles/itara
 
 `/opt/data/profiles/itarang_cmo/bin/dashboard-session-healthy` requires all of the following: the expected tmux session has a live pane, its process tree contains the expected server script owned by `hermes`, and that same process owns the expected listening port. A session name or live pane by itself is not considered healthy.
 
+## Deploy
+
+**This directory is not what is being served.** `dashboard_server.py` runs from
+`/opt/data/profiles/itarang_cmo/dashboard/`, a copy of this directory; `cmo_runtime/`
+is copied to the profile root the same way. A commit here changes nothing anyone can
+see until the copy happens.
+
+```bash
+./deploy-dashboard --dry-run   # list what differs, change nothing
+./deploy-dashboard             # copy, restart through run-dashboard, verify
+```
+
+The script copies changed `*.py` (never `.env`), kills the tmux session so
+`run-dashboard` cannot short-circuit on its own health check, restarts, then
+verifies four things: the port answers, the tmux session owns the listener, exactly
+one `dashboard_server.py` is running, and the **served** `X-CMO-Build` header
+changed. Files copied without the served stamp moving is a failed deploy.
+
+Never name a shell variable `TMUX` in scripts here — inside a tmux pane it is
+already exported, so assigning to it redirects tmux's socket path for every child
+process, and the next server will create its socket over whatever lives there.
+
+## Which build am I looking at?
+
+Every console page renders a build stamp in its footer and returns the same value as
+the `X-CMO-Build` header: the mtime of the newest `dashboard/*.py` on the serving
+box, plus a 12-character digest of the assembled page.
+
+```bash
+curl -fsS -o /dev/null -D - http://127.0.0.1:8080/ceo | grep -i x-cmo-build
+# X-CMO-Build: src=1786445643 file=ceo_script.py page=df5a106f2a00
+```
+
+The mtime catches a deploy that never ran; the digest catches one that ran and
+landed different bytes. The digest is reproducible: replace the rendered stamp in
+the served HTML with `@@CMO_BUILD_STAMP@@` and take `sha256(...)[:12]`.
+
 ## Tests
 
 ```bash
@@ -33,6 +70,17 @@ Runs the console suites, every `tests/*.py` module and the board validator under
 (the distro disables pip and the agent is not root), so `tests/test_approval_cards.py`
 fails to import and its 13 tests silently disappear from the run. Override with
 `CMO_TEST_PYTHON` only if you know the target has PyYAML.
+
+Three suites check behaviour rather than presence, because presence-only tests are
+how a reader that printed raw Markdown stayed green for weeks:
+
+- `test_served_bytes.py` starts the server against a temporary profile and asserts on
+  bytes fetched over a socket — a rendered `<table>`, the tab order, the editor
+  control, the build stamp. It imports nothing from the render path.
+- `test_ceo_console_render.py` executes the browser script under node via
+  `console_harness.js` and asserts on what each panel rendered.
+- `test_ceo_reader.py` renders every `.md` in the live profile and fails on any raw
+  Markdown that reaches the page.
 
 ## The topic flow
 

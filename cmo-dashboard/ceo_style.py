@@ -318,6 +318,14 @@ transition:opacity .14s ease,transform .14s ease}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .toast.error{background:var(--red)}
 .shortcuts{display:flex;flex-wrap:wrap;gap:14px;margin-top:26px;color:var(--faint);font-size:var(--f-xs)}
+/* The build stamp. Diagnostic furniture, so it is quiet — but it never hides,
+   least of all on the phone, which is where a stale console is hardest to spot. */
+.build{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:10px 0 0;
+padding-top:9px;border-top:1px solid var(--line-soft);color:var(--faint);font-size:var(--f-xs)}
+.build-label{font-weight:700;text-transform:uppercase;letter-spacing:.11em}
+.build-value{font-family:var(--mono);font-variant-numeric:tabular-nums;
+-webkit-user-select:all;user-select:all}
+.build-sep{opacity:.5}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
 clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
@@ -366,6 +374,7 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .list-row{display:block}.list-row button{width:100%;margin-top:8px}
 .pipeline dl{display:block}.pipeline dt{margin-top:8px}
 .shortcuts{display:none}
+.build{margin-top:16px;gap:6px}
 dialog{width:100%;max-width:none;max-height:100dvh;height:100dvh;margin:0;border:0;border-radius:0}
 .dialog-head{padding:14px 15px 10px}.nested{margin:0 15px;overflow-x:auto}
 .nested button{white-space:nowrap}
