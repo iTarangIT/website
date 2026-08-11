@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import ceo_reader
 from cmo_runtime.task_file import TaskFile, TaskFileError
 
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -55,18 +56,8 @@ def text_reference(task: dict[str, Any], profile_dir: Path) -> dict[str, Any] | 
 
 
 def _front_matter(text: str) -> tuple[dict[str, str], str]:
-    if not text.startswith("---\n"):
-        return {}, text
-    closing = text.find("\n---\n", 4)
-    if closing < 0:
-        return {}, text
-    metadata: dict[str, str] = {}
-    for line in text[4:closing].splitlines():
-        if ":" not in line or line.startswith((" ", "\t", "-")):
-            continue
-        name, value = line.split(":", 1)
-        metadata[name.strip().casefold().replace("-", "_")] = value.strip().strip('"').strip("'")
-    return metadata, text[closing + 5 :]
+    """One front-matter rule for the whole console — the reader's."""
+    return ceo_reader.strip_front_matter(text)
 
 
 def _slot_key(slot: str) -> str:
@@ -114,14 +105,36 @@ def artifact_payload(task: dict[str, Any], artifact: Path, profile_dir: Path) ->
         bound = image_for(task, slot["id"], profile_dir)
         if bound is not None:
             files.append({"name": bound.name, "kind": f"image:{slot['id']}", "bytes": bound.stat().st_size})
+    # The reader is rendered here, in Python, so a test can assert on the HTML the
+    # console actually shows. The browser only injects and hydrates it.
+    rendered = ceo_reader.render_article(body, slots)
     return {
         "text": body,
         "metadata": metadata,
+        "html": rendered["html"],
+        "review_notes_html": rendered["review_notes_html"],
+        "review_note_titles": rendered["review_note_titles"],
         "word_count": len(words),
         "read_minutes": max(1, math.ceil(len(words) / 220)) if words else 0,
         "image_slots": slots,
         "files": files,
+        "revisions": _revisions(artifact),
     }
+
+
+def _revisions(artifact: Path) -> list[dict[str, Any]]:
+    """Previous versions kept beside the article as `<stem>.r<n>.md`."""
+    found: list[dict[str, Any]] = []
+    for path in artifact.parent.glob(f"{artifact.stem}.r*{artifact.suffix}"):
+        match = re.fullmatch(rf"{re.escape(artifact.stem)}\.r(\d+)", path.stem)
+        if match is None:
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        found.append({"round": int(match.group(1)), "name": path.name, "bytes": size})
+    return sorted(found, key=lambda item: item["round"])
 
 
 def save_upload(

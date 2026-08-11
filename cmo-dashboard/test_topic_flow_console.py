@@ -21,6 +21,7 @@ import dashboard_server  # noqa: F401 — initializes the profile import path
 import ceo_actions
 import ceo_console
 from ceo_markup import MARKUP
+import ceo_reader
 from ceo_page import render_page
 from ceo_script import SCRIPT
 from ceo_style import CSS
@@ -33,7 +34,7 @@ class ThreeTabsAndNoFourth(unittest.TestCase):
 
     def test_exactly_three_primary_tabs_render(self) -> None:
         tabs = re.findall(r'data-view="([a-z-]+)"', MARKUP)
-        self.assertEqual(tabs, ["analytics", "topics", "blogs"])
+        self.assertEqual(tabs, ["topics", "blogs", "analytics"])
 
     def test_every_tab_has_a_panel_and_every_panel_has_a_tab(self) -> None:
         tabs = set(re.findall(r'data-view="([a-z-]+)"', MARKUP))
@@ -50,14 +51,14 @@ class ThreeTabsAndNoFourth(unittest.TestCase):
         self.assertIn('id="watchlist"', topics_panel)
 
     def test_the_keyboard_map_covers_three_tabs_only(self) -> None:
-        self.assertIn("const VIEWS=['analytics','topics','blogs']", SCRIPT)
+        self.assertIn("const VIEWS=['topics','blogs','analytics']", SCRIPT)
         self.assertIn("/^[1-3]$/", SCRIPT)
         self.assertNotIn("/^[1-4]$/", SCRIPT)
 
     def test_the_rendered_page_exposes_no_fourth_view(self) -> None:
         page = render_page().decode("utf-8")
         nav = page.split('<nav class="primary"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(re.findall(r'data-view="([a-z-]+)"', nav), ["analytics", "topics", "blogs"])
+        self.assertEqual(re.findall(r'data-view="([a-z-]+)"', nav), ["topics", "blogs", "analytics"])
         # Nothing anywhere on the page — nav, script or empty-state action — may
         # target a view outside the three.
         self.assertEqual(
@@ -157,8 +158,36 @@ class PageMakesNoExternalRequest(unittest.TestCase):
 
     def test_the_rendered_page_names_no_external_host(self) -> None:
         page = render_page().decode("utf-8")
-        for marker in ("http://", "https://", "//cdn", "<link", "@import"):
+        for marker in ("http://", "https://", "//cdn", "<link", "@import", "@font-face",
+                       "url(", "srcset", "<iframe", "importScripts", "WebSocket",
+                       "XMLHttpRequest", "EventSource"):
             self.assertNotIn(marker, page, f"page must not reference {marker}")
+
+    def test_every_request_the_script_makes_is_same_origin_and_path_relative(self) -> None:
+        # fetch() only ever sees a literal beginning with "/" or a template built
+        # from one. Anything else would be a host this console does not control.
+        for call in re.findall(r"(?:api|post)\(\s*([`'\"])(.*?)\1", SCRIPT):
+            with self.subTest(target=call[1]):
+                self.assertTrue(call[1].startswith("/"), f"{call[1]} is not same-origin")
+        self.assertNotIn("fetch('http", SCRIPT)
+        self.assertNotIn('fetch("http', SCRIPT)
+
+    def test_the_reader_renders_no_remote_image(self) -> None:
+        # A scraped research brief carries ![alt](https://…). The alt text survives;
+        # the request does not.
+        html = ceo_reader.render_markdown_fragment("![Bain logo](https://www.bain.com/logo.svg)")
+
+        self.assertNotIn("<img", html)
+        self.assertNotIn("bain.com", html)
+        self.assertIn("Bain logo", html)
+
+    def test_no_console_module_reaches_a_network_host_at_page_load(self) -> None:
+        for name in ("ceo_markup.py", "ceo_script.py", "ceo_style.py", "ceo_page.py", "ceo_reader.py"):
+            with self.subTest(module=name):
+                source = Path(name).read_text(encoding="utf-8")
+                self.assertNotIn("urlopen", source)
+                self.assertNotIn("requests.", source)
+                self.assertNotIn("googleapis.com", source)
 
     # The privileged-key scan lives in test_console_auth and test_console_stages_cde,
     # which walk every module in the tree — including the two added here. Repeating it
@@ -177,7 +206,7 @@ class ProductFinish(unittest.TestCase):
     """Section 6: the craft, checked rather than asserted."""
 
     def test_one_card_grammar_covers_proposals_blogs_and_competitor_findings(self) -> None:
-        for builder in ("function proposalCard(", "function gapRow(", "function renderBlogs("):
+        for builder in ("function proposalCard(", "function gapRow(", "function blogCard("):
             body = SCRIPT.split(builder, 1)[1][:1200]
             self.assertIn('class="card"', body, builder)
 
@@ -204,7 +233,10 @@ class ProductFinish(unittest.TestCase):
     def test_loading_is_skeletal_and_not_a_spinner(self) -> None:
         self.assertIn("function skeleton(", SCRIPT)
         self.assertIn("renderSkeletons();", SCRIPT)
-        self.assertIn(".skeleton{height:104px", CSS, "skeletons must occupy the real row height")
+        # Skeletons stand at the real height of the row they replace, per shape.
+        for shape, height in ((".skeleton.card-h", "112px"), (".skeleton.row-h", "44px"),
+                              (".skeleton.tile-h", "92px"), (".skeleton.chart-h", "200px")):
+            self.assertIn(f"{shape}{{height:{height}}}", CSS)
         self.assertNotIn("spinner", SCRIPT.lower())
 
     def test_actions_are_optimistic_and_roll_back_visibly(self) -> None:
@@ -233,20 +265,42 @@ class ProductFinish(unittest.TestCase):
         self.assertIn("transition-duration:.001ms!important", reduced)
 
     def test_the_layout_answers_a_phone(self) -> None:
-        self.assertIn("@media(max-width:760px)", CSS)
-        phone = CSS.split("@media(max-width:760px)", 1)[1]
-        for rule in (".analytics-grid,.metrics{grid-template-columns:1fr}", "dialog{width:100%"):
+        self.assertIn("@media(max-width:640px)", CSS)
+        phone = CSS.split("@media(max-width:640px)", 1)[1]
+        for rule in (".tiles{grid-template-columns:1fr 1fr", "dialog{width:100%",
+                     ".card-row{display:block}", ".chips{flex-wrap:nowrap;overflow-x:auto",
+                     ".opportunity{display:block}"):
             self.assertIn(rule, phone)
+        # A wide table scrolls inside its own box; the page itself never does.
+        self.assertIn(".table-scroll{overflow-x:auto", CSS)
         self.assertIn("--tap:44px", CSS, "touch targets need a floor")
         self.assertIn("min-height:var(--tap)", CSS)
 
     def test_the_reader_stays_generous_while_lists_stay_tight(self) -> None:
-        self.assertIn(".article-sheet{max-width:720px", CSS)
-        self.assertIn("line-height:1.7", CSS.split(".article-sheet{", 1)[1][:200])
-        self.assertIn(".rows{display:flex;flex-direction:column;gap:10px}", CSS)
+        self.assertIn(".article-sheet{max-width:66ch", CSS)
+        self.assertIn("line-height:1.72", CSS.split(".article-sheet{", 1)[1][:260])
+        self.assertIn(".rows{display:flex;flex-direction:column;gap:8px}", CSS)
+        # Lists and tables run tighter than the prose they point at.
+        self.assertIn("--pad-tight:11px", CSS)
+        self.assertIn("table.data th,table.data td{padding:8px 10px", CSS)
 
     def test_focus_is_visible_for_keyboard_users(self) -> None:
         self.assertIn(":focus-visible", CSS)
+
+    def test_every_data_attribute_survives_the_html_round_trip(self) -> None:
+        # HTML lowercases attribute names, so data-fooBar arrives as dataset.foobar
+        # and the handler reading dataset.fooBar never fires. Dash-case only.
+        emitted = set(re.findall(r'\sdata-([A-Za-z][\w-]*)=', SCRIPT + MARKUP))
+        self.assertEqual(
+            sorted(name for name in emitted if name.lower() != name),
+            [],
+            "a data-* attribute uses camelCase and will not reach dataset",
+        )
+
+    def test_touch_targets_stay_thumb_sized_on_a_phone(self) -> None:
+        phone = CSS.split("@media(max-width:640px)", 1)[1]
+        for rule in (".chip{flex:0 0 auto;min-height:40px", ".small{min-height:40px"):
+            self.assertIn(rule, phone)
 
 
 class CompetitorPanelIsHonest(unittest.TestCase):

@@ -10,11 +10,13 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import ceo_actions
+import ceo_analytics
 import console_auth
 import dashboard_server
 import analytics_readers
 import ceo_artifacts
 import ceo_publish
+import ceo_reader
 import console_board
 from ceo_page import render_page
 from cmo_runtime import competitors, topic_proposals
@@ -78,9 +80,18 @@ def _service() -> topic_proposals.TopicProposalService:
     return topic_proposals.TopicProposalService(PROFILE_DIR)
 
 
-def state_payload(range_days: int = 28, device: str = "all") -> dict[str, Any]:
+def state_payload(
+    range_key: str = "28",
+    device: str = "all",
+    *,
+    start: str = "",
+    end: str = "",
+) -> dict[str, Any]:
     board = console_board.read_board(TASKS_FILE, PROFILE_DIR)
-    trend_days = range_days if range_days in {7, 28, 90} else 7
+    # GA4 and the trend collectors only understand fixed windows; Search Console
+    # takes the chip selection as it is, including "all" and a custom range.
+    range_days = {"7": 7, "28": 28, "90": 90}.get(range_key, 28)
+    trend_days = range_days
     rows, trend_messages = analytics_readers.trending_rows(trend_days)
     service = _service()
     try:
@@ -98,12 +109,14 @@ def state_payload(range_days: int = 28, device: str = "all") -> dict[str, Any]:
         "trending": rows,
         "trending_messages": trend_messages,
         "watchlist": ceo_actions.read_watchlist(PROFILE_DIR),
+        "research_queue": ceo_actions.read_research_queue(PROFILE_DIR),
         "analytics": {
+            "search": ceo_analytics.cached_report(range_key, device, start=start, end=end),
             "search_console": dashboard_server.gsc_summary(),
             "ga4": analytics_readers.ga4_summary(range_days, device),
             "competitor": competitor,
         },
-        "controls": {"range_days": range_days, "device": device},
+        "controls": {"range": range_key, "range_days": range_days, "device": device, "start": start, "end": end},
     }
 
 
@@ -123,16 +136,22 @@ def dispatch(handler: Any, method: str) -> bool:
     email, _role = auth
     if method == "GET" and path == "/ceo/api/state":
         query = parse_qs(urlparse(handler.path).query)
-        try:
-            range_days = int(query.get("range", ["28"])[0])
-        except ValueError:
-            range_days = 28
-        if range_days not in {7, 28, 90}:
-            range_days = 28
+        range_key = query.get("range", ["28"])[0].strip().casefold()
+        if range_key not in set(ceo_analytics.RANGE_LABELS):
+            range_key = "28"
         device = query.get("device", ["all"])[0]
-        if device not in {"all", "desktop", "mobile", "tablet"}:
+        if device not in ceo_analytics.DEVICES:
             device = "all"
-        _json(handler, HTTPStatus.OK, state_payload(range_days, device))
+        _json(
+            handler,
+            HTTPStatus.OK,
+            state_payload(
+                range_key,
+                device,
+                start=query.get("start", [""])[0][:10],
+                end=query.get("end", [""])[0][:10],
+            ),
+        )
         return True
     if method == "GET" and path == "/ceo/publish-check":
         # Reports eligibility and, only when eligible, mints this human's
@@ -256,6 +275,37 @@ def dispatch(handler: Any, method: str) -> bool:
                         result = service.undo_rejection(proposal_id, email)
             finally:
                 service.database.close()
+        elif path == "/ceo/api/article/preview":
+            # The editor's live preview renders through the same reader the page
+            # uses, so what he sees is exactly what will be served. Writes nothing.
+            length = int(handler.headers.get("Content-Length", "0"))
+            if length < 0 or length > ceo_actions.MAX_ARTICLE_BYTES + 4096:
+                raise TaskFileError("the draft exceeds the 512 KB limit")
+            payload = json.loads(handler.rfile.read(length) or b"{}")
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            rendered = ceo_reader.render_article(str(payload.get("text", "")))
+            result = {
+                "ok": True,
+                "html": rendered["html"],
+                "review_notes_html": rendered["review_notes_html"],
+                "review_note_titles": rendered["review_note_titles"],
+            }
+        elif path == "/ceo/api/article/edit":
+            # A human rewriting a sentence. It archives the prior version and joins
+            # the approval thread; it never touches DecisionStore.
+            length = int(handler.headers.get("Content-Length", "0"))
+            if length < 0 or length > ceo_actions.MAX_ARTICLE_BYTES + 4096:
+                raise TaskFileError("the edited article exceeds the 512 KB limit")
+            payload = json.loads(handler.rfile.read(length) or b"{}")
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            task_id = str(payload.get("task_id", "")).strip()
+            if not re.fullmatch(r"TASK-[0-9]+", task_id):
+                raise ValueError("valid task_id is required")
+            result = ceo_actions.save_article_edit(
+                PROFILE_DIR, task_id, str(payload.get("text", "")), email
+            )
         else:
             payload = _body(handler)
             if path == "/ceo/api/watchlist":
@@ -265,6 +315,19 @@ def dispatch(handler: Any, method: str) -> bool:
                         PROFILE_DIR,
                         str(payload.get("keyword", "")),
                         str(payload.get("action", "")),
+                    ),
+                }
+            elif path == "/ceo/api/research-queue":
+                # The Analytics → Topics bridge. Queuing spends no credits and
+                # mints no board card; it only puts the subject in front of him.
+                result = {
+                    "ok": True,
+                    "research_queue": ceo_actions.update_research_queue(
+                        PROFILE_DIR,
+                        str(payload.get("subject", "")),
+                        str(payload.get("action", "")),
+                        reason=str(payload.get("reason", "")),
+                        actor=email,
                     ),
                 }
             else:

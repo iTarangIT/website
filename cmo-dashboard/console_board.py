@@ -39,6 +39,7 @@ def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -
             decision_summary and decision_summary.get("decision") == "approve"
         )
         task["decision_status"] = "approved" if task["decision_approved"] else "awaiting decision"
+        task["approval_thread"] = dashboard_server.approval_thread(task)
         task["research_brief"] = ceo_artifacts.text_reference(task, profile_dir)
         task["article"] = ceo_artifacts.artifact_payload(task, artifact, profile_dir) if artifact else None
         change_status = str(task.get("change_status", "")).strip()

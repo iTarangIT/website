@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import os
 import tempfile
 import unittest
@@ -279,14 +280,47 @@ class CeoStageBTests(unittest.TestCase):
 
     def test_ceo_page_has_four_nested_tabs_pdf_and_one_login_key_set(self):
         page = render_page().decode("utf-8")
-        for label in ("Read", "Impact", "Discussion", "Files", "Open as PDF", "Print/PDF"):
+        for label in ("Read", "Impact", "Discussion", "Files", "Download Markdown",
+                      "Print or save as PDF"):
             self.assertIn(label, page)
         for key in ("cmo_token", "cmo_email", "cmo_role"):
             self.assertIn(key, page)
         self.assertNotIn("login-form", page)
-        self.assertIn("api(figure.dataset.imageUrl,{raw:true})", page)
-        self.assertIn("if(quiet&&(openTask||busy))return", page)
+        self.assertIn("api(frame.dataset.imageUrl,{raw:true})", page)
+        # An open article, a running request or an unsaved edit all hold the reload.
+        self.assertIn("if(quiet&&(openTask||busy||editing))return", page)
         self.assertIn("setInterval(()=>refresh(true),60000)", page)
+
+    def test_every_ceo_post_route_is_covered_by_the_preview_test(self):
+        # A new POST route must be added to the list below, or this fails.
+        # Everything after the preview guard in dispatch() is POST-only handling.
+        source = Path(ceo_console.__file__).read_text(encoding="utf-8")
+        source = source.split('CMO_DASHBOARD_PREVIEW', 1)[1]
+        declared = set(re.findall(r'path == "(/ceo/api/[a-z/-]+)"', source))
+        declared |= {
+            route
+            for block in re.findall(r"path in \{([^}]+)\}", source)
+            for route in re.findall(r'"(/ceo/api/[a-z/-]+)"', block)
+        }
+        covered = {path.split("?", 1)[0] for path, *_ in self.preview_routes()}
+        self.assertEqual(declared - covered, set(), "a POST route escapes the preview-mode test")
+
+    def preview_routes(self):
+        return [
+            ("/ceo/api/propose", {"subject": "battery data"}, None, ""),
+            ("/ceo/api/proposal/approve", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/proposal/suggest", {"proposal_id": 1, "comment": "narrower"}, None, ""),
+            ("/ceo/api/proposal/reject", {"proposal_id": 1, "reason": "covered"}, None, ""),
+            ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
+            ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
+            ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
+            ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
+            ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
+            ("/ceo/api/article/edit", {"task_id": "TASK-001", "text": "# Edited\n"}, None, ""),
+            ("/ceo/api/article/preview", {"text": "# Draft\n"}, None, ""),
+            ("/ceo/api/competitor", {"target": "example.com"}, None, ""),
+        ]
 
     def test_preview_forbids_every_ceo_write_route(self):
         routes = [
@@ -299,6 +333,9 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
             ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
+            ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
+            ("/ceo/api/article/edit", {"task_id": "TASK-001", "text": "# Edited\n"}, None, ""),
+            ("/ceo/api/article/preview", {"text": "# Draft\n"}, None, ""),
         ]
         with patch.dict(os.environ, {"CMO_DASHBOARD_PREVIEW": "1"}), patch.object(
             ceo_console.console_auth, "authorize", return_value=("ceo@test", "ceo")

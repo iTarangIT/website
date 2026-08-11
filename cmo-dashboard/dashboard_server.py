@@ -195,37 +195,26 @@ def attachment_url(task: dict[str, Any], profile_dir: Path | None = None) -> str
 
 
 def _render_markdown(text: str, title: str) -> bytes:
-    """Render the small artifact Markdown subset while escaping embedded HTML."""
-    parts: list[str] = []
-    in_list = False
-    for raw in text.splitlines():
-        line = html.escape(raw)
-        heading = re.match(r'^(#{1,4})\s+(.+)$', line)
-        bullet = re.match(r'^-\s+(.+)$', line)
-        if heading:
-            if in_list:
-                parts.append('</ul>')
-                in_list = False
-            level = len(heading.group(1))
-            parts.append(f'<h{level}>{heading.group(2)}</h{level}>')
-        elif bullet:
-            if not in_list:
-                parts.append('<ul>')
-                in_list = True
-            parts.append(f'<li>{bullet.group(1)}</li>')
-        elif line:
-            if in_list:
-                parts.append('</ul>')
-                in_list = False
-            parts.append(f'<p>{line}</p>')
-    if in_list:
-        parts.append('</ul>')
+    """Wrap the shared reader fragment in a standalone document.
+
+    The rendering rules live in ceo_reader so this route and the console Read tab
+    can never drift apart — including the front-matter strip.
+    """
+    import ceo_reader
+
+    fragment = ceo_reader.render_markdown_fragment(text)
     document = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
                 '<meta name="viewport" content="width=device-width,initial-scale=1">'
                 f'<title>{html.escape(title)}</title><style>'
                 'body{max-width:850px;margin:40px auto;padding:0 24px;color:#18202b;'
                 'font:16px/1.6 system-ui,sans-serif}h1,h2,h3{line-height:1.25}li{margin:.35rem 0}'
-                '</style></head><body>' + ''.join(parts) + '</body></html>')
+                'table{width:100%;border-collapse:collapse;margin:18px 0}'
+                'th,td{padding:7px 10px;border:1px solid #d7dcd9;text-align:left;vertical-align:top}'
+                'th{background:#f2f5f3}.align-right{text-align:right}.align-center{text-align:center}'
+                'blockquote{margin:16px 0;padding:2px 16px;border-left:3px solid #c9d2cd;color:#4a5751}'
+                'figure{margin:20px 0}figcaption{color:#5c6a64;font-size:14px}'
+                '.figure-frame.is-empty{padding:18px;border:2px dashed #d7dcd9;text-align:center}'
+                '</style></head><body>' + fragment + '</body></html>')
     return document.encode('utf-8')
 
 
@@ -452,13 +441,18 @@ def impact_metrics(tasks: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def approval_thread(task: dict[str, Any]) -> list[dict[str, str]]:
-    """Read rejection/reply events stored as fields on the task card."""
+    """Read rejection/reply/edit events stored as fields on the task card.
+
+    An `edit` is a human rewriting the artifact in the console. It is a thread
+    event, never a decision — DecisionStore stays the only approval writer.
+    """
+    order = {'rejection': 0, 'reply': 1, 'edit': 2}
     events: list[dict[str, str]] = []
     for key, value in task.items():
-        match = re.fullmatch(r'approval_thread_(\d+)_(rejection|reply)', str(key))
+        match = re.fullmatch(r'approval_thread_(\d+)_(rejection|reply|edit)', str(key))
         if match and str(value).strip():
             events.append({'round': match.group(1), 'type': match.group(2), 'text': str(value).strip()})
-    return sorted(events, key=lambda item: (int(item['round']), 0 if item['type'] == 'rejection' else 1))
+    return sorted(events, key=lambda item: (int(item['round']), order[item['type']]))
 
 
 def outstanding_rejection(task: dict[str, Any]) -> dict[str, str] | None:

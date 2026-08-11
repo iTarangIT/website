@@ -46,10 +46,168 @@ def request_revision(profile_dir: Path, task_id: str, comment: str, requester: s
     return round_number
 
 
+MAX_ARTICLE_BYTES = 512 * 1024
+
+
+def _next_revision(article: Path, current_round: int) -> int:
+    """The first round number that has not already archived a version."""
+    used = {current_round}
+    for path in article.parent.glob(f"{article.stem}.r*{article.suffix}"):
+        match = re.fullmatch(rf"{re.escape(article.stem)}\.r(\d+)", path.stem)
+        if match:
+            used.add(int(match.group(1)))
+    return max(used) + 1
+
+
+def save_article_edit(profile_dir: Path, task_id: str, text: str, editor: str) -> dict[str, object]:
+    """Save a human's in-console rewrite as a new revision of the article.
+
+    Same shape as a writer revision: the version being replaced is preserved as
+    `<stem>.r<n>.md`, the round advances, and the event joins the approval thread.
+    It records no decision — `DecisionStore` remains the only approval writer.
+    """
+    import console_board
+    from cmo_runtime.decisions import is_decided
+    from cmo_runtime.task_file import TaskFile, TaskFileError
+
+    editor = editor.strip()
+    body = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not body.strip():
+        raise TaskFileError("an edited article cannot be empty")
+    encoded = (body.rstrip() + "\n").encode("utf-8")
+    if len(encoded) > MAX_ARTICLE_BYTES:
+        raise TaskFileError("the edited article exceeds the 512 KB limit")
+    tasks_path = profile_dir / "tasks.md"
+    task = _task(tasks_path, task_id)
+    article = console_board.artifact_for(task, profile_dir)
+    if article is None:
+        raise TaskFileError(f"{task_id} has no article to edit")
+    if is_decided(profile_dir, task_id):
+        raise TaskFileError(
+            "this article already carries a human decision; editing it would change "
+            "what was approved. Ask for a revision instead."
+        )
+    if article.read_bytes() == encoded:
+        raise TaskFileError("the article is unchanged")
+
+    current = str(task.get("revision_round", "0"))
+    current_round = int(current) if re.fullmatch(r"\d+", current) else 0
+    round_number = _next_revision(article, current_round)
+    archive = article.with_name(f"{article.stem}.r{round_number}{article.suffix}")
+    if archive.exists():
+        raise TaskFileError(f"revision {round_number} is already archived")
+
+    directory = article.parent
+    previous = article.read_bytes()
+    _atomic_write(archive, previous)
+    try:
+        _atomic_write(article, encoded)
+    except OSError:
+        archive.unlink(missing_ok=True)
+        raise
+    handle = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+
+    TaskFile(tasks_path, lock_path=profile_dir / "state" / "tasks.lock").set_board_fields(
+        task_id,
+        {
+            "Revision round": str(round_number),
+            f"Revision {round_number} article archive": archive.relative_to(profile_dir).as_posix(),
+            f"Approval thread {round_number} edit": (
+                f"{editor} edited the article in the console; "
+                f"the previous version is kept as {archive.name}"
+            ),
+        },
+    )
+    return {
+        "ok": True,
+        "revision_round": round_number,
+        "archived_as": archive.name,
+        "bytes": len(encoded),
+    }
+
+
+def _atomic_write(path: Path, payload: bytes) -> None:
+    descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
 # Topics no longer become board cards on submission. A rough subject is researched
 # into candidate proposals in `cmo_runtime.topic_proposals`, and only an approved
 # proposal mints a card. `add_topics` and `set_topic_stage` were the direct board
 # writers that made an unvetted topic writable, and they are deliberately gone.
+
+
+def read_research_queue(profile_dir: Path) -> list[dict[str, str]]:
+    """Subjects sent over from Analytics, waiting for a research run in Topics."""
+    path = profile_dir / "state" / "ceo-research-queue.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    rows = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(item.get("subject"), str):
+            rows.append(
+                {
+                    "subject": item["subject"],
+                    "reason": str(item.get("reason", "")),
+                    "queued_by": str(item.get("queued_by", "")),
+                }
+            )
+    return rows
+
+
+def update_research_queue(
+    profile_dir: Path,
+    subject: str,
+    action: str,
+    *,
+    reason: str = "",
+    actor: str = "",
+) -> list[dict[str, str]]:
+    """Queue or drop an analytics subject. Queuing spends nothing and cards nothing."""
+    from cmo_runtime.task_file import TaskFileError
+
+    subject = " ".join(subject.split())
+    action = action.strip().casefold()
+    if not 2 <= len(subject) <= 180:
+        raise TaskFileError("a research subject must be between 2 and 180 characters")
+    if action not in {"add", "remove"}:
+        raise TaskFileError("research queue action must be add or remove")
+    state_dir = profile_dir / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / "ceo-research-queue.json"
+    lock_path = state_dir / "ceo-research-queue.lock"
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("r+", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle, fcntl.LOCK_EX)
+        by_key = {item["subject"].casefold(): item for item in read_research_queue(profile_dir)}
+        if action == "add":
+            by_key.setdefault(
+                subject.casefold(),
+                {"subject": subject, "reason": " ".join(reason.split())[:400], "queued_by": actor},
+            )
+        else:
+            by_key.pop(subject.casefold(), None)
+        updated = list(by_key.values())
+        _atomic_write(path, (json.dumps(updated, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    return updated
 
 
 def read_watchlist(profile_dir: Path) -> list[str]:
