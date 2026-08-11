@@ -921,7 +921,11 @@ def hold_legacy_cards(
                 task_id=task_id,
                 title=str(task.get("title", "")),
                 outline=str(task.get("description") or task.get("objective") or ""),
-                submitted_by=str(task.get("topic_submitted_by") or "unknown"),
+                # Agent-generated briefs carry no submitter. Saying so is the point:
+                # nobody chose them, which is exactly why they are being held.
+                submitted_by=str(
+                    task.get("topic_submitted_by") or "unattributed — no submitter recorded on the card"
+                ),
             )
             try:
                 task_file.set_board_fields(

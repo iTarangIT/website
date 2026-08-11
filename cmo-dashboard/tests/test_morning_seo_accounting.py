@@ -216,8 +216,12 @@ class SpendTrackerTests(unittest.TestCase):
         self.assertIn("1 unaccounted", self.module.firecrawl_credit_line("2026-08-04"))
 
 
+OLD = "a" * 40
+NEW = "b" * 40
+
+
 class MorningCrawlCadenceTests(unittest.TestCase):
-    """The crawl is sized to the sitemap and runs every other day, not daily."""
+    """The crawl is sized to the sitemap and triggers on the deployed commit."""
 
     def setUp(self) -> None:
         self.module = load_script("morning_seo_job", "morning-seo-job.py")
@@ -226,36 +230,72 @@ class MorningCrawlCadenceTests(unittest.TestCase):
         self.state = Path(directory.name) / "morning-seo-last-run"
         self.module.STATE = self.state
 
-    def mark(self, day: str) -> None:
-        self.state.write_text(json.dumps({"day": day, "status": "success"}), encoding="utf-8")
+    def mark(self, day: str, commit: str | None = OLD) -> None:
+        marker = {"day": day, "status": "success"}
+        if commit:
+            marker["commit"] = commit
+        self.state.write_text(json.dumps(marker), encoding="utf-8")
 
     def test_a_first_ever_run_is_due(self) -> None:
-        self.assertTrue(self.module.due("2026-08-11"))
+        due, reason = self.module.due("2026-08-11", NEW)
+        self.assertTrue(due)
+        self.assertEqual(reason, "first run")
 
-    def test_the_day_after_a_crawl_is_not_due(self) -> None:
-        self.mark("2026-08-10")
-        self.assertFalse(self.module.due("2026-08-11"))
+    def test_an_unchanged_commit_does_not_crawl(self) -> None:
+        self.mark("2026-08-09", OLD)
+        due, reason = self.module.due("2026-08-11", OLD)
+        self.assertFalse(due)
+        self.assertIn("unchanged", reason)
 
-    def test_the_second_day_after_a_crawl_is_due(self) -> None:
-        self.mark("2026-08-10")
-        self.assertTrue(self.module.due("2026-08-12"))
+    def test_a_changed_commit_crawls(self) -> None:
+        self.mark("2026-08-09", OLD)
+        due, reason = self.module.due("2026-08-11", NEW)
+        self.assertTrue(due)
+        self.assertIn("changed", reason)
 
-    def test_a_long_gap_is_due(self) -> None:
-        self.mark("2026-07-01")
-        self.assertTrue(self.module.due("2026-08-11"))
+    def test_the_weekly_floor_crawls_even_when_nothing_deployed(self) -> None:
+        self.mark("2026-08-01", OLD)
+        due, reason = self.module.due("2026-08-11", OLD)
+        self.assertTrue(due)
+        self.assertIn("weekly floor", reason)
 
-    def test_the_same_day_is_never_due_twice(self) -> None:
-        self.mark("2026-08-11")
-        self.assertFalse(self.module.due("2026-08-11"))
+    def test_a_busy_deploy_day_buys_at_most_one_crawl(self) -> None:
+        self.mark("2026-08-11", OLD)
+        due, reason = self.module.due("2026-08-11", NEW)
+        self.assertFalse(due, "a second deploy the same day must not crawl again")
+        self.assertIn("already crawled", reason)
+
+    def test_an_unreadable_commit_holds_rather_than_crawling_every_cycle(self) -> None:
+        self.mark("2026-08-10", OLD)
+        due, reason = self.module.due("2026-08-11", None)
+        self.assertFalse(due)
+        self.assertIn("could not be read", reason)
+
+    def test_an_unreadable_commit_still_yields_to_the_weekly_floor(self) -> None:
+        self.mark("2026-08-01", OLD)
+        due, _reason = self.module.due("2026-08-11", None)
+        self.assertTrue(due, "a read failure must not stop the crawl forever")
+
+    def test_a_legacy_marker_without_a_commit_crawls_once(self) -> None:
+        self.mark("2026-08-10", commit=None)
+        due, reason = self.module.due("2026-08-11", NEW)
+        self.assertTrue(due)
+        self.assertEqual(reason, "no crawled commit recorded")
 
     def test_an_unreadable_marker_does_not_block_the_crawl_forever(self) -> None:
         self.state.write_text("not json and not a date", encoding="utf-8")
-        self.assertTrue(self.module.due("2026-08-11"))
+        due, _reason = self.module.due("2026-08-11", NEW)
+        self.assertTrue(due)
+
+    def test_a_failed_attempt_keeps_the_last_known_commit(self) -> None:
+        self.mark("2026-08-10", OLD)
+        self.module.write_daily_marker("2026-08-11", "failed", "boom", commit=None)
+        self.assertEqual(self.module.read_marker()["commit"], OLD)
 
     def test_the_crawl_ceiling_matches_the_sitemap(self) -> None:
         # 12 static routes + 4 blog posts + 4 active category pages.
         self.assertEqual(self.module.CRAWL_PAGE_LIMIT, 20)
-        self.assertEqual(self.module.MINIMUM_DAYS_BETWEEN_CRAWLS, 2)
+        self.assertEqual(self.module.MAXIMUM_DAYS_BETWEEN_CRAWLS, 7)
 
 
 if __name__ == "__main__":
