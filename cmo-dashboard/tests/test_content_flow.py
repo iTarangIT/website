@@ -126,6 +126,8 @@ class FakeWriter:
         research_markdown: str,
         skill_text: str,
         writer_contract: str,
+        topic_outline: str = "",
+        topic_keywords: str = "",
     ) -> ArticlePackage:
         self.calls.append(
             {
@@ -134,6 +136,8 @@ class FakeWriter:
                 "research_markdown": research_markdown,
                 "skill_text": skill_text,
                 "writer_contract": writer_contract,
+                "topic_outline": topic_outline,
+                "topic_keywords": topic_keywords,
             }
         )
         return self.package
