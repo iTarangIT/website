@@ -129,6 +129,24 @@ researched into candidate topics, each carrying a title, its keywords, an outlin
 the source that produced it; the CEO then approves, suggests changes to, or rejects
 each candidate. Only an approved candidate mints a board card.
 
+**The approved scope reaches the writer.** An approved candidate mints a card carrying
+`Topic outline` and `Topic keywords`, and the acceptance criterion "Cover the approved
+outline recorded on this card". `ContentRuntime` passes both fields to all three writer
+prompts — `write()`, `correct()` and `revise()`. `correct()` is not an afterthought: it is
+the retry path, and a correction fixing a word count while blind to the approved scope can
+walk out of what was agreed. A card carrying neither field (anything held from before the
+topic flow) produces no scope block at all, because an empty `OUTLINE:` line reads as "no
+constraints" rather than "not recorded".
+
+A scope that does not fit is its own outcome. `content.skill` caps an article at 900–1,400
+words and says "a task needing more is split rather than extended", so the writer is asked
+to answer `OUTLINE TOO BROAD:` naming what needs its own article, instead of overrunning
+and being rejected after the fact. `_refuse_if_outline_too_broad` turns that into a board
+refusal, deliberately outside the `correct()` retry — too much scope is not something a
+correction pass can fix, and retrying costs a full generation to get the same answer. Nine
+consecutive TASK-084 generations overran the ceiling before this existed, and the board
+only ever learned "writer article has N words".
+
 Proposals live in SQLite at `state/console.db` (`cmo_runtime/console_db.py`), never on
 the board — so an unapproved candidate is not filtered out of `tasks.md`, it was never
 on it, and neither `Runtime.execute()` nor `ContentRuntime._select()` can reach it.
