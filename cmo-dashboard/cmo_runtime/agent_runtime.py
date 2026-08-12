@@ -185,6 +185,7 @@ class BoardStore:
             candidate = original[: heading.start()] + card + "\n\n" + original[end:]
             if target_section is not None:
                 candidate = self.task_file._moved_board(candidate, task_id, target_section, timestamp)
+            self.task_file._refuse_lost_cards(original, candidate, "mutation")
             issues = self.task_file._validate_candidate(candidate)
             if issues:
                 raise TaskFileError("mutation would make tasks.md invalid: " + "; ".join(issue.message for issue in issues))

@@ -938,6 +938,80 @@ def _frontmatter(markdown: str) -> tuple[dict[str, str], str]:
     return fields, match.group(2)
 
 
+#: The shape a slug must take to become a URL path segment. Kept in step with the
+#: publisher's own check so an article cannot pass here and fail there.
+SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def front_matter_fields(markdown: str) -> dict[str, str] | None:
+    """Parse the header leniently — what is there, not what ought to be.
+
+    `_frontmatter` is the publisher's rule and demands all seven fields, which is
+    right for something the writer produced. A human editing prose is a different
+    question: the fields already present must survive the edit, and the two that
+    decide where the page lands must be usable. Requiring the full set there would
+    refuse an edit for a gap the editor did not make.
+
+    Returns None when there is no header block at all.
+    """
+    match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", markdown.strip(), re.S)
+    if match is None:
+        return None
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            name, value = line.split(":", 1)
+            fields[name.strip()] = value.strip()
+    return fields
+
+
+def check_edited_front_matter(previous: str, edited: str) -> None:
+    """What a human edit may not do to an article's header.
+
+    The block between the `---` lines is the published page: the slug it is served
+    at, the category page it is listed on, the description the index shows. An edit
+    that damages it leaves an article that reads perfectly and cannot be published
+    at all, and that only surfaces at the publish check — after the article has been
+    read and approved on the broken version.
+
+    Three things, each of which the console is the only place a human can do:
+    delete the block, break the two fields that decide where the page goes, or drop
+    a field that was there before. A gap the writer left is not the editor's fault
+    and is not treated as one.
+    """
+    before = front_matter_fields(previous)
+    if before is None:
+        return
+    after = front_matter_fields(edited)
+    if after is None:
+        raise ContentRunRefused(
+            "the front matter is gone — the block between the --- lines carrying title, "
+            "slug and category"
+        )
+
+    slug = after.get("slug", "")
+    if not slug:
+        raise ContentRunRefused("the front matter has no slug, so the page has no address")
+    if SLUG_PATTERN.fullmatch(slug) is None:
+        raise ContentRunRefused(
+            f"the slug {slug!r} cannot be a URL path: use lowercase letters, numbers and "
+            "single hyphens"
+        )
+
+    category = after.get("category", "")
+    if not category:
+        raise ContentRunRefused("the front matter has no category, so the post has no section")
+    if category not in BLOG_CATEGORY_SLUGS:
+        raise ContentRunRefused(
+            f"the category {category!r} is not one of the six: "
+            + ", ".join(sorted(BLOG_CATEGORY_SLUGS))
+        )
+
+    dropped = sorted(name for name, value in before.items() if value and not after.get(name))
+    if dropped:
+        raise ContentRunRefused("the front matter lost " + ", ".join(dropped))
+
+
 def split_front_matter_text(markdown: str) -> tuple[str, str]:
     """The front-matter block and the body, as text, so a trim can rejoin them.
 

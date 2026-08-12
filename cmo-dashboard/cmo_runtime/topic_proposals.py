@@ -387,7 +387,10 @@ EVIDENCE:
             detail = _single_line(completed.stderr or completed.stdout or "no error text", limit=600)
             raise ProposalRefused(f"proposer exited {completed.returncode}: {detail}")
         match = re.search(
-            r"(?s)<<<BEGIN_CANDIDATES>>>\s*(.*?)\s*<<<END_CANDIDATES>>>", completed.stdout
+            # not the board: the proposer subprocess's stdout, where a delimited
+            # block really does span lines.
+            r"(?s)<<<BEGIN_CANDIDATES>>>\s*(.*?)\s*<<<END_CANDIDATES>>>",  # not the board: stdout
+            completed.stdout,
         )
         if match is None:
             raise ProposalRefused("proposer response is missing the candidates section")

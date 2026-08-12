@@ -353,6 +353,7 @@ class DecisionStore:
         card = task_file._set_board_field(card, "Last updated", timestamp)
         card = task_file._set_board_field(card, "Updated", timestamp)
         candidate = candidate[: heading.start()] + card + "\n\n" + candidate[end:]
+        task_file._refuse_lost_cards(board_text, candidate, "decision")
         issues = task_file._validate_candidate(candidate)
         if issues:
             detail = "; ".join(issue.message for issue in issues)

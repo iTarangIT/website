@@ -70,8 +70,30 @@ class ValidationIssue:
     message: str
 
 
+def card_count_floor(path: str | Path) -> int:
+    """The fewest cards this board may hold, or 0 when no floor is recorded.
+
+    Companion to `tasks.id-floor`, and for the same reason: some facts about the
+    board cannot be derived from the board. Structural validation asks "is this
+    well-formed", and a board with cards deleted off the end is perfectly
+    well-formed — which is how four of them vanished without a single check
+    objecting. The floor is what makes a shrinking board a detectable event.
+
+    Archiving completed work legitimately lowers it, so it is a file a human edits,
+    not a number the code raises behind their back.
+    """
+    floor_path = Path(path).with_name("tasks.card-floor")
+    try:
+        value = floor_path.read_text(encoding="ascii").strip()
+    except OSError:
+        return 0
+    if not value.isdigit():
+        raise TaskFileError(f"invalid card floor in {floor_path}: expected a whole number")
+    return int(value)
+
+
 def validate_structure(path: str | Path) -> list[ValidationIssue]:
-    """Return every section, status, and mirrored-field inconsistency."""
+    """Return every section, status, mirrored-field and card-count inconsistency."""
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     issues: list[ValidationIssue] = []
     seen_sections: dict[str, int] = {}
@@ -216,6 +238,17 @@ def validate_structure(path: str | Path) -> list[ValidationIssue]:
                         f"{task_id}: {left} is {left_value[0]!r} but {right} is {right_value[0]!r}",
                     )
                 )
+
+    floor = card_count_floor(path)
+    if floor and len(cards) < floor:
+        issues.append(
+            ValidationIssue(
+                len(lines) or 1,
+                "card-count",
+                f"the board holds {len(cards)} cards; tasks.card-floor requires at least {floor}. "
+                "Cards have been lost, or the floor needs lowering after an archive.",
+            )
+        )
 
     return sorted(issues, key=lambda issue: (issue.line, issue.code))
 
@@ -461,6 +494,7 @@ class TaskFile:
             card = self._set_board_field(card, "Last updated", timestamp)
             card = self._set_board_field(card, "Updated", timestamp)
             candidate = original[: heading.start()] + card + "\n\n" + original[end:]
+            self._refuse_lost_cards(original, candidate, "change status update")
             issues = self._validate_candidate(candidate)
             if issues:
                 detail = "; ".join(issue.message for issue in issues)
@@ -531,6 +565,7 @@ class TaskFile:
             self._commit(original, candidate, "board card add")
 
     def _commit(self, original: str, candidate: str, operation: str) -> None:
+        self._refuse_lost_cards(original, candidate, operation)
         issues = self._validate_candidate(candidate)
         if issues:
             detail = "; ".join(issue.message for issue in issues)
@@ -571,6 +606,7 @@ class TaskFile:
                 change_status=change_status,
                 tag=tag,
             )
+            self._refuse_lost_cards(original, candidate, "move")
             issues = self._validate_candidate(candidate)
             if issues:
                 detail = "; ".join(issue.message for issue in issues)
@@ -667,6 +703,37 @@ class TaskFile:
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def card_ids(text: str) -> list[str]:
+        """Every task ID with a card on the board, in board order."""
+        return [
+            match.group(1)
+            for line in text.splitlines()
+            if (match := BOARD_TASK_HEADING.fullmatch(line.rstrip("\r")))
+        ]
+
+    def _refuse_lost_cards(self, original: str, candidate: str, operation: str) -> None:
+        """No board write may make a card disappear.
+
+        `validate_structure` answers "is this a well-formed board", and a board with
+        four cards deleted off the end is perfectly well-formed. That is not a
+        hypothetical: a substitution run with `re.S` consumed everything from one
+        field to the end of the file, four Completed cards went with it, and every
+        check in the write path passed.
+
+        So the write path now compares what it is about to commit against what is
+        there. Sections may change, fields may change, cards may be added — a card
+        may not silently stop existing. Removing one is a deliberate act that needs
+        its own writer, not a side effect of editing a field.
+        """
+        before = set(self.card_ids(original))
+        lost = before.difference(self.card_ids(candidate))
+        if lost:
+            raise TaskFileError(
+                f"{operation} would remove {len(lost)} card(s) from the board: "
+                + ", ".join(sorted(lost))
+            )
 
     def _active_task_id(self) -> str | None:
         for record in self._records():
@@ -806,7 +873,19 @@ def main() -> int:
             print(f"{args.task_id}: Change status: {args.value}")
         elif args.command == "validate":
             issues = validate_structure(args.file)
-            print(json.dumps([asdict(issue) for issue in issues], indent=2))
+            # The count is printed whether or not anything is wrong. A number a
+            # human sees every run is a number they notice halving.
+            cards = TaskFile.card_ids(Path(args.file).read_text(encoding="utf-8"))
+            print(
+                json.dumps(
+                    {
+                        "cards": len(cards),
+                        "card_floor": card_count_floor(args.file),
+                        "issues": [asdict(issue) for issue in issues],
+                    },
+                    indent=2,
+                )
+            )
             return 2 if issues else 0
     except TaskFileError as error:
         print(f"ERROR: {error}")
