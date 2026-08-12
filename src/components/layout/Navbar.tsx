@@ -107,9 +107,18 @@ export default function Navbar() {
       >
         <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            {/* One bounded wordmark source keeps the critical header from
-                discovering and decoding two logo assets. The filter provides
-                contrast on the solid navbar without a second image request. */}
+            {/* Two assets, not one filtered one.
+                `brightness-0` was being used to darken the light wordmark for the
+                solid navbar without a second request. It cannot work here: the mark
+                is a white glyph knocked out of a coloured tile, so the tile and the
+                glyph are two tones, and multiplying both by zero collapses them to
+                the same black. The result was a solid black square where the logo
+                should be — on every non-home route, since `solid` is true from the
+                top there.
+                `logo-wordmark-dark.png` already exists for exactly this: same
+                artwork, same dimensions, coloured for a light background. Both are
+                served through next/image at `sizes="128px"`, so the second one costs
+                a few KB, and only the one on screen at first paint is preloaded. */}
             <Link href="/" className="flex items-center shrink-0 group">
               <span className="relative block h-8 w-[128px]">
                 <Image
@@ -117,10 +126,23 @@ export default function Navbar() {
                   alt="iTarang"
                   fill
                   sizes="128px"
-                  priority
+                  priority={isHome}
+                  aria-hidden={solid}
                   className={cn(
-                    "object-contain object-left transition-[filter] duration-500",
-                    solid && "brightness-0"
+                    "object-contain object-left transition-opacity duration-500",
+                    solid ? "opacity-0" : "opacity-100"
+                  )}
+                />
+                <Image
+                  src="/images/logo-wordmark-dark.png"
+                  alt="iTarang"
+                  fill
+                  sizes="128px"
+                  priority={!isHome}
+                  aria-hidden={!solid}
+                  className={cn(
+                    "object-contain object-left transition-opacity duration-500",
+                    solid ? "opacity-100" : "opacity-0"
                   )}
                 />
               </span>
