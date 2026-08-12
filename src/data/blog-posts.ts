@@ -69,6 +69,14 @@ export const blogPosts: BlogPost[] = [
     readTime: "8 min read",
     category: "charging-maintenance",
   },
+  {
+    slug: "e-rickshaw-battery-repair-or-replacement-real-cost",
+    title: "E-Rickshaw Battery Repair or Replacement: How Drivers Can Judge the Real Cost",
+    excerpt: "A practical guide for e-rickshaw drivers and fleet owners comparing battery repair and replacement cost, warning signs, downtime, safety, and long-term value.",
+    date: "2026-08-12",
+    readTime: "7 min read",
+    category: "battery-selection",
+  },
 ];
 
 export function categoryHasPosts(slug: BlogCategorySlug): boolean {
