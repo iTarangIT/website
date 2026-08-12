@@ -9,7 +9,11 @@ from typing import Any
 import ceo_artifacts
 import dashboard_server
 from cmo_runtime import decisions
-from cmo_runtime.content_flow import NON_ARTICLE_WORK_TYPES, WRITE_FAILED
+from cmo_runtime.content_flow import (
+    BLOCKING_CHANGE_STATUSES,
+    NON_ARTICLE_WORK_TYPES,
+    WRITE_FAILED,
+)
 
 PROFILE_DIR = dashboard_server.PROFILE_DIR
 TASKS_FILE = dashboard_server.TASKS_FILE
@@ -22,11 +26,6 @@ PREVIEW_ORIGIN = "https://itarangwebsite.vercel.app"
 
 #: The card field the publish click writes when the post is on `cmo-changes`.
 PUBLISHED_STATUS = "published to cmo-changes"
-
-#: Statuses that mean a human parked this card. Distinct from `write failed`, which
-#: nobody chose and which the console therefore offers to retry.
-HELD_STATUSES = frozenset({"blocked", "pending human decision"})
-
 
 def artifact_for(task: dict[str, Any], profile_dir: Path = PROFILE_DIR) -> Path | None:
     """Return a real card attachment only when it resolves beneath artifacts/."""
@@ -132,9 +131,14 @@ def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) ->
         return result("checking", "Being checked", reason=summary)
     if section == "Human Approval":
         return result("awaiting_you", "Awaiting you")
-    if section == "Backlog" and change in HELD_STATUSES:
-        return result("held", "On hold", reason=summary)
     if section == "Backlog":
+        # "Queued to be written" has to mean the worker will actually pick this
+        # up. A commissioning card sat here reading "queued" while carrying a
+        # change status the worker refuses — the tab was promising a write that
+        # was never going to start, which is the same lie as showing "Being
+        # rewritten" for a revision nothing can service.
+        if change in BLOCKING_CHANGE_STATUSES or str(task.get("topic_stage", "")).strip().casefold() != "approved":
+            return result("held", "On hold", reason=summary)
         return result("queued", "Queued to be written")
     return result("awaiting_you", "Awaiting you")
 

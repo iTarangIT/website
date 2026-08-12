@@ -235,6 +235,52 @@ class WhatEachStateSays(BlogsTab):
         self.assertIn("1742 words", blog["reason"])
         self.assertTrue(blog["retryable"])
 
+    def test_queued_means_the_worker_will_actually_take_it(self) -> None:
+        """A commissioning card read "Queued to be written" on the live board.
+
+        The worker refuses it twice over — the change status is one it will not
+        touch and there is no approved topic stage — so the row was promising a
+        write that could never start. The tab and the worker now answer from the
+        same rule.
+        """
+        blog = self.state(
+            _card("TASK-066", "Commission task-file write", section="Backlog",
+                  change_status="commissioning", topic_stage="",
+                  extra="- Latest summary: Commissioning evidence card, not an article")
+        )["TASK-066"]
+
+        self.assertEqual(blog["state"], "held")
+        self.assertNotEqual(blog["label"], "Queued to be written")
+
+    def test_a_backlog_card_with_no_approved_topic_is_not_queued(self) -> None:
+        blog = self.state(
+            _card("TASK-090", "A topic nobody approved", section="Backlog", topic_stage="proposed")
+        )["TASK-090"]
+
+        self.assertEqual(blog["state"], "held")
+
+    def test_the_tab_and_the_worker_agree_on_what_is_queued(self) -> None:
+        """Rule identity, not two copies of a rule that will drift apart."""
+        from pathlib import Path
+
+        from cmo_runtime.agent_runtime import BoardStore
+        from cmo_runtime.content_worker import eligible_cards
+
+        board = self.write_board(
+            _card("TASK-100", "Genuinely queued", section="Backlog", change_status="queued"),
+            _card("TASK-066", "Commissioning", section="Backlog", change_status="commissioning",
+                  topic_stage=""),
+            _card("TASK-085", "Held", section="Backlog", change_status="blocked"),
+        )
+        queued_on_tab = {
+            task["id"] for task in console_board.read_board(board, self.root)["blogs"]
+            if task["blog"]["state"] == "queued"
+        }
+        queued_for_worker = {card.task_id for card in eligible_cards(BoardStore(Path(self.root)).cards())}
+
+        self.assertEqual(queued_on_tab, queued_for_worker)
+        self.assertEqual(queued_on_tab, {"TASK-100"})
+
     def test_a_card_a_human_held_is_not_offered_a_retry(self) -> None:
         """`blocked` is somebody's decision. Only a failure nobody chose retries."""
         blog = self.state(
