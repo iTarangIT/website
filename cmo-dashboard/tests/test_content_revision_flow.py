@@ -134,7 +134,7 @@ class ExistingResearchResumeTest(unittest.TestCase):
 
 
 class WriterLengthPromptTest(unittest.TestCase):
-    def test_writer_targets_a_safe_margin_inside_the_contract_limit(self) -> None:
+    def test_the_writing_prompt_gives_a_shape_not_a_word_target(self) -> None:
         captured: dict[str, object] = {}
 
         def fake_run(command: list[str], **kwargs: object) -> SimpleNamespace:
@@ -163,7 +163,14 @@ class WriterLengthPromptTest(unittest.TestCase):
             )
 
         prompt = str(captured["command"][-1])
-        self.assertIn("Aim for 1,050–1,250 words", prompt)
+        # This used to assert the writer was told "Aim for 1,050-1,250 words".
+        # Thirteen attempts across three scopings were told exactly that and landed
+        # 1,442-1,806, because a model cannot count words while producing them. The
+        # instruction is now the article's shape, which it can follow while writing,
+        # and the band is enforced afterwards in Python by measuring and trimming.
+        self.assertNotIn("Aim for 1,050", prompt, "a word target is back in the writing prompt")
+        self.assertIn("4–6 sections, each with a `##` heading and 2–4 paragraphs", prompt)
+        self.assertIn("60–90 words", prompt, "no paragraph budget for the writer to hold to")
 
     def test_correction_prompt_preserves_the_review_heading_contract(self) -> None:
         captured: dict[str, object] = {}

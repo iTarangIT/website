@@ -31,6 +31,13 @@ fail() { printf 'deploy failed: %s\n' "$1" >&2; exit 1; }
 # server, so a deploy run from inside a pane cannot leak its parent's socket.
 unset TMUX TMUX_PANE
 
+# The vendored tmux carries its own libevent. A shell that did not inherit this —
+# `su hermes` without a login profile, a cron-style environment — gets
+# "libevent_core-2.1.so.7: cannot open shared object file" from the restart step,
+# after the copy has already happened. That is the worst possible place to fail:
+# the deployed tree has moved and the running process has not.
+export LD_LIBRARY_PATH="/opt/data/.local/tmux-pkg/unpacked/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 [[ -d "$TARGET" ]] || fail "no deployed tree at $TARGET"
 [[ -x "$RUN" ]]    || fail "missing $RUN"
 # A clobbered tmux is exactly the failure this script once caused; refuse to run

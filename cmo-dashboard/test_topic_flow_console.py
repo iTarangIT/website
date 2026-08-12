@@ -206,8 +206,11 @@ class ProductFinish(unittest.TestCase):
     """Section 6: the craft, checked rather than asserted."""
 
     def test_one_card_grammar_covers_proposals_blogs_and_competitor_findings(self) -> None:
+        # The whole builder, not its first N characters: a fixed window turns a
+        # comment into a test failure, which teaches you to write shorter comments
+        # rather than to keep the grammar shared.
         for builder in ("function proposalCard(", "function gapRow(", "function blogCard("):
-            body = SCRIPT.split(builder, 1)[1][:1200]
+            body = SCRIPT.split(builder, 1)[1].split("\nfunction ", 1)[0]
             self.assertIn('class="card"', body, builder)
 
     def test_status_is_never_colour_alone(self) -> None:

@@ -126,7 +126,7 @@ class CEOConsoleTests(unittest.TestCase):
             self.assertIsNone(console_board.artifact_for({"attachment": "other/draft.md"}, root))
             self.assertIsNone(console_board.artifact_for({"attachment": "none"}, root))
 
-    def test_only_artifact_backed_content_reaches_the_blogs_tab(self):
+    def test_every_content_card_reaches_the_blogs_tab_with_a_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "artifacts").mkdir()
@@ -135,10 +135,13 @@ class CEOConsoleTests(unittest.TestCase):
             text = board_card("TASK-1", "none") + board_card("TASK-2", "artifacts/draft.md").split("## Human Approval", 1)[1].split("## Completed", 1)[0]
             board.write_text(text, encoding="utf-8")
             result = console_board.read_board(board, root)
-        # An unwritten content card is no longer surfaced as a "topic" here; topics
-        # live in the proposals store until they are approved.
+        # An unwritten content card is not a "topic" here — topics live in the
+        # proposals store until they are approved — but it is on the tab, saying
+        # what it is waiting for. Only the written one carries an article payload.
         self.assertNotIn("topics", result)
-        self.assertEqual([x["id"] for x in result["blogs"]], ["TASK-2"])
+        self.assertEqual([x["id"] for x in result["blogs"]], ["TASK-1", "TASK-2"])
+        self.assertIsNone(result["blogs"][0]["article"])
+        self.assertIsNotNone(result["blogs"][1]["article"])
 
     def test_revision_is_fields_only(self):
         with tempfile.TemporaryDirectory() as tmp:

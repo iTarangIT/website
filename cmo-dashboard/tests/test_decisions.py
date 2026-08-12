@@ -106,6 +106,9 @@ class DecisionStoreTests(unittest.TestCase):
                 "timestamp": "2026-08-04T13:00:00Z",
                 "commit_sha": "a" * 40,
                 "send_back_text": "",
+                # Discord passes none, so none is recorded — and a publish against
+                # this record refuses rather than assuming the card is unchanged.
+                "publish_fingerprint": "",
             },
         )
         records = self.log_records()

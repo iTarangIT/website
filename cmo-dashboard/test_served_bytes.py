@@ -15,13 +15,16 @@ order moved, these fail — and they fail for the same reason a human would noti
 from __future__ import annotations
 
 import base64
+import http.server
 import json
 import os
 import re
 import socket
+import socketserver
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -61,11 +64,94 @@ BOARD = """# iTarang CMO Task Board
 
 ## Backlog
 
+### TASK-778 — What a battery repair actually costs
+- ID: TASK-778
+- Title: What a battery repair actually costs
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Backlog
+- Attachment: none
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: cmo
+- Topic stage: approved
+- Change status: write failed
+- Latest summary: writer article has 1742 words; WRITER_CONTRACT requires 900-1,400
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
+
+### TASK-782 — A failed write the retry test consumes
+- ID: TASK-782
+- Title: A failed write the retry test consumes
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Backlog
+- Attachment: none
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: cmo
+- Topic stage: approved
+- Change status: write failed
+- Latest summary: Hermes writer exited 1
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
+
+### TASK-781 — A topic a human parked
+- ID: TASK-781
+- Title: A topic a human parked
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Backlog
+- Attachment: none
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: cmo
+- Topic stage: approved
+- Change status: blocked
+- Latest summary: Held behind the card above by CEO instruction
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
+
+### TASK-780 — An approved topic nobody has started
+- ID: TASK-780
+- Title: An approved topic nobody has started
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Backlog
+- Attachment: none
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: cmo
+- Topic stage: approved
+- Change status: queued
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
+
 ## In Progress
 
 ## CMO Review
 
 ## Human Approval
+
+### TASK-779 — Charging habits that shorten a pack's life
+- ID: TASK-779
+- Title: Charging habits that shorten a pack's life
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Human Approval
+- Attachment: artifacts/TASK-779-content.md
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: human
+- Change status: published to cmo-changes
+- Preview URL: https://itarangwebsite.vercel.app/blog/charging-habits
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
 
 ### TASK-777 — Battery replacement, city by city
 - ID: TASK-777
@@ -91,6 +177,39 @@ def free_port() -> int:
         return probe.getsockname()[1]
 
 
+#: The one account this suite's bearer token resolves to.
+CEO_EMAIL = "served-page-ceo@itarang.test"
+BEARER = "served-page-bearer-token"
+
+
+class FakeSupabase(http.server.BaseHTTPRequestHandler):
+    """Just enough Supabase to let the real auth path run.
+
+    `console_auth` verifies a bearer token by asking Supabase who it belongs to.
+    Without a stand-in, nothing behind that check could ever be fetched over a
+    socket — which is how every authenticated route on this console came to have
+    no served-bytes coverage at all. This answers one endpoint and nothing else,
+    so the code under test is the console's, not a mock of it.
+    """
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's spelling
+        if self.path != "/auth/v1/user":
+            self.send_error(404)
+            return
+        if self.headers.get("Authorization", "") != f"Bearer {BEARER}":
+            self.send_error(401)
+            return
+        body = json.dumps({"email": CEO_EMAIL}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
 class ServedPageTests(unittest.TestCase):
     """Nothing here touches the render path in-process. Everything is fetched."""
 
@@ -105,11 +224,19 @@ class ServedPageTests(unittest.TestCase):
         (root / "logs").mkdir()
         (root / "tasks.md").write_text(BOARD, encoding="utf-8")
         (root / "artifacts" / "TASK-777-content.md").write_text(ARTICLE, encoding="utf-8")
+        (root / "artifacts" / "TASK-779-content.md").write_text(ARTICLE, encoding="utf-8")
         cls.root = root
         cls.port = free_port()
+        cls.supabase = socketserver.TCPServer(("127.0.0.1", 0), FakeSupabase)
+        cls.supabase_thread = threading.Thread(target=cls.supabase.serve_forever, daemon=True)
+        cls.supabase_thread.start()
+        supabase_url = f"http://127.0.0.1:{cls.supabase.server_address[1]}"
         environment = {
             **os.environ,
             "CMO_DASHBOARD_PROFILE_DIR": str(root),
+            "SUPABASE_URL": supabase_url,
+            "SUPABASE_ANON_KEY": "served-page-anon-key",
+            "CMO_CEO_EMAIL": CEO_EMAIL,
             "CMO_DASHBOARD_PORT": str(cls.port),
             "CMO_DASHBOARD_HOST": "127.0.0.1",
             "CMO_DASHBOARD_USERNAME": USERNAME,
@@ -146,6 +273,8 @@ class ServedPageTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.supabase.shutdown()
+        cls.supabase.server_close()
         if cls.server is not None and cls.server.poll() is None:
             cls.server.terminate()
             try:
@@ -158,11 +287,29 @@ class ServedPageTests(unittest.TestCase):
     # ---- the wire --------------------------------------------------------
 
     @classmethod
-    def fetch(cls, path: str, *, auth: bool = False) -> tuple[int, dict[str, str], bytes]:
-        request = urllib.request.Request(f"http://127.0.0.1:{cls.port}{path}")
+    def fetch(
+        cls,
+        path: str,
+        *,
+        auth: bool = False,
+        payload: dict | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{cls.port}{path}",
+            data=body,
+            method="POST" if body is not None else "GET",
+        )
+        if body is not None:
+            request.add_header("Content-Type", "application/json")
         if auth:
-            token = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
-            request.add_header("Authorization", f"Basic {token}")
+            # The console's own routes take a Supabase bearer token; `/api/*` on the
+            # legacy dashboard still takes Basic. Send whichever the path expects.
+            if path.startswith("/ceo/"):
+                request.add_header("Authorization", f"Bearer {BEARER}")
+            else:
+                token = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
+                request.add_header("Authorization", f"Basic {token}")
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return response.status, dict(response.headers), response.read()
@@ -186,6 +333,38 @@ class ServedPageTests(unittest.TestCase):
         self.assertRegex(stamp, r"\.py\b", "the stamp does not name the newest source file")
         self.assertRegex(stamp, r"page [0-9a-f]{12}", "no page digest in the stamp")
         self.assertNotIn("@@CMO_BUILD_STAMP@@", page, "the placeholder was never substituted")
+
+    def test_the_stamp_covers_the_runtime_the_console_imports(self) -> None:
+        """A cmo_runtime-only deploy has to move the stamp, or the deploy check lies.
+
+        `deploy-dashboard` refuses to report success unless the served stamp moves.
+        While the stamp read only `dashboard/*.py`, a change landing entirely in
+        `cmo_runtime` — the board, the writer, the publisher — could not move it,
+        so a deploy that had genuinely worked reported failure.
+        """
+        import ceo_build
+
+        # A temporary tree shaped like a deployed profile, so this touches nothing
+        # real and does not depend on whichever file in the checkout is newest.
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder)
+            dashboard = profile / "dashboard"
+            runtime = profile / "cmo_runtime"
+            dashboard.mkdir()
+            runtime.mkdir()
+            (dashboard / "ceo_console.py").write_text("", encoding="utf-8")
+            module = runtime / "content_flow.py"
+            module.write_text("", encoding="utf-8")
+            os.utime(dashboard / "ceo_console.py", (1_700_000_000, 1_700_000_000))
+            os.utime(module, (1_700_000_000, 1_700_000_000))
+            before = ceo_build.source_stamp(dashboard)
+
+            os.utime(module, (1_700_000_500, 1_700_000_500))
+            after = ceo_build.source_stamp(dashboard)
+
+        self.assertNotEqual(after["epoch"], before["epoch"], "a runtime change did not move the stamp")
+        self.assertEqual(after["file"], "cmo_runtime/content_flow.py")
+        self.assertEqual(before["file"], "ceo_console.py")
 
     def test_the_build_header_matches_the_stamp_on_the_page(self) -> None:
         status, headers, body = self.fetch("/ceo")
@@ -339,11 +518,170 @@ class ServedPageTests(unittest.TestCase):
         for marker in ("http://", "https://", "//cdn", "<link", "@import", "<iframe"):
             self.assertNotIn(marker, page, f"the served page references {marker}")
 
-    def test_the_console_boots_without_credentials_rather_than_erroring(self) -> None:
+    def test_the_config_endpoint_serves_the_public_browser_config(self) -> None:
         status, _headers, body = self.fetch("/ceo/api/config")
 
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), {"url": "", "anon_key": ""})
+        self.assertEqual(json.loads(body)["anon_key"], "served-page-anon-key")
+
+    # ---- the blog chain, on the wire -------------------------------------
+
+    def blogs(self) -> dict[str, dict]:
+        payload = json.loads(self.text("/ceo/api/state", auth=True))
+        return {task["id"]: task for task in payload["blogs"]}
+
+    def test_a_content_card_with_no_article_is_still_served_on_the_blogs_tab(self) -> None:
+        """Invariant 5. Three cards, only two of which have been written."""
+        served = self.blogs()
+
+        self.assertEqual(
+            sorted(served),
+            ["TASK-777", "TASK-778", "TASK-779", "TASK-780", "TASK-781", "TASK-782"],
+        )
+        self.assertIsNone(served["TASK-780"]["article"])
+        self.assertEqual(served["TASK-780"]["blog"]["label"], "Queued to be written")
+        # Every one of them says something. None of them is silently absent.
+        self.assertTrue(all(task["blog"]["label"] for task in served.values()))
+
+    def test_a_failed_write_is_served_with_its_reason_and_a_retry(self) -> None:
+        """Invariant 4, in the bytes: the reason is the writer's own sentence."""
+        card = self.blogs()["TASK-778"]["blog"]
+
+        self.assertEqual(card["state"], "failed")
+        self.assertEqual(card["label"], "Could not be written")
+        self.assertIn("1742 words", card["reason"])
+        self.assertTrue(card["retryable"])
+
+    def test_a_published_card_is_served_with_its_preview_url(self) -> None:
+        card = self.blogs()["TASK-779"]["blog"]
+
+        self.assertEqual(card["label"], "Live on the site")
+        self.assertEqual(card["url"], "https://itarangwebsite.vercel.app/blog/charging-habits")
+
+    def test_the_served_page_can_draw_every_state_and_the_retry_control(self) -> None:
+        """The states exist server-side; the page has to be able to say them."""
+        page = self.text("/ceo")
+
+        for state in ("queued", "researching", "writing", "failed", "held",
+                      "checking", "awaiting_you", "rewriting", "published"):
+            self.assertIn(f"{state}:{{glyph:", page, f"the served page has no vocabulary for {state}")
+        for chip in ("Awaiting you", "Being written", "Could not be written", "Published"):
+            self.assertIn(chip, page, f"the served page cannot filter by {chip!r}")
+        self.assertIn("data-retry=", page, "the served page carries no retry control")
+        self.assertIn("data-elapsed=", page, "a running write has no elapsed clock")
+
+    def test_a_held_card_is_served_as_held_and_offers_no_retry(self) -> None:
+        card = self.blogs()["TASK-781"]["blog"]
+
+        self.assertEqual(card["state"], "held")
+        self.assertEqual(card["label"], "On hold")
+        self.assertFalse(card["retryable"])
+
+    def test_a_retry_is_refused_on_a_card_a_human_put_on_hold(self) -> None:
+        """Clearing somebody's hold is not a retry, and the console will not do it."""
+        status, _headers, body = self.fetch(
+            "/ceo/api/blog-retry", auth=True, payload={"task_id": "TASK-781"}
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("cannot be retried", json.loads(body)["error"])
+        self.assertEqual(self.blogs()["TASK-781"]["blog"]["state"], "held")
+
+    def test_a_retry_requeues_a_failed_card_over_the_wire(self) -> None:
+        """Invariant 4's other half: the console can actually start it again.
+
+        Uses its own card, because this one mutates the board and a suite whose
+        assertions depend on which test ran first is a suite that will lie later.
+        """
+        self.assertEqual(self.blogs()["TASK-782"]["blog"]["state"], "failed")
+
+        status, _headers, body = self.fetch(
+            "/ceo/api/blog-retry", auth=True, payload={"task_id": "TASK-782"}
+        )
+        self.assertEqual(status, 200, body)
+
+        after = self.blogs()["TASK-782"]
+        self.assertEqual(after["blog"]["state"], "queued")
+        self.assertEqual(after["blog"]["label"], "Queued to be written")
+        self.assertFalse(after["blog"]["retryable"])
+        # And the board says who asked for it, not just that something happened.
+        self.assertIn(CEO_EMAIL, after["latest_summary"])
+
+
+class UnconfiguredConsoleTests(unittest.TestCase):
+    """The console with no Supabase configured at all.
+
+    The main suite now stands a Supabase up so the authenticated routes can be
+    fetched over a socket, which means it can no longer answer the question this
+    one exists for: does the console still boot, and still serve its shell, when
+    nobody has configured auth? That is a real starting state on a fresh box, and
+    an exception there looks identical to a broken deploy.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp = tempfile.TemporaryDirectory()
+        root = Path(cls.temp.name)
+        for name in ("state", "artifacts", "logs"):
+            (root / name).mkdir()
+        (root / "tasks.md").write_text(BOARD, encoding="utf-8")
+        cls.port = free_port()
+        environment = {
+            **os.environ,
+            "CMO_DASHBOARD_PROFILE_DIR": str(root),
+            "CMO_DASHBOARD_PORT": str(cls.port),
+            "CMO_DASHBOARD_HOST": "127.0.0.1",
+            "CMO_DASHBOARD_USERNAME": USERNAME,
+            "CMO_DASHBOARD_PASSWORD": PASSWORD,
+            "PYTHONPATH": os.pathsep.join(
+                path for path in (str(HERE), os.environ.get("PYTHONPATH", "")) if path
+            ),
+        }
+        for name in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_URL",
+                     "NEXT_PUBLIC_SUPABASE_ANON_KEY", "CMO_CEO_EMAIL",
+                     "GSC_CREDENTIALS_PATH", "GSC_PROPERTY", "GA4_PROPERTY_ID"):
+            environment.pop(name, None)
+        cls.log = root / "server.log"
+        with cls.log.open("wb") as handle:
+            cls.server = subprocess.Popen(
+                [PYTHON, str(HERE / "dashboard_server.py")],
+                cwd=str(HERE), env=environment, stdout=handle, stderr=subprocess.STDOUT,
+            )
+        deadline = time.monotonic() + 25
+        while time.monotonic() < deadline:
+            if cls.server.poll() is not None:
+                raise AssertionError(
+                    "the dashboard exited before serving:\n"
+                    + cls.log.read_text(encoding="utf-8", errors="replace")
+                )
+            try:
+                with socket.create_connection(("127.0.0.1", cls.port), timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.2)
+        else:
+            raise AssertionError("the dashboard never opened its port")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls.server.poll() is None:
+            cls.server.terminate()
+            try:
+                cls.server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                cls.server.kill()
+                cls.server.wait(timeout=10)
+        cls.temp.cleanup()
+
+    def test_the_console_boots_without_credentials_rather_than_erroring(self) -> None:
+        request = urllib.request.Request(f"http://127.0.0.1:{self.port}/ceo/api/config")
+        with urllib.request.urlopen(request, timeout=20) as response:
+            self.assertEqual(json.loads(response.read()), {"url": "", "anon_key": ""})
+
+    def test_the_shell_still_renders_without_auth_configured(self) -> None:
+        request = urllib.request.Request(f"http://127.0.0.1:{self.port}/ceo")
+        with urllib.request.urlopen(request, timeout=20) as response:
+            self.assertIn("iTarang CEO Console", response.read().decode("utf-8"))
 
 
 if __name__ == "__main__":

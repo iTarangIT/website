@@ -181,15 +181,22 @@ class BlogPublisher:
             raise BlogPublishRefused(
                 f"website apply requires cmo-changes; current branch is {branch or '<detached>'}"
             )
+        # Tracked files only. The worktree permanently carries untracked agent
+        # scratch (context/, memory.md), so a blanket clean check refuses every
+        # publish forever — while a *tracked* modification really is somebody
+        # else's work in progress and must stop this. Nothing untracked can ride
+        # along regardless: the commit stages its three paths by name.
         status = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=no"],
             cwd=self.website_root,
             check=True,
             capture_output=True,
             text=True,
         ).stdout.strip()
         if status:
-            raise BlogPublishRefused("website worktree must be clean before publisher apply")
+            raise BlogPublishRefused(
+                "website worktree has uncommitted tracked changes: " + status.replace("\n", "; ")
+            )
         plan = self.preview(
             task_id,
             publication_date=publication_date,

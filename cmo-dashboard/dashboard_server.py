@@ -126,6 +126,10 @@ def parse_tasks(text: str) -> list[dict[str, Any]]:
             current.setdefault('status', section)
             current.setdefault('latest_summary', '')
             current['board_column'] = SECTION_TO_COLUMN.get(section, section or 'Task List')
+            # The column collapses Backlog and In Progress into one lane. The Blogs
+            # tab has to tell "queued to be written" from "being written right now",
+            # so it needs the heading the card was actually parked under.
+            current['board_section'] = section
             tasks.append(current)
         current = None
 

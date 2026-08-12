@@ -75,7 +75,17 @@ class DecisionStore:
         card_commit_sha: str = "",
         commit_sha: str = "",
         send_back_text: str = "",
+        publish_fingerprint: str = "",
     ) -> DecisionResult:
+        """Record one human decision.
+
+        `publish_fingerprint` is a digest of what is being approved — the article
+        bytes, the diagram, and the card fields that decide where the post lands.
+        Nothing here computes it and nothing here interprets it; the caller passes
+        what it saw, and the publish path recomputes it later and refuses if the
+        two differ. A surface that passes nothing records nothing, and a publish
+        against that record fails closed rather than guessing.
+        """
         task_id = task_id.strip()
         decision = decision.strip().lower().replace("-", "_").replace(" ", "_")
         approver_id = approver_id.strip()
@@ -83,6 +93,9 @@ class DecisionStore:
         card_commit_sha = card_commit_sha.strip().lower()
         commit_sha = commit_sha.strip().lower()
         send_back_text = send_back_text.strip()
+        publish_fingerprint = publish_fingerprint.strip().lower()
+        if publish_fingerprint and not re.fullmatch(r"[0-9a-f]{64}", publish_fingerprint):
+            raise DecisionValidationError("publish fingerprint must be a sha256 hex digest")
         self._validate_request(
             task_id,
             decision,
@@ -166,6 +179,7 @@ class DecisionStore:
                 "timestamp": timestamp,
                 "commit_sha": commit_sha,
                 "send_back_text": send_back_text,
+                "publish_fingerprint": publish_fingerprint,
             }
             approvals[task_id] = record
             state_candidate = json.dumps(approvals, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

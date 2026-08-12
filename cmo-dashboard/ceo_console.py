@@ -15,6 +15,7 @@ import console_auth
 import dashboard_server
 import analytics_readers
 import ceo_artifacts
+import ceo_blog_publish
 import ceo_publish
 import ceo_reader
 import ceo_version
@@ -212,6 +213,45 @@ def dispatch(handler: Any, method: str) -> bool:
             return True
         _json(handler, HTTPStatus.OK, outcome)
         return True
+    if method == "GET" and path == "/ceo/blog-publish-check":
+        # Same shape as Gate 2's check, one step earlier in the chain: reports
+        # eligibility to push the article to cmo-changes and, only when eligible,
+        # mints this human's single-use instruction. Reporting is not publishing.
+        task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
+        try:
+            check = ceo_blog_publish.preflight(PROFILE_DIR, task_id)
+        except ceo_blog_publish.PublicationRefused as error:
+            _json(handler, HTTPStatus.OK, {"eligible": False, "blockers": [str(error)]})
+            return True
+        payload = check.as_dict()
+        payload["request_id"] = (
+            ceo_blog_publish.issue_request(PROFILE_DIR, task_id, actor=email, head=check.head)
+            if check.eligible
+            else ""
+        )
+        _json(handler, HTTPStatus.OK, payload)
+        return True
+    if method == "POST" and path == "/ceo/blog-publish":
+        if os.getenv("CMO_DASHBOARD_PREVIEW", "").casefold() in {"1", "true", "yes"}:
+            _json(handler, HTTPStatus.FORBIDDEN, {"error": "preview mode"})
+            return True
+        body = _body(handler)
+        try:
+            outcome = ceo_blog_publish.publish(
+                PROFILE_DIR,
+                str(body.get("task", "")),
+                actor=email,
+                role=_role,
+                request_id=str(body.get("request_id", "")),
+            )
+        except ceo_blog_publish.PublicationConflict as error:
+            _json(handler, HTTPStatus.CONFLICT, {"error": str(error)})
+            return True
+        except (ceo_blog_publish.PublicationRefused, TaskFileError) as error:
+            _json(handler, HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return True
+        _json(handler, HTTPStatus.OK, outcome)
+        return True
     if method == "GET" and path == "/ceo/artifact":
         task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
         try:
@@ -365,6 +405,10 @@ def dispatch(handler: Any, method: str) -> bool:
                         email,
                     )
                     result = {"ok": True, "revision_round": round_number}
+                elif path == "/ceo/api/blog-retry":
+                    # Requeue a write that failed. Not a decision, not an approval,
+                    # and refused outright on a card a human put on hold.
+                    result = ceo_actions.retry_write(PROFILE_DIR, task_id, email)
                 elif path == "/ceo/api/decision":
                     decision = str(payload.get("decision", "")).strip()
                     task = _task(task_id)
@@ -378,6 +422,9 @@ def dispatch(handler: Any, method: str) -> bool:
                         surface="dashboard",
                         card_commit_sha=commit,
                         commit_sha=commit,
+                        # What was approved, not merely that something was. Publish
+                        # recomputes this and refuses if the card has moved since.
+                        publish_fingerprint=console_board.publish_fingerprint(task, PROFILE_DIR),
                     )
                     result = {"ok": stored.recorded}
                 else:

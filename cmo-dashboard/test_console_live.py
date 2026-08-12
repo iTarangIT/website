@@ -53,7 +53,20 @@ def _proposal(number: int, title: str = "", status: str = "proposed") -> dict:
     }
 
 
-def _blog(task_id: str, title: str, text: str = "First draft.") -> dict:
+def _state_block(state: str, label: str, **overrides: object) -> dict:
+    return {
+        "state": state,
+        "label": label,
+        "reason": "",
+        "retryable": False,
+        "started_at": "",
+        "url": "",
+        **overrides,
+    }
+
+
+def _unwritten(task_id: str, title: str, blog: dict) -> dict:
+    """A content card with no article yet — the state that used to be invisible."""
     return {
         "id": task_id,
         "title": title,
@@ -63,6 +76,22 @@ def _blog(task_id: str, title: str, text: str = "First draft.") -> dict:
         "revision_round": "0",
         "approval_thread": [],
         "publishing_pipeline": None,
+        "article": None,
+        "blog": blog,
+    }
+
+
+def _blog(task_id: str, title: str, text: str = "First draft.", blog: dict | None = None) -> dict:
+    return {
+        "id": task_id,
+        "title": title,
+        "decision_status": "awaiting decision",
+        "decision_approved": False,
+        "change_status": "",
+        "revision_round": "0",
+        "approval_thread": [],
+        "publishing_pipeline": None,
+        "blog": blog or _state_block("awaiting_you", "Awaiting you"),
         "article": {
             "text": text,
             "html": f"<p>{text}</p>",
@@ -197,6 +226,107 @@ class ConsoleStaysCurrent(unittest.TestCase):
 
         self.assertEqual(step["pollDelay"], 3000)
         self.assertTrue(step["pollActive"], "the poller did not schedule its next check")
+
+    # ---- the blog chain, watched from the page -----------------------------
+
+    def test_a_card_walks_from_queued_to_awaiting_him_with_no_reload(self) -> None:
+        """Invariants 1, 2 and 6, from the seat they matter in.
+
+        He approves a topic and looks at Blogs. Nobody reloads anything: three
+        moves of the version token, and the row says something different each
+        time. Before this, the row was not on the tab at all until the article
+        existed, so the whole run happened behind a blank screen.
+        """
+        queued = _state([], [_unwritten("TASK-9", "Battery repair costs",
+                                        _state_block("queued", "Queued to be written"))])
+        researching = _state([], [_unwritten("TASK-9", "Battery repair costs",
+                                             _state_block("researching", "Researching…",
+                                                          started_at="2026-08-12T07:00:00Z"))])
+        writing = _state([], [_unwritten("TASK-9", "Battery repair costs",
+                                         _state_block("writing", "Writing…",
+                                                      started_at="2026-08-12T07:00:00Z"))])
+        ready = _state([], [_blog("TASK-9", "Battery repair costs",
+                                  blog=_state_block("awaiting_you", "Awaiting you"))])
+        steps = self.steps({
+            "state": queued,
+            "ui": {"blogs": {"page": 1, "size": 10, "search": "", "filter": "all"}},
+            "steps": [
+                {"name": "queued", "do": "showView", "view": "blogs"},
+                {"name": "researching", "do": "poll", "version": "v2", "state": researching},
+                {"name": "writing", "do": "poll", "version": "v3", "state": writing},
+                {"name": "ready", "do": "poll", "version": "v4", "state": ready},
+            ],
+        })
+
+        self.assertIn("Queued to be written", steps[0]["blogsHtml"])
+        self.assertIn("Researching…", steps[1]["blogsHtml"])
+        self.assertIn("Writing…", steps[2]["blogsHtml"])
+        self.assertIn("Awaiting you", steps[3]["blogsHtml"])
+        # Each move came from the token, not from a page load.
+        for step in steps[1:]:
+            self.assertIn("/ceo/api/state", " ".join(step["requests"]))
+        # And it is the same row throughout, patched rather than rebuilt.
+        self.assertEqual([row["key"] for row in steps[3]["rowsAfter"]["blogs"]], ["TASK-9"])
+
+    def test_a_running_write_carries_a_clock_that_is_not_re_rendered(self) -> None:
+        running = _state([], [_unwritten("TASK-9", "Battery repair costs",
+                                         _state_block("writing", "Writing…",
+                                                      started_at="2026-08-12T07:00:00Z"))])
+        step = self.steps({
+            "state": running,
+            "steps": [{"do": "showView", "view": "blogs"}],
+        })[0]
+
+        self.assertIn('data-elapsed="2026-08-12T07:00:00Z"', step["blogsHtml"])
+
+    def test_a_failed_card_shows_its_reason_and_a_retry_button(self) -> None:
+        failed = _state([], [_unwritten(
+            "TASK-9", "Battery repair costs",
+            _state_block("failed", "Could not be written", retryable=True,
+                         reason="writer article has 1742 words; WRITER_CONTRACT requires 900-1,400"),
+        )])
+        step = self.steps({"state": failed, "steps": [{"do": "showView", "view": "blogs"}]})[0]
+
+        self.assertIn("Could not be written", step["blogsHtml"])
+        self.assertIn("1742 words", step["blogsHtml"])
+        self.assertIn('data-retry="TASK-9"', step["blogsHtml"])
+
+    def test_a_held_card_shows_its_reason_but_no_retry(self) -> None:
+        held = _state([], [_unwritten(
+            "TASK-9", "Battery repair costs",
+            _state_block("held", "On hold", reason="Held behind another card by CEO instruction"),
+        )])
+        step = self.steps({"state": held, "steps": [{"do": "showView", "view": "blogs"}]})[0]
+
+        self.assertIn("On hold", step["blogsHtml"])
+        self.assertIn("CEO instruction", step["blogsHtml"])
+        self.assertNotIn("data-retry=", step["blogsHtml"], "a held card offered a retry")
+
+    def test_a_published_card_links_its_preview(self) -> None:
+        live = _state([], [_blog(
+            "TASK-9", "Battery repair costs",
+            blog=_state_block("published", "Live on the site",
+                              url="https://itarangwebsite.vercel.app/blog/battery-repair"),
+        )])
+        step = self.steps({"state": live, "steps": [{"do": "showView", "view": "blogs"}]})[0]
+
+        self.assertIn("Live on the site", step["blogsHtml"])
+        self.assertIn('href="https://itarangwebsite.vercel.app/blog/battery-repair"', step["blogsHtml"])
+
+    def test_a_status_change_does_not_disturb_an_open_editor(self) -> None:
+        """The chain moving underneath him must not cost him a typed sentence."""
+        theirs = _state([_proposal(1)], [_blog("TASK-1", "First article", "Their newer text.",
+                                               blog=_state_block("rewriting", "Being rewritten"))])
+        step = self.steps({
+            "state": _state([_proposal(1)], [_blog("TASK-1", "First article", "First draft.")]),
+            "steps": [{
+                "do": "poll", "version": "v2", "state": theirs,
+                "editing": {"task": "TASK-1", "base": "First draft.", "text": "My unsaved sentence."},
+            }],
+        })[0]
+
+        self.assertIn("Being rewritten", step["blogsHtml"])
+        self.assertEqual(step["editorText"], "My unsaved sentence.")
 
     # ---- invariant 3: an open editor is sacred -----------------------------
 

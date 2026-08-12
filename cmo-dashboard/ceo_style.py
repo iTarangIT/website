@@ -117,6 +117,12 @@ padding:var(--pad-tight) var(--pad);box-shadow:var(--shadow-sm)}
 .card button.open{min-height:0;background:transparent;color:var(--ink);border:0;padding:0;
 text-align:left;width:100%;font-weight:400;font-size:inherit;cursor:pointer}
 .card .actions{margin-top:9px}
+/* Why a card is stuck, in the words that were written onto it. A failure reads
+   in the failure colour, because a run that did not happen is not a neutral fact. */
+.blog-reason{margin-top:6px!important;max-width:78ch}
+.blog-reason.is-failure{color:var(--red)}
+.blog-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.blog-actions a.ghost{display:inline-flex;align-items:center;text-decoration:none}
 .card-figures{display:flex;gap:14px;flex:0 0 auto;text-align:right}
 .card-figures .stat{display:block;font-size:var(--f-md);font-weight:700;line-height:1.2}
 .card-figures .label{display:block;color:var(--faint);font-size:var(--f-xs);

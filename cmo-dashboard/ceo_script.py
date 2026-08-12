@@ -13,6 +13,7 @@ let currentView=DEFAULT_VIEW;
 let openTask=null;
 let detailTab='read';
 let publishRequest='';
+let blogPublishRequest='';
 let busy=false;
 let focusIndex=-1;
 let editing=false;
@@ -197,6 +198,18 @@ const STATUS={
  carded:{glyph:'✓',label:'queued for writing',tone:''},
  rejected:{glyph:'✗',label:'rejected',tone:'tone-stop'},
  'awaiting decision':{glyph:'●',label:'awaiting you',tone:'tone-wait'},
+ /* The blog chain, start to finish. Every content card carries one of these, so
+    the minutes between approving a topic and reading the article are no longer
+    a blank tab. */
+ queued:{glyph:'○',label:'queued to be written',tone:'tone-mute'},
+ researching:{glyph:'◐',label:'researching',tone:'tone-wait'},
+ writing:{glyph:'◑',label:'writing',tone:'tone-wait'},
+ failed:{glyph:'✗',label:'could not be written',tone:'tone-stop'},
+ held:{glyph:'‖',label:'on hold',tone:'tone-mute'},
+ checking:{glyph:'◇',label:'being checked',tone:'tone-wait'},
+ awaiting_you:{glyph:'●',label:'awaiting you',tone:'tone-wait'},
+ rewriting:{glyph:'↻',label:'being rewritten',tone:'tone-wait'},
+ published:{glyph:'▲',label:'live on the site',tone:''},
  uncontested:{glyph:'◆',label:'uncontested',tone:''},
  weak_position:{glyph:'▲',label:'we rank weakly',tone:'tone-wait'},
  covered:{glyph:'✓',label:'we hold this',tone:'tone-mute'},
@@ -555,34 +568,89 @@ function renderTrends(){
 }
 
 /* -------------------------------------------------------------------- blogs */
-function blogStatus(task){
- if(task.decision_approved)return 'approved';
- const change=String(task.change_status||'').toLocaleLowerCase();
- if(change.includes('revision'))return 'revising';
- return 'awaiting decision';
+/* Every content card is here now, not only the ones with a finished article. The
+   server decides which state a card is in — one function, `console_board.blog_state`
+   — and this side only decides how to say it. Two views of the same fact drifting
+   apart is exactly how a card being written came to look identical to a card
+   nobody had started. */
+function blogStatus(task){return task.blog?.state||'awaiting_you';}
+function blogLabel(task){return task.blog?.label||'Awaiting you';}
+/* A run takes minutes. A label that does not move for four of them reads as a
+   hang, so the two running states carry a clock. It is ticked in place by
+   `tickElapsed` rather than re-rendered: patchRows compares the markup it last
+   produced, so a node whose text we changed underneath it is left alone. */
+function elapsedText(iso){
+ const started=Date.parse(String(iso||''));
+ if(!Number.isFinite(started))return '';
+ const seconds=Math.max(0,Math.floor((Date.now()-started)/1000));
+ if(seconds<60)return `${seconds}s`;
+ const minutes=Math.floor(seconds/60);
+ return minutes<60?`${minutes}m ${seconds%60}s`:`${Math.floor(minutes/60)}h ${minutes%60}m`;
 }
+function tickElapsed(){
+ $$('[data-elapsed]').forEach(node=>{
+  const text=elapsedText(node.dataset.elapsed);
+  if(text&&node.textContent!==text)node.textContent=text;
+ });
+}
+setInterval(tickElapsed,1000);
 function blogCard(task){
+ const blog=task.blog||{};
  const words=task.article?.word_count??0;
  const minutes=task.article?.read_minutes??0;
+ const running=blog.state==='researching'||blog.state==='writing';
+ const clock=running&&blog.started_at
+  ?` · <span class="num" data-elapsed="${esc(blog.started_at)}">${esc(elapsedText(blog.started_at))}</span>`:'';
+ /* An article that does not exist yet has no word count, and a zero would read
+    as an empty article rather than an unwritten one. */
+ const figures=task.article
+  ?`<div class="card-figures"><span><span class="stat">${grouped.format(words)}</span><span class="label">words</span></span></div>`
+  :'';
+ const measures=task.article
+  ?` · <span class="num">${grouped.format(words)}</span> words · <span class="num">${minutes}</span> min read`:'';
+ /* The failure line is the whole reason this state exists. Nine writer attempts
+    on one card failed in a row and the board said nothing at all. */
+ const reason=blog.reason
+  ?`<p class="meta blog-reason${blog.state==='failed'?' is-failure':''}">${esc(blog.reason)}</p>`:'';
+ const actions=[];
+ if(blog.retryable)actions.push(`<button class="ghost small" data-retry="${esc(task.id)}" type="button">Retry</button>`);
+ if(blog.state==='published'&&blog.url)
+  actions.push(`<a class="ghost small" href="${esc(blog.url)}" target="_blank" rel="noopener">Open preview</a>`);
+ const aside=actions.length?`<div class="blog-actions">${actions.join('')}</div>`:'';
  return `<article class="card" role="listitem" data-key="${esc(task.id)}" data-row="${esc(task.id)}"><div class="card-row">
-<div class="card-main"><button class="open" data-open="${esc(task.id)}" type="button">${pill(task.decision_status)}
+<div class="card-main"><button class="open" data-open="${esc(task.id)}" type="button">${pill(blogStatus(task),blogLabel(task))}
 <h3>${esc(task.title||task.id)}</h3>
-<p class="meta"><span class="num">${esc(task.id)}</span> · <span class="num">${grouped.format(words)}</span> words · <span class="num">${minutes}</span> min read${task.change_status?` · ${esc(task.change_status)}`:''}</p></button></div>
-<div class="card-figures"><span><span class="stat">${grouped.format(words)}</span><span class="label">words</span></span></div>
+<p class="meta"><span class="num">${esc(task.id)}</span>${measures}${clock}</p></button>${reason}${aside}</div>
+${figures}
 </div></article>`;
+}
+/* Grouped for the chips, because "is it moving" and "is it stuck" are the two
+   questions actually being asked of this tab. */
+const BLOG_GROUPS={
+ 'awaiting you':new Set(['awaiting_you']),
+ 'in progress':new Set(['queued','researching','writing','rewriting','checking']),
+ failed:new Set(['failed']),
+ approved:new Set(['approved']),
+ published:new Set(['published'])
+};
+function blogGroup(task){
+ const state=blogStatus(task);
+ return Object.keys(BLOG_GROUPS).find(name=>BLOG_GROUPS[name].has(state))||'held';
 }
 function renderBlogs(){
  const all=state.blogs||[];
  const term=ui.blogs.search.trim().toLocaleLowerCase();
- const counts=all.reduce((total,item)=>{const key=blogStatus(item);total[key]=(total[key]||0)+1;return total;},{});
+ const counts=all.reduce((total,item)=>{const key=blogGroup(item);total[key]=(total[key]||0)+1;return total;},{});
  chipRow('#blogs-filter',[
   {value:'all',label:'All',count:all.length},
-  {value:'awaiting decision',label:'Awaiting you',count:counts['awaiting decision']||0},
+  {value:'awaiting you',label:'Awaiting you',count:counts['awaiting you']||0},
+  {value:'in progress',label:'Being written',count:counts['in progress']||0},
+  {value:'failed',label:'Could not be written',count:counts.failed||0},
   {value:'approved',label:'Approved',count:counts.approved||0},
-  {value:'revising',label:'In revision',count:counts.revising||0}
+  {value:'published',label:'Published',count:counts.published||0}
  ],ui.blogs.filter,'blogs-filter');
  const filtered=all.filter(task=>{
-  if(ui.blogs.filter!=='all'&&blogStatus(task)!==ui.blogs.filter)return false;
+  if(ui.blogs.filter!=='all'&&blogGroup(task)!==ui.blogs.filter)return false;
   if(!term)return true;
   return `${task.title||''} ${task.id} ${task.article?.text||''}`.toLocaleLowerCase().includes(term);
  });
@@ -596,6 +664,17 @@ function renderBlogs(){
  settleArrivals('blogs',view.items.map(task=>task.id));
  paintArrivals();
  renderPager('#blogs-pager','blogs',view,'articles');
+ tickElapsed();
+}
+/* A retry is his click and only his. The worker skips a failed card precisely so
+   it cannot sit in a loop retrying something that keeps failing. */
+function retryBlog(id){
+ const button=document.querySelector(`[data-retry="${id}"]`);
+ const action=runAction({button,label:'Queueing…',count:0,failTitle:'That could not be queued.'});
+ post('/ceo/api/blog-retry',{task_id:id})
+  .then(()=>{toast('Queued to be written again.');return refresh(true);})
+  .catch(error=>action.fail(error.message))
+  .finally(()=>action.done());
 }
 
 /* ---------------------------------------------------------------- analytics */
@@ -975,12 +1054,67 @@ function showEditorConflict(){
 }
 function pipelineHtml(task){
  const item=task.publishing_pipeline;
- if(!item)return emptyState('No website pipeline','This card publishes nothing to the website, so there is no preview or commit to check.');
+ /* A blog card has no website-change pipeline — no Lighthouse baseline, no
+    preview commit — because it has not reached the website yet. What it has is
+    the step before that: turn the approved article into blog sources and push
+    them to cmo-changes. That is a different block, and a different branch. */
+ if(!item)return task.article?blogPublishHtml():emptyState('No website pipeline','This card publishes nothing to the website, so there is no preview or commit to check.');
  const link=(url,label)=>url?`<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`:'—';
  return `<div class="pipeline"><strong>Approval is Gate 1, not publication.</strong><p class="meta">${esc(item.waiting_on)}</p><dl><dt>Change status</dt><dd>${cell(item.change_status)}</dd><dt>Branch</dt><dd>${cell(item.branch)}</dd><dt>Commit</dt><dd>${item.commit_url?link(item.commit_url,esc(item.commit||'Open commit')):cell(item.commit)}</dd><dt>Preview</dt><dd>${link(item.preview_url,'Open preview')}</dd><dt>Lighthouse evidence</dt><dd>${cell(item.lighthouse_evidence)}</dd></dl>${publishHtml()}</div>`;
 }
 function publishHtml(){
  return `<div class="publish" id="publish-block"><h4>Gate 2 — publish to website</h4><p class="meta" id="publish-state">Checking whether this commit can be published…</p><div id="publish-evidence"></div><div class="actions"><button data-publish="1" type="button" disabled>Publish to website</button></div><p class="meta">Publishing merges the approved commit to main. Your name is recorded in approvals.log and in the merge commit trailer.</p></div>`;
+}
+/* Publishing an article stops at the preview. There is no merge button here on
+   purpose: cmo-changes → preview → a human merges on GitHub. The only other
+   publish control on this console is Gate 2, and it lives on website-change
+   cards, not on these. */
+function blogPublishHtml(){
+ return `<div class="publish" id="blog-publish-block"><h4>Publish to website</h4>
+<p class="meta" id="blog-publish-state">Checking whether this article can be published…</p>
+<div id="blog-publish-files"></div>
+<div class="actions"><button data-blog-publish="1" type="button" disabled>Publish to website</button></div>
+<p class="meta">This writes the blog page, its index entry and its diagram, then pushes them to <span class="num">cmo-changes</span>. It does not touch <span class="num">main</span> — a human merges on GitHub after seeing the preview. Your name is recorded in approvals.log and in the commit trailer.</p></div>`;
+}
+function blogPublishFilesHtml(check){
+ if(!check.files||!check.files.length)return '';
+ return `<ul class="files">${check.files.map(name=>`<li><span class="num">${esc(name)}</span></li>`).join('')}</ul>`;
+}
+async function refreshBlogPublish(task){
+ const block=$('#blog-publish-block');if(!block)return;
+ const line=$('#blog-publish-state'),button=block.querySelector('[data-blog-publish]');
+ try{
+  const check=await api('/ceo/blog-publish-check?task='+encodeURIComponent(task.id));
+  blogPublishRequest=check.request_id||'';
+  setHtml($('#blog-publish-files'),blogPublishFilesHtml(check));
+  if(check.eligible){
+   line.textContent=`Ready to publish as /blog/${check.slug} in ${check.category}.`;
+   button.disabled=false;
+  }else{
+   line.innerHTML='Cannot publish yet:<ul>'+check.blockers.map(reason=>`<li>${esc(reason)}</li>`).join('')+'</ul>';
+   button.disabled=true;
+  }
+ }catch(error){line.textContent='Could not check publish eligibility: '+error.message;button.disabled=true;}
+}
+async function publishBlog(task){
+ const line=$('#blog-publish-state');
+ if(!blogPublishRequest){
+  if(line)line.textContent='This card has no current publish instruction. Reopen the Impact tab.';
+  return;
+ }
+ if(!confirm('Publish '+task.id+' to cmo-changes? This does not merge to main.'))return;
+ const action=runAction({
+  button:document.querySelector('#blog-publish-block [data-blog-publish]'),label:'Publishing…',
+  surface:line,failTitle:'The publish did not go through.'
+ });
+ try{
+  const outcome=await post('/ceo/blog-publish',{task:task.id,request_id:blogPublishRequest});
+  blogPublishRequest='';
+  toast('Pushed to cmo-changes at '+(outcome.commit||'').slice(0,7)+'.');
+  await refresh();await renderDetail(true);
+ }catch(error){
+  action.fail(error.message);blogPublishRequest='';
+ }finally{action.done();}
 }
 function scoreCell(before,after){
  if(before==null&&after==null)return '—';
@@ -1046,7 +1180,7 @@ async function renderDetail(force=false){
  if(detailTab==='read'&&!editing)await hydrateImages();
  if(detailTab==='read'&&editing)$('#editor-input')?.focus();
  /* Publish eligibility asks GitHub. Only when the tab was actually repainted. */
- if(detailTab==='impact')await refreshPublish(task);
+ if(detailTab==='impact'){await refreshPublish(task);await refreshBlogPublish(task);}
 }
 /* What a background update is allowed to do to an open card. */
 async function syncDetail(){
@@ -1254,9 +1388,11 @@ document.addEventListener('click',event=>{
   if(data.editor==='save')saveEdit(task);
   if(data.editor==='cancel')cancelEdit(task);
  }
+ if(data.retry)retryBlog(data.retry);
  if(data.decision)decide(findTask(openTask),data.decision);
  if(data.revision)revise(findTask(openTask));
  if(data.publish)publish(findTask(openTask));
+ if(data.blogPublish)publishBlog(findTask(openTask));
 });
 document.addEventListener('change',event=>{
  const target=event.target;

@@ -115,7 +115,7 @@ class CeoStageBTests(unittest.TestCase):
         self.assertFalse(hasattr(ceo_actions, "set_topic_stage"))
         self.assertFalse(hasattr(ceo_actions, "greenlight_topic"))
 
-    def test_only_artifact_backed_cards_are_blogs_and_never_topics(self):
+    def test_a_content_card_is_a_blog_with_or_without_its_article_yet(self):
         directory, root = self.make_root(card_board())
         self.addCleanup(directory.cleanup)
         (root / "artifacts" / "TASK-001-blog.md").write_text("# Draft\n\nBody", encoding="utf-8")
@@ -124,8 +124,11 @@ class CeoStageBTests(unittest.TestCase):
         self.assertNotIn("topics", value, "the board no longer produces a topics list")
         (root / "artifacts" / "TASK-001-blog.md").unlink()
         value = console_board.read_board(root / "tasks.md", root)
-        # Without an artifact the card is simply not a blog; it is not a topic either.
-        self.assertEqual(value["blogs"], [])
+        # The card stays on the tab and says where it has got to. Dropping it while
+        # it had no article is what made the whole write invisible while it ran.
+        self.assertEqual([item["id"] for item in value["blogs"]], ["TASK-001"])
+        self.assertTrue(value["blogs"][0]["blog"]["label"])
+        self.assertIsNone(value["blogs"][0]["article"])
 
     def test_article_slots_render_unbound_then_bind_to_uploaded_artifact_image(self):
         directory, root = self.make_root(card_board())
@@ -317,6 +320,7 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
             ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
+            ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
             ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
             ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
@@ -334,6 +338,7 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
             ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
+            ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
             ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
             ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),

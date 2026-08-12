@@ -31,15 +31,28 @@ __all__ = ["PLACEHOLDER", "source_stamp", "page_digest", "stamp_document", "buil
 
 
 def source_stamp(directory: Path | None = None) -> dict[str, str]:
-    """The newest Python source beside this module, and when it changed."""
+    """The newest Python source the console runs on, and when it changed.
+
+    Two directories, not one. The console imports `cmo_runtime` for the board, the
+    decisions, the writer and the publisher — so a runtime-only deploy changes what
+    the console *does* while leaving every file beside this module untouched.
+
+    That is not academic. `deploy-dashboard` refuses to report success unless the
+    served stamp moves, and with the stamp reading only this directory, a change
+    landing entirely in `cmo_runtime` could never move it: the deploy reported
+    failure having actually succeeded, which trains you to ignore the one check
+    that exists to be believed.
+    """
     root = Path(directory) if directory is not None else Path(__file__).resolve().parent
     newest_time = 0.0
     newest_name = ""
     count = 0
-    try:
-        candidates = sorted(root.glob("*.py"))
-    except OSError:
-        candidates = []
+    candidates: list[Path] = []
+    for folder, prefix in ((root, ""), (root.parent / "cmo_runtime", "cmo_runtime/")):
+        try:
+            candidates.extend(sorted(folder.glob("*.py")))
+        except OSError:
+            continue
     for path in candidates:
         try:
             modified = path.stat().st_mtime
@@ -47,7 +60,12 @@ def source_stamp(directory: Path | None = None) -> dict[str, str]:
             continue
         count += 1
         if modified > newest_time:
-            newest_time, newest_name = modified, path.name
+            newest_time = modified
+            # Name it the way the deploy script names it, so "which file moved"
+            # reads the same in the header and in the deploy output.
+            newest_name = (
+                f"cmo_runtime/{path.name}" if path.parent.name == "cmo_runtime" else path.name
+            )
     if not newest_name:
         return {"time": "unknown", "file": "none", "count": "0", "epoch": "0"}
     stamp = dt.datetime.fromtimestamp(newest_time)

@@ -302,7 +302,9 @@ class ContentFlowTest(unittest.TestCase):
         self.assertFalse((self.root / "artifacts" / "TASK-100-content.md").exists())
         card = BoardStore(self.root).get("TASK-100")
         self.assertEqual(card.section, "Backlog")
-        self.assertEqual(card.fields["Change status"], "blocked")
+        # `write failed`, not `blocked`: nobody chose this, so the console may offer
+        # a retry. `blocked` stays reserved for a card a human deliberately held.
+        self.assertEqual(card.fields["Change status"], "write failed")
 
     def test_credit_ceiling_refuses_before_any_search_request(self) -> None:
         calls: list[tuple[str, str, dict[str, object] | None]] = []

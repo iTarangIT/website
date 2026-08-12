@@ -46,6 +46,42 @@ def request_revision(profile_dir: Path, task_id: str, comment: str, requester: s
     return round_number
 
 
+def retry_write(profile_dir: Path, task_id: str, requester: str) -> dict[str, object]:
+    """Put a card the writer failed on back in the queue.
+
+    The worker deliberately will not retry a failure by itself — nine attempts on
+    TASK-084 failed in a row, and a loop that kept trying would have burned the
+    budget without telling anyone. So the retry is a human's click, and this is
+    all it does: clear `write failed` back to `queued` and say who asked.
+
+    It refuses anything that is not a failed card. `blocked` means a human parked
+    it, and clearing somebody's hold is not a retry. It records no decision.
+    """
+    from cmo_runtime.content_flow import WRITE_FAILED
+    from cmo_runtime.task_file import TaskFile, TaskFileError, utc_timestamp
+
+    requester = requester.strip()
+    if not requester:
+        raise TaskFileError("a retry requires an authenticated human")
+    task = _task(profile_dir / "tasks.md", task_id)
+    if str(task.get("board_section") or task.get("status", "")).strip() != "Backlog":
+        raise TaskFileError(f"{task_id} is not in Backlog, so there is nothing to requeue")
+    if str(task.get("change_status", "")).strip().casefold() != WRITE_FAILED:
+        raise TaskFileError(
+            f"{task_id} did not fail to be written, so it cannot be retried "
+            "(a card a human put on hold is released by that human, not by a retry)"
+        )
+    timestamp = utc_timestamp()
+    TaskFile(profile_dir / "tasks.md", lock_path=profile_dir / "state" / "tasks.lock").set_board_fields(
+        task_id,
+        {
+            "Change status": "queued",
+            "Latest summary": f"Requeued by {requester} at {timestamp} after the previous write failed.",
+        },
+    )
+    return {"ok": True, "task_id": task_id, "change_status": "queued", "requeued_at": timestamp}
+
+
 MAX_ARTICLE_BYTES = 512 * 1024
 
 
