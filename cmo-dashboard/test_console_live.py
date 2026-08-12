@@ -328,6 +328,79 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertIn("Being rewritten", step["blogsHtml"])
         self.assertEqual(step["editorText"], "My unsaved sentence.")
 
+    # ---- the decision controls appear only where a decision can be recorded --
+
+    def decidable_card(self, section: str, state: str, label: str) -> dict:
+        card = _blog("TASK-9", "Battery repair costs", blog=_state_block(state, label))
+        card["board_section"] = section
+        card["status"] = section
+        return card
+
+    def discussion(self, card: dict) -> str:
+        return self.steps({
+            "state": _state([], [card]),
+            "steps": [{"do": "detail", "task": "TASK-9", "tab": "discussion"}],
+        })[0]["detailBody"]
+
+    def test_a_card_in_human_approval_offers_approve_and_ask_for_changes(self) -> None:
+        body = self.discussion(self.decidable_card("Human Approval", "awaiting_you", "Awaiting you"))
+
+        self.assertIn('data-decision="approve"', body)
+        self.assertIn('data-revision="1"', body)
+        self.assertIn("revision-comment", body)
+
+    def test_a_card_in_cmo_review_offers_neither_and_says_why(self) -> None:
+        """Approve there is a button whose only outcome is "not recorded".
+
+        Ask for changes there is worse: it did not fail, it succeeded — setting
+        `revision requested` on a card its reader had never seen, which the
+        content worker would then pick up and rewrite.
+        """
+        body = self.discussion(self.decidable_card("CMO Review", "checking", "Being checked"))
+
+        self.assertNotIn('data-decision="approve"', body)
+        self.assertNotIn('data-revision="1"', body)
+        self.assertNotIn("revision-comment", body)
+        self.assertIn("Being checked. It will come to you when review finishes.", body)
+
+    def test_every_lane_that_cannot_decide_says_when_it_will_come_to_him(self) -> None:
+        lanes = [
+            ("Backlog", "queued", "Queued to be written", "once the article exists"),
+            ("In Progress", "writing", "Writing…", "when it is finished"),
+            ("Backlog", "failed", "Could not be written", "nothing to decide yet"),
+            ("Backlog", "held", "On hold", "once it is released"),
+            ("CMO Review", "rewriting", "Being rewritten", "when it is done"),
+        ]
+        for section, state, label, promise in lanes:
+            with self.subTest(state=state):
+                body = self.discussion(self.decidable_card(section, state, label))
+
+                self.assertNotIn('data-decision="approve"', body, f"{state} offered Approve")
+                self.assertNotIn('data-revision="1"', body, f"{state} offered Ask for changes")
+                self.assertIn(promise, body, f"{state} does not say when it will come to him")
+
+    def test_an_already_approved_card_shows_the_decision_not_the_buttons(self) -> None:
+        card = self.decidable_card("Human Approval", "approved", "Approved")
+        card["decision_approved"] = True
+        card["decision_status"] = "approved"
+        card["decision_summary"] = {"approver_id": "ceo@itarang.com", "timestamp": "2026-08-12T09:00:00Z"}
+
+        body = self.discussion(card)
+
+        self.assertNotIn('data-decision="approve"', body)
+        self.assertNotIn('data-revision="1"', body)
+        self.assertIn("Approved by ceo@itarang.com", body)
+
+    def test_the_error_surfaces_survive_in_every_lane(self) -> None:
+        """`runAction` writes failures into these nodes; losing them loses the reason."""
+        for section, state, label in (("Human Approval", "awaiting_you", "Awaiting you"),
+                                      ("CMO Review", "checking", "Being checked")):
+            with self.subTest(section=section):
+                body = self.discussion(self.decidable_card(section, state, label))
+
+                self.assertIn('id="detail-pending"', body)
+                self.assertIn('id="detail-error"', body)
+
     # ---- invariant 3: an open editor is sacred -----------------------------
 
     def test_an_editor_with_unsaved_text_is_not_overwritten(self) -> None:

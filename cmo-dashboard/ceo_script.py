@@ -1144,14 +1144,52 @@ async function refreshPublish(task){
  }catch(error){line.textContent='Could not check publish eligibility: '+error.message;button.disabled=true;}
 }
 function detailImpact(task){return `<h3>Expected impact</h3><p>${cell(task.metric||task.declared_metric)}</p>${pipelineHtml(task)}`;}
+/* Why a card cannot be decided yet, in the words its own state warrants. Every
+   one of these ends by saying when it *will* come to him, because "you cannot act
+   on this" without "here is when you can" is just a dead end. */
+const NOT_YET_DECIDABLE={
+ queued:'Queued to be written. It will come to you once the article exists.',
+ researching:'Being written now. It will come to you when it is finished.',
+ writing:'Being written now. It will come to you when it is finished.',
+ rewriting:'Being rewritten. The new version will come to you when it is done.',
+ checking:'Being checked. It will come to you when review finishes.',
+ failed:'This could not be written, so there is nothing to decide yet. Retry it from the Blogs list.',
+ held:'On hold. It will come to you once it is released.',
+ published:'Published to cmo-changes. The decision on it is already recorded.'
+};
 function detailDiscussion(task){
  const thread=(task.approval_thread||[]).map(event=>`<div class="history-row"><span class="meta">Round ${esc(event.round)} · ${esc(event.type)}</span><p>${esc(event.text)}</p></div>`).join('');
+ /* The decision controls appear only where a decision can actually be recorded.
+    `DecisionStore` refuses any card that is not in Human Approval, so offering
+    Approve anywhere else is a button whose only possible outcome is "The decision
+    was not recorded." Ask for changes is worse than that: it does not fail, it
+    succeeds — setting `revision requested` on a card that never reached him, which
+    the content worker then picks up and rewrites. Both are gone from every other
+    lane, and both are refused server-side as well; this is the courtesy, not the
+    guard. */
+ const section=String(task.board_section||task.status||'').trim();
+ const decidable=section==='Human Approval';
+ const surfaces=`<div id="detail-pending" class="rows" aria-live="polite" hidden></div>
+<p class="row-error" id="detail-error" role="alert" hidden></p>`;
+ if(!decidable){
+  const state=task.blog?.state||'';
+  const line=NOT_YET_DECIDABLE[state]||`In ${esc(section||'another lane')}. It will come to you when it reaches your approval.`;
+  const reason=task.blog?.reason?`<p class="meta">${esc(task.blog.reason)}</p>`:'';
+  return `<h3>Decision</h3><p>${esc(line)}</p>${reason}${surfaces}
+<p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>.</p>
+${thread?`<h3>Thread</h3>${thread}`:''}`;
+ }
+ if(task.decision_approved){
+  const record=task.decision_summary||{};
+  return `<h3>Decision</h3><p>Approved${record.approver_id?` by ${esc(record.approver_id)}`:''}${record.timestamp?` on ${esc(record.timestamp)}`:''}.</p>
+<p class="meta">A revision is refused once a decision exists, so this article can no longer be changed here. Publish it from the Impact tab.</p>${surfaces}
+${thread?`<h3>Thread</h3>${thread}`:''}`;
+ }
  return `<h3>Decision</h3><p>Status: ${esc(task.decision_status)}</p>
-<div class="actions"><button data-decision="approve" type="button" ${task.decision_approved?'disabled':''}>Approve</button></div>
+<div class="actions"><button data-decision="approve" type="button">Approve</button></div>
 <label class="field">Ask for changes<textarea id="revision-comment" rows="3" placeholder="State the exact change needed"></textarea></label>
 <div class="actions"><button class="ghost" data-revision="1" type="button">Ask for changes</button></div>
-<div id="detail-pending" class="rows" aria-live="polite" hidden></div>
-<p class="row-error" id="detail-error" role="alert" hidden></p>
+${surfaces}
 <p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>. A revision keeps the card in its current lane and is refused after any human decision.</p>
 ${thread?`<h3>Thread</h3>${thread}`:''}`;
 }

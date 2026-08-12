@@ -156,6 +156,37 @@ class CEOConsoleTests(unittest.TestCase):
             self.assertIn("- Revision round: 1", after_revision)
             self.assertFalse((root / "state" / "human-approvals.json").exists())
 
+    def test_a_revision_is_refused_on_a_card_that_never_reached_him(self):
+        """Hiding the button is the courtesy; this is the guard.
+
+        Asking for changes on a card still in CMO Review used to succeed. It set
+        `Change status: revision requested` and `Revision round: 1` on an article
+        its reader had never been shown — and once the content worker existed,
+        that started a rewrite. `DecisionStore` already refuses approvals outside
+        Human Approval; the other half of the decision surface now agrees.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "state").mkdir()
+            path = root / "tasks.md"
+            # The card's own Status names its lane, and board_card files it there.
+            path.write_text(
+                board_card(section="CMO Review").replace(
+                    "## CMO Review\n\n## Human Approval\n\n### TASK-1",
+                    "## CMO Review\n\n### TASK-1",
+                ),
+                encoding="utf-8",
+            )
+            before = path.read_text(encoding="utf-8")
+
+            from cmo_runtime.task_file import TaskFileError
+
+            with self.assertRaises(TaskFileError) as raised:
+                ceo_actions.request_revision(root, "TASK-1", "Shorten the opening", "ceo@example.test")
+
+            self.assertIn("not Human Approval", str(raised.exception))
+            self.assertEqual(path.read_text(encoding="utf-8"), before, "the board was written anyway")
+
     def test_page_modules_import_in_both_orders(self):
         for first, second in (("ceo_console", "ceo_page"), ("ceo_page", "ceo_console")):
             importlib.reload(importlib.import_module(first))

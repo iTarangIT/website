@@ -279,7 +279,9 @@ const source = fs.readFileSync(scriptPath, 'utf8')
   + 'get busy(){return busy},get editing(){return editing},set editing(value){editing=value},'
   + 'get editorText(){return editorText},set editorText(value){editorText=value},'
   + 'get editorBase(){return editorBase},set editorBase(value){editorBase=value},'
-  + 'set openTask(value){openTask=value},get pollTimer(){return Boolean(pollTimer)},'
+  + 'set openTask(value){openTask=value},get openTask(){return openTask},'
+  + 'set detailTab(value){detailTab=value},get detailTab(){return detailTab},'
+  + 'get pollTimer(){return Boolean(pollTimer)},'
   + 'get pollStep(){return pollStep},get pollDelay(){return POLL_LADDER[pollStep]},'
   + 'get versionToken(){return versionToken},setUi};';
 (0, eval)(source);
@@ -314,6 +316,13 @@ async function main() {
     if (step.do === 'poll') await globalThis.__console.pollVersion();
     if (step.do === 'refresh') await globalThis.__console.refresh(Boolean(step.quiet));
     if (step.do === 'showView') globalThis.__console.showView(step.view);
+    // Open one card on one detail tab. The decision controls live here, and
+    // whether they are rendered at all depends on the card's lane.
+    if (step.do === 'detail') {
+      globalThis.__console.openTask = step.task;
+      globalThis.__console.detailTab = step.tab || 'discussion';
+      await globalThis.__console.renderDetail(true);
+    }
     if (step.do === 'fire') fire(step.event);
     if (step.do === 'research') {
       const running = globalThis.__console.researchSubject(step.subject);

@@ -33,6 +33,18 @@ def request_revision(profile_dir: Path, task_id: str, comment: str, requester: s
         raise TaskFileError("revision request is refused because a human decision already exists")
     task_file = TaskFile(profile_dir / "tasks.md", lock_path=profile_dir / "state" / "tasks.lock")
     task = _task(task_file.path, task_id)
+    # A card that has not reached Human Approval has not been offered to anybody,
+    # so there is nothing to ask changes to. This used to succeed: it set
+    # `revision requested` on a card still in CMO Review, and once the content
+    # worker existed that meant a rewrite started on an article its reader had
+    # never seen. `DecisionStore` refuses the same lane for approvals; this makes
+    # the two halves of the decision surface agree.
+    section = str(task.get("board_section") or task.get("status", "")).strip()
+    if section != "Human Approval":
+        raise TaskFileError(
+            f"{task_id} is in {section or 'an unknown lane'}, not Human Approval, so there is "
+            "nothing to ask changes to yet"
+        )
     current = str(task.get("revision_round", "0"))
     round_number = int(current) + 1 if re.fullmatch(r"\d+", current) else 1
     task_file.set_board_fields(
