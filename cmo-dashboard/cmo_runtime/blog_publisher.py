@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from cmo_runtime.agent_runtime import BoardStore
+from cmo_runtime.review_sections import strip_scaffolding
 from cmo_runtime.content_flow import (
     BLOG_CATEGORY_SLUGS,
     IMAGE_MARKER,
@@ -125,9 +126,18 @@ class BlogPublisher:
             / "page.tsx"
         )
         image_path = self.website_root / "public/images/blog" / f"{slug}.svg"
-        if page_path.exists():
+        # Publishing over somebody else's page stays refused. Publishing over the
+        # page *this card* published is a republish, and it has to be possible: the
+        # converter is code, code gets fixed, and the fix has to reach the article
+        # that exposed it without inventing a second slug for the same post.
+        # Keyed on the preview URL rather than the change status: re-approving a
+        # card resets its status to `awaiting Gate 2`, and a republish is almost
+        # always preceded by exactly that. The recorded URL is the durable evidence
+        # that this card published this slug.
+        republishing = card.fields.get("Preview URL", "").rstrip("/").endswith(f"/blog/{slug}")
+        if page_path.exists() and not republishing:
             raise BlogPublishRefused(f"blog page already exists: {page_path}")
-        if image_path.exists():
+        if image_path.exists() and not republishing:
             raise BlogPublishRefused(f"blog image already exists: {image_path}")
 
         blog_posts_path = self.website_root / "src/data/blog-posts.ts"
@@ -149,6 +159,7 @@ class BlogPublisher:
         )
         updated_blog_posts = _insert_blog_post(
             blog_posts,
+            replace=republishing,
             slug=slug,
             title=fields["title"],
             excerpt=fields["meta_description"],
@@ -306,26 +317,15 @@ def _read_time(body: str) -> str:
     return f"{minutes} min read"
 
 
-_REVIEW_ONLY_HEADINGS = {
-    "source-backed outline",
-    "claims requiring human verification",
-    "proposed internal links and call to action — not published",
-}
-
-
 def _public_body(body: str) -> str:
-    retained: list[str] = []
-    omit = False
-    for line in body.splitlines():
-        heading = re.fullmatch(r"##\s+(.+?)\s*", line)
-        if heading:
-            normalized = heading.group(1).strip().rstrip(":").casefold()
-            omit = normalized in _REVIEW_ONLY_HEADINGS or "not published" in normalized
-            if omit:
-                continue
-        if not omit:
-            retained.append(line)
-    return "\n".join(retained).strip() + "\n"
+    """Everything a reader should see. One definition, shared with the console.
+
+    This used to carry its own list of three heading names. The console carried a
+    different list of five, and the difference went to the website: `Decision
+    bullets:` was on the console's list and not on this one, so it was published
+    under its own heading, on a page anyone can read.
+    """
+    return strip_scaffolding(body)
 
 
 def _svg_metadata(svg: str) -> tuple[str, int, int]:
@@ -578,6 +578,7 @@ export default function {_component_name(fields["slug"])}() {{
 def _insert_blog_post(
     source: str,
     *,
+    replace: bool = False,
     slug: str,
     title: str,
     excerpt: str,
@@ -585,7 +586,14 @@ def _insert_blog_post(
     read_time: str,
     category: str,
 ) -> str:
-    if re.search(rf'^\s+slug:\s*{re.escape(json.dumps(slug))},?\s*$', source, re.M):
+    existing = re.search(rf'(?m)^  \{{\n(?:.*\n)*?    slug: {re.escape(json.dumps(slug))},\n(?:.*\n)*?  \}},\n', source)
+    if existing is not None:
+        if not replace:
+            raise BlogPublishRefused(f"blogPosts already contains slug: {slug}")
+        # A republish rewrites its own entry in place rather than adding a second
+        # one, so /blog does not list the post twice.
+        source = source[: existing.start()] + source[existing.end():]
+    elif re.search(rf'^\s+slug:\s*{re.escape(json.dumps(slug))},?\s*$', source, re.M):
         raise BlogPublishRefused(f"blogPosts already contains slug: {slug}")
     start = source.find("export const blogPosts")
     if start < 0:

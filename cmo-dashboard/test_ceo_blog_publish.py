@@ -594,6 +594,137 @@ class AStaleApprovalCanBeGivenAgain(PublishFixture):
         self.assertIn("already decided", str(raised.exception))
 
 
+class RepublishingItsOwnPage(PublishFixture):
+    """The converter is code. Code gets fixed, and the fix has to reach the page.
+
+    Publishing over somebody else's page stays refused. Publishing over the page
+    this card published is a republish — otherwise a converter bug is permanent
+    for every article that already went out, or gets a second slug for the same
+    post.
+    """
+
+    def test_a_second_publish_of_the_same_card_replaces_its_page(self) -> None:
+        self.approve()
+        self.publish()
+
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            ARTICLE.replace("A useful introduction", "A corrected introduction"), encoding="utf-8"
+        )
+        self.approve()  # the artifact moved, so Gate 1 is given again
+        outcome = self.publish()
+
+        self.assertEqual(outcome["result"], "pushed")
+        page = git(self.website, "show",
+                   "origin/cmo-changes:src/app/(marketing)/blog/useful-finance-guide/page.tsx")
+        self.assertIn("A corrected introduction", page)
+        self.assertNotIn("A useful introduction", page)
+
+    def test_the_post_is_listed_once_not_twice(self) -> None:
+        self.approve()
+        self.publish()
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            ARTICLE.replace("A useful introduction", "A corrected introduction"), encoding="utf-8"
+        )
+        self.approve()
+        self.publish()
+
+        index = git(self.website, "show", "origin/cmo-changes:src/data/blog-posts.ts")
+        self.assertEqual(index.count('slug: "useful-finance-guide"'), 1)
+
+    def test_publishing_over_a_page_this_card_did_not_publish_is_refused(self) -> None:
+        from cmo_runtime.blog_publisher import BlogPublisher, BlogPublishRefused
+
+        page = self.website / "src/app/(marketing)/blog/useful-finance-guide/page.tsx"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text("somebody else's article\n", encoding="utf-8")
+
+        with self.assertRaises(BlogPublishRefused) as raised:
+            BlogPublisher(self.profile, self.website).preview(
+                "TASK-900", publication_date=date(2026, 8, 12)
+            )
+
+        self.assertIn("already exists", str(raised.exception))
+        self.assertEqual(page.read_text(encoding="utf-8"), "somebody else's article\n")
+
+
+class ReviewScaffoldingNeverReachesThePage(PublishFixture):
+    """It did. `Decision bullets:` was published under its own heading."""
+
+    def publish_with_scaffolding(self) -> str:
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            ARTICLE + """
+## Decision bullets:
+
+- Measure before commissioning more pages.
+- Check the finance terms.
+
+## Closing
+
+A closing paragraph. Claims requiring human verification before publication: the finance terms.
+
+Proposed internal links: the Battery Passport article. Source notes: retained pages were accessed on 2026-08-11.
+""",
+            encoding="utf-8",
+        )
+        self.approve()
+        self.publish()
+        return git(self.website, "show",
+                   "origin/cmo-changes:src/app/(marketing)/blog/useful-finance-guide/page.tsx")
+
+    def test_no_scaffolding_label_survives_to_the_page(self) -> None:
+        page = self.publish_with_scaffolding()
+
+        for phrase in ("Decision bullets", "Claims requiring human verification",
+                       "Proposed internal links", "Source notes", "accessed on 2026-08-11"):
+            self.assertNotIn(phrase, page, phrase)
+
+    def test_the_article_around_it_still_publishes(self) -> None:
+        page = self.publish_with_scaffolding()
+
+        self.assertIn("A closing paragraph.", page)
+        self.assertIn("<h2>Closing</h2>", page)
+        self.assertIn("<h2>What to check</h2>", page)
+
+
+class TheConverterEmitsRealElements(PublishFixture):
+    """<h2>, <p>, <ul>/<li>, <table> — never a styled span."""
+
+    def page(self) -> str:
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            ARTICLE + """
+### A subsection
+
+| City | Price |
+|---|---:|
+| Delhi | 12,000 |
+""",
+            encoding="utf-8",
+        )
+        self.approve()
+        self.publish()
+        return git(self.website, "show",
+                   "origin/cmo-changes:src/app/(marketing)/blog/useful-finance-guide/page.tsx")
+
+    def test_every_structure_is_a_real_element(self) -> None:
+        page = self.page()
+
+        self.assertIn("<h2>What to check</h2>", page)
+        self.assertIn("<h3>A subsection</h3>", page)
+        self.assertIn("<p>", page)
+        self.assertIn("<ul>", page)
+        self.assertIn("<li>", page)
+        self.assertIn("<table>", page)
+        self.assertIn("<figure", page)
+        self.assertIn("<figcaption>", page)
+
+    def test_no_heading_is_emitted_as_styled_inline_text(self) -> None:
+        page = self.page()
+
+        self.assertNotIn("<span className=", page)
+        self.assertNotIn("<b>", page)
+        self.assertNotIn("<div>What to check</div>", page)
+
+
 class NoAgentPathCanPublish(PublishFixture):
     """The instruction is the authority, and only a human page render mints one."""
 

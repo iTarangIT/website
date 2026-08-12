@@ -66,7 +66,11 @@ export default function BlogLayout({
           </div>
         </header>
 
-        <div className="prose prose-lg prose-gray max-w-none prose-headings:tracking-tight prose-a:text-brand-600 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl">
+        {/* `prose-*` here were Tailwind Typography classes, and that plugin is not
+            installed — under Tailwind v4 they resolved to nothing at all, so every
+            article rendered as unstyled <p> and <h2>. The real styles live in
+            globals.css under .article-prose. */}
+        <div className="article-prose">
           {children}
         </div>
 

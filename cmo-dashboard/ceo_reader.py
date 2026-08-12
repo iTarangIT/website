@@ -16,6 +16,8 @@ import html
 import re
 from typing import Any, Iterable, Sequence
 
+from cmo_runtime import review_sections
+
 __all__ = [
     "render_markdown_fragment",
     "render_article",
@@ -46,13 +48,11 @@ SAFE_HREF = re.compile(r"^(?:https?://|mailto:|/|\#)", re.I)
 
 #: Headings the writer uses to talk to its reviewers. They are review scaffolding,
 #: not prose, so the reader files them under "Review notes" instead of inline.
-REVIEW_HEADINGS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^decision bullets\b"),
-    re.compile(r"^claims requiring human verification\b"),
-    re.compile(r"^proposed internal links\b"),
-    re.compile(r"^source-backed outline\b"),
-    re.compile(r"^review notes\b"),
-)
+#:
+#: Defined in `cmo_runtime.review_sections` and imported here rather than restated,
+#: because this list and the publisher's used to be two lists. They disagreed, and
+#: the difference — `Decision bullets:` — was published to the website.
+REVIEW_HEADINGS = review_sections.HEADING_PATTERNS
 
 
 def _esc(value: str) -> str:
@@ -83,9 +83,7 @@ def strip_front_matter(text: str) -> tuple[dict[str, str], str]:
 
 
 def _is_review_heading(title: str) -> bool:
-    normalised = re.sub(r"\s+", " ", title).strip().strip(":").casefold()
-    normalised = normalised.replace("—", "-").replace("–", "-")
-    return any(pattern.search(normalised) for pattern in REVIEW_HEADINGS)
+    return review_sections.is_review_heading(title)
 
 
 def split_review_notes(text: str) -> tuple[str, str]:

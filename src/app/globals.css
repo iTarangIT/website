@@ -250,3 +250,194 @@ h1, h2, h3 {
   background: rgba(19, 143, 198, 0.2);
   color: #02314e;
 }
+
+/* ========================================
+   Long-form article prose
+   ========================================
+
+   BlogLayout used to hand its children `prose prose-lg prose-gray` — Tailwind
+   Typography classes. That plugin is not installed, and under Tailwind v4
+   `@import "tailwindcss"` does not bring it in, so every one of those classes was
+   inert. The publisher was emitting correct <h2>, <p> and <ul> elements the whole
+   time; nothing was styling them. That is why articles read as one undifferentiated
+   block: no paragraph spacing, headings only as large bold text with no space above
+   them, list items running on like prose.
+
+   Written out here rather than installing the plugin: it is one file, no new
+   dependency on a build we cannot run in this container, and the values below are
+   chosen for this content rather than inherited. */
+
+.article-prose {
+  /* 65–75 characters at this size. The container is wider than the text on
+     purpose — the figure and tables use the full width, the prose does not. */
+  --measure: 68ch;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: #334155;
+}
+
+.article-prose > * {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
+.article-prose p {
+  margin-block: 0 1.4em;
+}
+
+.article-prose > :first-child {
+  margin-block-start: 0;
+}
+
+/* A heading belongs to what follows it, so the space above is much larger than
+   the space below. That asymmetry is what makes sections scannable. */
+.article-prose h2 {
+  margin-block: 2.75rem 0.85rem;
+  font-size: 1.6rem;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.011em;
+  color: #0f172a;
+}
+
+.article-prose h3 {
+  margin-block: 2rem 0.6rem;
+  /* Clearly subordinate to h2 by three signals at once — size, weight and colour —
+     so the level reads even in a screenshot or at a glance. */
+  font-size: 1.185rem;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #334155;
+}
+
+.article-prose h2 + h3 {
+  margin-block-start: 1.1rem;
+}
+
+.article-prose ul,
+.article-prose ol {
+  margin-block: 0 1.4em;
+  padding-inline-start: 1.5em;
+}
+
+.article-prose ul { list-style: disc; }
+.article-prose ol { list-style: decimal; }
+
+.article-prose li {
+  margin-block: 0.4em;
+  padding-inline-start: 0.25em;
+}
+
+.article-prose li::marker {
+  color: #90d4ef;
+}
+
+.article-prose strong {
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.article-prose a {
+  color: #2e68b2;
+  text-decoration: none;
+  border-block-end: 1px solid rgba(46, 104, 178, 0.35);
+}
+
+.article-prose a:hover {
+  border-block-end-color: currentColor;
+}
+
+.article-prose blockquote {
+  margin-block: 1.75rem;
+  padding-inline-start: 1.15rem;
+  border-inline-start: 3px solid #90d4ef;
+  color: #475569;
+  font-style: italic;
+}
+
+/* The diagram is the one thing allowed past the measure: it earns the width, and
+   the air around it is what stops it reading as an interruption. */
+.article-prose figure {
+  max-width: 100%;
+  margin-block: 2.75rem;
+}
+
+.article-prose figure img,
+.article-prose figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-inline: auto;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.article-prose figcaption {
+  max-width: var(--measure);
+  margin: 0.85rem auto 0;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  /* Deliberately not body colour or body size: a caption that matches the prose
+     reads as a stray paragraph. */
+  color: #64748b;
+}
+
+.article-prose > div:has(table) {
+  max-width: 100%;
+}
+
+.article-prose table {
+  width: 100%;
+  margin-block: 1.75rem;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.article-prose th,
+.article-prose td {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.article-prose th {
+  background: #f1f5f9;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.article-prose code {
+  padding: 0.1em 0.35em;
+  border-radius: 0.3rem;
+  background: #f1f5f9;
+  font-size: 0.9em;
+}
+
+.article-prose hr {
+  margin-block: 2.5rem;
+  border: 0;
+  border-block-start: 1px solid #e2e8f0;
+}
+
+/* On a phone the line is short enough already; the win there is a slightly
+   larger body size and tighter vertical rhythm so less scrolling buys more text. */
+@media (max-width: 640px) {
+  .article-prose {
+    font-size: 1.09375rem;
+    line-height: 1.7;
+  }
+  .article-prose h2 {
+    margin-block: 2.25rem 0.7rem;
+    font-size: 1.45rem;
+  }
+  .article-prose h3 {
+    margin-block: 1.6rem 0.5rem;
+    font-size: 1.125rem;
+  }
+  .article-prose figure {
+    margin-block: 2rem;
+  }
+}
