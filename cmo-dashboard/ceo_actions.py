@@ -97,6 +97,11 @@ def retry_write(profile_dir: Path, task_id: str, requester: str) -> dict[str, ob
 MAX_ARTICLE_BYTES = 512 * 1024
 
 
+def _has_front_matter(text: str) -> bool:
+    """Whether the text opens with a `---` block the publisher can read."""
+    return re.match(r"\A---\s*\n.*?\n---\s*\n", text.strip(), re.S) is not None
+
+
 def _next_revision(article: Path, current_round: int) -> int:
     """The first round number that has not already archived a version."""
     used = {current_round}
@@ -137,6 +142,19 @@ def save_article_edit(profile_dir: Path, task_id: str, text: str, editor: str) -
         )
     if article.read_bytes() == encoded:
         raise TaskFileError("the article is unchanged")
+
+    # An article's front matter is not prose — it carries the slug, the category and
+    # the description the published page is built from. An edit that drops it leaves
+    # an article that still reads perfectly and can no longer be published at all,
+    # and the refusal only surfaces later at the publish check. Preservation only:
+    # an article that never had front matter is not made to grow some.
+    previous_text = article.read_text(encoding="utf-8", errors="replace")
+    if _has_front_matter(previous_text) and not _has_front_matter(body):
+        raise TaskFileError(
+            "this edit removes the article's front matter — the block between the --- lines "
+            "carrying title, slug and category. Without it the article cannot be published. "
+            "Keep that block and edit the text below it."
+        )
 
     current = str(task.get("revision_round", "0"))
     current_round = int(current) if re.fullmatch(r"\d+", current) else 0

@@ -1831,6 +1831,12 @@ class ContentRuntime:
                     "Attachment": f"artifacts/{article_path.name}",
                     "Category": frontmatter["category"],
                     "Description": description,
+                    # A blog post is a website change: it adds a route, an entry in
+                    # the post registry and a sitemap URL. Classifying it here, where
+                    # the artifact is created, is what makes approving it Gate 1
+                    # rather than completion — a card left unclassified was approved
+                    # straight into Completed, past the publish step entirely.
+                    "Change type": "website",
                     "Metric": metric,
                     f"Image slot {package.slot_id}": f"artifacts/{diagram_path.name}",
                 },

@@ -143,11 +143,24 @@ class DecisionStore:
                 )
 
             is_website = self._task_field(board_text, task_id, "Change type").casefold() == "website"
-            if is_website and (
-                not COMMIT_SHA.fullmatch(card_commit_sha) or not COMMIT_SHA.fullmatch(commit_sha)
-            ):
+            # Two shapes of website card, and they are approved at different moments.
+            #
+            # A card whose change already exists as a commit is approved *on that
+            # commit*: the preview was built from it, so the SHAs must be there and
+            # must agree. A blog card has no commit at Gate 1 — the article is
+            # approved first and pushed afterwards — so there is nothing to pin it
+            # to except a digest of what is being approved. Requiring a SHA there
+            # made approving an article impossible; accepting neither would let a
+            # card be approved with nothing identifying what was approved.
+            if is_website and card_commit_sha:
+                if not COMMIT_SHA.fullmatch(card_commit_sha) or not COMMIT_SHA.fullmatch(commit_sha):
+                    raise DecisionValidationError(
+                        "website approval requires card and decision commit SHAs"
+                    )
+            elif is_website and not publish_fingerprint:
                 raise DecisionValidationError(
-                    "website approval requires card and decision commit SHAs"
+                    "a website card with no commit is approved on its artifact, which requires a "
+                    "publish fingerprint"
                 )
 
             if is_website and card_commit_sha != commit_sha:

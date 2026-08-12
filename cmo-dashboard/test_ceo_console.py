@@ -187,6 +187,52 @@ class CEOConsoleTests(unittest.TestCase):
             self.assertIn("not Human Approval", str(raised.exception))
             self.assertEqual(path.read_text(encoding="utf-8"), before, "the board was written anyway")
 
+    def test_an_edit_that_removes_the_front_matter_is_refused(self):
+        """The block between the --- lines is not prose; it is the published page.
+
+        An edit that dropped it left an article that read perfectly and could not
+        be published at all — and nothing said so until the publish check ran,
+        after the card had been approved on the broken version. That happened.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "state").mkdir()
+            (root / "artifacts").mkdir()
+            article = root / "artifacts" / "draft.md"
+            article.write_text(
+                "---\ntitle: A guide\nslug: a-guide\ncategory: financing\n---\n\n# A guide\n\nBody.\n",
+                encoding="utf-8",
+            )
+            (root / "tasks.md").write_text(board_card(attachment="artifacts/draft.md"), encoding="utf-8")
+            before = article.read_bytes()
+
+            from cmo_runtime.task_file import TaskFileError
+
+            with self.assertRaises(TaskFileError) as raised:
+                ceo_actions.save_article_edit(
+                    root, "TASK-1", "# A guide\n\nBody, edited.\n", "ceo@example.test"
+                )
+
+            self.assertIn("front matter", str(raised.exception))
+            self.assertEqual(article.read_bytes(), before, "the article was written anyway")
+
+    def test_an_edit_that_keeps_the_front_matter_is_saved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "state").mkdir()
+            (root / "artifacts").mkdir()
+            header = "---\ntitle: A guide\nslug: a-guide\ncategory: financing\n---\n"
+            article = root / "artifacts" / "draft.md"
+            article.write_text(header + "\n# A guide\n\nBody.\n", encoding="utf-8")
+            (root / "tasks.md").write_text(board_card(attachment="artifacts/draft.md"), encoding="utf-8")
+
+            result = ceo_actions.save_article_edit(
+                root, "TASK-1", header + "\n# A guide\n\nBody, edited.\n", "ceo@example.test"
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertIn("Body, edited.", article.read_text(encoding="utf-8"))
+
     def test_page_modules_import_in_both_orders(self):
         for first, second in (("ceo_console", "ceo_page"), ("ceo_page", "ceo_console")):
             importlib.reload(importlib.import_module(first))

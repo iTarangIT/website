@@ -87,9 +87,11 @@ def _card(category: str = "financing") -> str:
         "- Status: Human Approval",
         "- Attachment: artifacts/TASK-900-content.md",
         "- Image slot decision-flow: artifacts/TASK-900-decision-flow.svg",
+        "- Change type: website",
         "- Metric: Organic sessions",
         "- Tag: action to be taken by: human",
         "- Revision round: 0",
+        "- Completed date: not completed",
         "- Last updated: 2026-08-11T00:00:00Z",
         "- Updated: 2026-08-11T00:00:00Z",
     ]
@@ -348,8 +350,18 @@ class ItRefusesForOneNamedReasonAtATime(PublishFixture):
         self.assertIn("changed after this card was approved", " ".join(check.blockers))
 
     def test_an_approval_recorded_before_fingerprinting_refuses(self) -> None:
-        """Every approval on the live board today. Fail closed, do not assume."""
-        self.approve(fingerprint="")
+        """Records written before fingerprinting existed, as they sit on disk.
+
+        `decide()` will no longer produce one of these — a website card with no
+        commit must carry a fingerprint — but the ones already written do not
+        vanish, and publish has to fail closed against them rather than assume the
+        card is unchanged.
+        """
+        self.approve()
+        approvals = self.profile / "state" / "human-approvals.json"
+        record = json.loads(approvals.read_text(encoding="utf-8"))
+        del record["TASK-900"]["publish_fingerprint"]
+        approvals.write_text(json.dumps(record, indent=2), encoding="utf-8")
 
         check = self.preflight()
 
@@ -364,6 +376,83 @@ class ItRefusesForOneNamedReasonAtATime(PublishFixture):
 
         self.assertFalse(check.eligible)
         self.assertIn("not cmo-changes", " ".join(check.blockers))
+
+
+class ABlogIsAWebsiteChange(PublishFixture):
+    """The classification that decides whether approval is Gate 1 or completion.
+
+    A blog post adds a route, an entry in the post registry and a sitemap URL. It
+    was reaching `DecisionStore` with no `Change type` at all, so approval took the
+    non-website branch: straight to Completed with `Change status: completed`, past
+    the publish step entirely, and the button then had no card to act on.
+    """
+
+    def section_of(self, task_id: str) -> str:
+        from cmo_runtime.agent_runtime import BoardStore
+
+        return BoardStore(self.profile).get(task_id).section
+
+    def field(self, task_id: str, name: str) -> str:
+        from cmo_runtime.agent_runtime import BoardStore
+
+        return BoardStore(self.profile).get(task_id).fields.get(name, "")
+
+    def test_the_writer_marks_a_finished_article_as_a_website_change(self) -> None:
+        """Classified where the artifact is made, not guessed at later."""
+        import inspect
+
+        from cmo_runtime.content_flow import ContentRuntime
+
+        source = inspect.getsource(ContentRuntime.execute)
+        self.assertIn('"Change type": "website"', source)
+
+    def test_approving_a_blog_card_leaves_it_in_human_approval(self) -> None:
+        self.approve()
+
+        self.assertEqual(self.section_of("TASK-900"), "Human Approval")
+        self.assertEqual(self.field("TASK-900", "Change status"), "awaiting Gate 2")
+
+    def test_approving_a_blog_card_turns_the_publish_button_on(self) -> None:
+        self.assertFalse(self.preflight().eligible)
+
+        self.approve()
+
+        check = self.preflight()
+        self.assertTrue(check.eligible, check.blockers)
+        self.assertEqual(check.slug, "useful-finance-guide")
+
+    def test_approval_alone_never_reaches_completed(self) -> None:
+        self.approve()
+
+        self.assertNotEqual(self.section_of("TASK-900"), "Completed")
+        self.assertEqual(self.field("TASK-900", "Completed date"), "not completed")
+
+    def test_publishing_does_not_complete_the_card_either(self) -> None:
+        """Completed waits for the merge and live evidence, neither of which we do."""
+        self.approve()
+
+        self.publish()
+
+        self.assertEqual(self.section_of("TASK-900"), "Human Approval")
+        self.assertEqual(self.field("TASK-900", "Change status"), "published to cmo-changes")
+        self.assertEqual(self.field("TASK-900", "Completed date"), "not completed")
+
+    def test_a_website_card_with_no_commit_needs_a_fingerprint_to_be_approved(self) -> None:
+        """A blog card is approved before it has a commit, so something else pins it.
+
+        The old rule demanded commit SHAs from every website card, which no blog
+        card can supply at Gate 1. Dropping the rule outright would let a website
+        card be approved with nothing recording what was approved.
+        """
+        from cmo_runtime.decisions import DecisionStore, DecisionValidationError
+
+        with self.assertRaises(DecisionValidationError) as raised:
+            DecisionStore(self.profile).decide(
+                "TASK-900", "approve", approver_id="ceo@itarang.test", surface="dashboard",
+            )
+
+        self.assertIn("publish fingerprint", str(raised.exception))
+        self.assertEqual(self.section_of("TASK-900"), "Human Approval")
 
 
 class NoAgentPathCanPublish(PublishFixture):

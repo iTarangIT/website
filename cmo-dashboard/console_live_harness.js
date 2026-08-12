@@ -231,6 +231,12 @@ let currentState = plan.state;
 let currentVersion = plan.version || 'v1';
 let failNext = null;
 let hangNext = null;
+/* The publish check's answer, so a test can drive the block's three outcomes:
+   refused with reasons, eligible, or malformed. */
+let publishCheck = plan.publishCheck || {
+  eligible: false, blockers: ['no Gate 1 approval is recorded for this card'],
+  files: [], slug: '', category: '', request_id: '',
+};
 
 async function fetchStub(path, options) {
   const url = String(path);
@@ -243,6 +249,7 @@ async function fetchStub(path, options) {
     };
   }
   let payload = { ok: true };
+  if (url.startsWith('/ceo/blog-publish-check')) payload = publishCheck;
   if (url.startsWith('/api/session')) payload = { email: 'sanchit@itarang.com', role: 'ceo', console: '/ceo' };
   else if (url.startsWith('/ceo/api/state')) payload = currentState;
   else if (url.startsWith('/ceo/api/version')) payload = { version: currentVersion };
@@ -281,6 +288,7 @@ const source = fs.readFileSync(scriptPath, 'utf8')
   + 'get editorBase(){return editorBase},set editorBase(value){editorBase=value},'
   + 'set openTask(value){openTask=value},get openTask(){return openTask},'
   + 'set detailTab(value){detailTab=value},get detailTab(){return detailTab},'
+  + 'set checkTimeout(value){CHECK_TIMEOUT_MS=value},refreshBlogPublish,'
   + 'get pollTimer(){return Boolean(pollTimer)},'
   + 'get pollStep(){return pollStep},get pollDelay(){return POLL_LADDER[pollStep]},'
   + 'get versionToken(){return versionToken},setUi};';
@@ -318,6 +326,8 @@ async function main() {
     if (step.do === 'showView') globalThis.__console.showView(step.view);
     // Open one card on one detail tab. The decision controls live here, and
     // whether they are rendered at all depends on the card's lane.
+    if (step.publishCheck !== undefined) publishCheck = step.publishCheck;
+    if (step.checkTimeout) globalThis.__console.checkTimeout = step.checkTimeout;
     if (step.do === 'detail') {
       globalThis.__console.openTask = step.task;
       globalThis.__console.detailTab = step.tab || 'discussion';
@@ -374,6 +384,15 @@ async function main() {
       },
       scrolls: scrolls.slice(),
       detailBody: byId('detail-body').innerHTML,
+      /* The publish block reports itself. detail-body holds the string setHtml put
+         there; refreshBlogPublish then writes into child nodes, and this fake DOM
+         does not fold a child's innerHTML back into its parent's. Reading the
+         parent would show the placeholder forever and call it a pass. */
+      blogPublish: {
+        state: byId('blog-publish-state').innerHTML || byId('blog-publish-state').textContent,
+        checked: byId('blog-publish-block').dataset.checked || '',
+        disabled: Boolean(byId('blog-publish-block').querySelector('[data-blog-publish]').disabled),
+      },
     });
   }
   report.requests = report.requests.slice();

@@ -1054,11 +1054,14 @@ function showEditorConflict(){
 }
 function pipelineHtml(task){
  const item=task.publishing_pipeline;
- /* A blog card has no website-change pipeline — no Lighthouse baseline, no
-    preview commit — because it has not reached the website yet. What it has is
-    the step before that: turn the approved article into blog sources and push
-    them to cmo-changes. That is a different block, and a different branch. */
- if(!item)return task.article?blogPublishHtml():emptyState('No website pipeline','This card publishes nothing to the website, so there is no preview or commit to check.');
+ /* A blog card is a website card, but at Gate 1 it has no commit and no preview
+    yet — the article is approved first and pushed afterwards. So which block
+    belongs here depends on whether the push has happened, not on the change type:
+    before it, the control that performs the push; after it, the pipeline showing
+    where that push landed. */
+ const pushed=Boolean(item&&(item.commit||item.preview_url));
+ if(task.article&&!pushed)return blogPublishHtml();
+ if(!item)return emptyState('No website pipeline','This card publishes nothing to the website, so there is no preview or commit to check.');
  const link=(url,label)=>url?`<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`:'—';
  return `<div class="pipeline"><strong>Approval is Gate 1, not publication.</strong><p class="meta">${esc(item.waiting_on)}</p><dl><dt>Change status</dt><dd>${cell(item.change_status)}</dd><dt>Branch</dt><dd>${cell(item.branch)}</dd><dt>Commit</dt><dd>${item.commit_url?link(item.commit_url,esc(item.commit||'Open commit')):cell(item.commit)}</dd><dt>Preview</dt><dd>${link(item.preview_url,'Open preview')}</dd><dt>Lighthouse evidence</dt><dd>${cell(item.lighthouse_evidence)}</dd></dl>${publishHtml()}</div>`;
 }
@@ -1080,11 +1083,35 @@ function blogPublishFilesHtml(check){
  if(!check.files||!check.files.length)return '';
  return `<ul class="files">${check.files.map(name=>`<li><span class="num">${esc(name)}</span></li>`).join('')}</ul>`;
 }
+/* The eligibility check reads the board, converts the article and asks the git
+   remote where cmo-changes is. Any of those can be slow, and one of them can hang.
+   A hung check used to leave "Checking whether this article can be published…" on
+   screen with no end and no reason, which is indistinguishable from a broken
+   console. It now gives up out loud and offers to try again. */
+let CHECK_TIMEOUT_MS=15000;
+function withDeadline(promise,ms,message){
+ return new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(new Error(message)),ms);
+  promise.then(value=>{clearTimeout(timer);resolve(value);},
+               error=>{clearTimeout(timer);reject(error);});
+ });
+}
+/* A block still sitting on its placeholder has not been answered. renderDetail
+   skips a repaint whose markup is unchanged, and skipping the repaint used to skip
+   the check with it, so a check that never landed was never retried either. */
+function publishCheckPending(){
+ const block=$('#blog-publish-block');
+ return Boolean(block)&&block.dataset.checked!=='1';
+}
 async function refreshBlogPublish(task){
  const block=$('#blog-publish-block');if(!block)return;
  const line=$('#blog-publish-state'),button=block.querySelector('[data-blog-publish]');
  try{
-  const check=await api('/ceo/blog-publish-check?task='+encodeURIComponent(task.id));
+  const check=await withDeadline(
+   api('/ceo/blog-publish-check?task='+encodeURIComponent(task.id)),
+   CHECK_TIMEOUT_MS,
+   'the check did not answer in time'
+  );
   blogPublishRequest=check.request_id||'';
   setHtml($('#blog-publish-files'),blogPublishFilesHtml(check));
   if(check.eligible){
@@ -1094,7 +1121,14 @@ async function refreshBlogPublish(task){
    line.innerHTML='Cannot publish yet:<ul>'+check.blockers.map(reason=>`<li>${esc(reason)}</li>`).join('')+'</ul>';
    button.disabled=true;
   }
- }catch(error){line.textContent='Could not check publish eligibility: '+error.message;button.disabled=true;}
+ }catch(error){
+  line.innerHTML=`<span class="error">Could not check whether this can be published: ${esc(error.message)}.</span> `
+   +'<button class="ghost small" data-recheck="1" type="button">Check again</button>';
+  button.disabled=true;
+ }finally{
+  /* Answered either way. Never left implying a check is still running. */
+  block.dataset.checked='1';
+ }
 }
 async function publishBlog(task){
  const line=$('#blog-publish-state');
@@ -1213,12 +1247,18 @@ async function renderDetail(force=false){
  const render={read:detailRead,impact:detailImpact,discussion:detailDiscussion,files:detailFiles}[detailTab];
  if(force)painted.delete(body);
  const where=body?body.scrollTop||0:0;
- if(!setHtml(body,render(task)))return;
- if(body&&where)body.scrollTop=where;
- if(detailTab==='read'&&!editing)await hydrateImages();
- if(detailTab==='read'&&editing)$('#editor-input')?.focus();
- /* Publish eligibility asks GitHub. Only when the tab was actually repainted. */
- if(detailTab==='impact'){await refreshPublish(task);await refreshBlogPublish(task);}
+ const repainted=setHtml(body,render(task));
+ if(repainted){
+  if(body&&where)body.scrollTop=where;
+  if(detailTab==='read'&&!editing)await hydrateImages();
+  if(detailTab==='read'&&editing)$('#editor-input')?.focus();
+ }
+ /* Publish eligibility asks the git remote, so it runs on a repaint — and on any
+    render where the block is still unanswered, so a check that never landed gets
+    another chance instead of leaving the placeholder up for good. */
+ if(detailTab==='impact'&&(repainted||publishCheckPending())){
+  await refreshPublish(task);await refreshBlogPublish(task);
+ }
 }
 /* What a background update is allowed to do to an open card. */
 async function syncDetail(){
@@ -1431,6 +1471,7 @@ document.addEventListener('click',event=>{
  if(data.revision)revise(findTask(openTask));
  if(data.publish)publish(findTask(openTask));
  if(data.blogPublish)publishBlog(findTask(openTask));
+ if(data.recheck)refreshBlogPublish(findTask(openTask));
 });
 document.addEventListener('change',event=>{
  const target=event.target;

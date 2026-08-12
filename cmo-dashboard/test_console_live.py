@@ -401,6 +401,83 @@ class ConsoleStaysCurrent(unittest.TestCase):
                 self.assertIn('id="detail-pending"', body)
                 self.assertIn('id="detail-error"', body)
 
+    # ---- a check that cannot answer says so --------------------------------
+
+    def impact(self, task: dict, **step: object) -> dict:
+        """What the publish block itself says, not what the pane was painted with."""
+        return self.steps({
+            "state": _state([], [task]),
+            "steps": [{"do": "detail", "task": "TASK-9", "tab": "impact", **step}],
+        })[0]["blogPublish"]
+
+    def approved_blog(self) -> dict:
+        card = _blog("TASK-9", "Battery repair costs", blog=_state_block("approved", "Approved"))
+        card["board_section"] = "Human Approval"
+        card["decision_approved"] = True
+        return card
+
+    def test_a_check_that_never_answers_gives_up_out_loud(self) -> None:
+        """The bug: "Checking whether this article can be published…" with no end.
+
+        A spinner that never resolves is indistinguishable from a broken console —
+        there is nothing on screen to say whether to wait, retry, or give up.
+        """
+        block = self.impact(self.approved_blog(),
+                            hang="/ceo/blog-publish-check", checkTimeout=30)
+
+        self.assertNotIn("Checking whether this article can be published", block["state"])
+        self.assertIn("Could not check whether this can be published", block["state"])
+        self.assertIn("did not answer in time", block["state"])
+        self.assertEqual(block["checked"], "1", "the block still claims a check is running")
+
+    def test_a_check_that_gave_up_offers_a_way_to_try_again(self) -> None:
+        block = self.impact(self.approved_blog(),
+                            hang="/ceo/blog-publish-check", checkTimeout=30)
+
+        self.assertIn('data-recheck="1"', block["state"])
+        self.assertIn("Check again", block["state"])
+
+    def test_a_check_that_fails_says_why_rather_than_spinning(self) -> None:
+        block = self.impact(self.approved_blog(), fail={
+            "path": "/ceo/blog-publish-check", "status": 500,
+            "error": "the git remote could not be reached",
+        })
+
+        self.assertNotIn("Checking whether this article can be published", block["state"])
+        self.assertIn("the git remote could not be reached", block["state"])
+
+    def test_a_refused_check_lists_the_blockers_instead_of_spinning(self) -> None:
+        block = self.impact(self.approved_blog())
+
+        self.assertNotIn("Checking whether this article can be published", block["state"])
+        self.assertIn("Cannot publish yet", block["state"])
+
+    def test_an_eligible_check_enables_the_button_and_names_the_slug(self) -> None:
+        block = self.impact(self.approved_blog(), publishCheck={
+            "eligible": True, "blockers": [], "slug": "battery-repair-costs",
+            "category": "battery-selection", "files": ["src/data/blog-posts.ts"],
+            "request_id": "single-use-token",
+        })
+
+        self.assertIn("Ready to publish as /blog/battery-repair-costs", block["state"])
+        self.assertFalse(block["disabled"])
+
+    def test_an_answer_the_console_cannot_read_is_still_an_answer(self) -> None:
+        """Malformed is a failure with a reason, not a spinner that never ends."""
+        block = self.impact(self.approved_blog(), publishCheck={"ok": True})
+
+        self.assertNotIn("Checking whether this article can be published", block["state"])
+        self.assertIn("Could not check whether this can be published", block["state"])
+        self.assertEqual(block["checked"], "1")
+
+    def test_the_button_is_never_left_enabled_when_the_check_failed(self) -> None:
+        for step in ({"hang": "/ceo/blog-publish-check", "checkTimeout": 30},
+                     {"fail": {"path": "/ceo/blog-publish-check", "status": 500, "error": "boom"}}):
+            with self.subTest(step=sorted(step)):
+                block = self.impact(self.approved_blog(), **step)
+
+                self.assertTrue(block["disabled"], "publish was clickable after a failed check")
+
     # ---- invariant 3: an open editor is sacred -----------------------------
 
     def test_an_editor_with_unsaved_text_is_not_overwritten(self) -> None:

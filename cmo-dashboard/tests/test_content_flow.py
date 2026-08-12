@@ -284,7 +284,11 @@ class ContentFlowTest(unittest.TestCase):
         self.assertEqual(len(content_updates), 1)
         self.assertEqual(
             set(content_updates[0]),
-            {"Attachment", "Category", "Description", "Metric", "Image slot heat-flow"},
+            # `Change type: website` is what makes approving the article Gate 1
+            # rather than completion. A blog post adds a route, a registry entry
+            # and a sitemap URL; a card left unclassified was approved straight
+            # into Completed, past the publish step entirely.
+            {"Attachment", "Category", "Change type", "Description", "Metric", "Image slot heat-flow"},
         )
         self.assertEqual(
             self.task_file.move_calls,
