@@ -21,18 +21,40 @@ def _task(tasks_path: Path, task_id: str) -> dict[str, str]:
     return match
 
 
+def _decision_that_holds(profile_dir: Path, task: dict[str, str]) -> dict[str, str] | None:
+    """The decision still covering this artifact, or None if none does.
+
+    A current decision closes the article: editing it would change what was
+    approved, and asking for changes to it would be asking about something already
+    settled. Both stay refused, and that rule is unchanged.
+
+    A decision whose fingerprint has gone stale covers nothing — the thing approved
+    no longer exists. Approve-again alone would be a trap there: re-read a stale
+    article, find something wrong, and the only control on screen approves it. So a
+    stale decision reopens both.
+    """
+    import console_board
+    from cmo_runtime.decisions import decision_is_stale, decision_record
+
+    record = decision_record(profile_dir, task["id"])
+    if record is None:
+        return None
+    if decision_is_stale(record, console_board.publish_fingerprint(task, profile_dir)):
+        return None
+    return record
+
+
 def request_revision(profile_dir: Path, task_id: str, comment: str, requester: str) -> int:
     """Record a non-decision revision request while leaving the card in its lane."""
     from cmo_runtime.task_file import TaskFile, TaskFileError
-    from cmo_runtime.decisions import is_decided
 
     comment = comment.strip()
     if not comment or "\n" in comment or "\r" in comment:
         raise TaskFileError("revision comment must be a non-empty single line")
-    if is_decided(profile_dir, task_id):
-        raise TaskFileError("revision request is refused because a human decision already exists")
     task_file = TaskFile(profile_dir / "tasks.md", lock_path=profile_dir / "state" / "tasks.lock")
     task = _task(task_file.path, task_id)
+    if _decision_that_holds(profile_dir, task) is not None:
+        raise TaskFileError("revision request is refused because a human decision already exists")
     # A card that has not reached Human Approval has not been offered to anybody,
     # so there is nothing to ask changes to. This used to succeed: it set
     # `revision requested` on a card still in CMO Review, and once the content
@@ -116,7 +138,6 @@ def save_article_edit(profile_dir: Path, task_id: str, text: str, editor: str) -
     It records no decision — `DecisionStore` remains the only approval writer.
     """
     import console_board
-    from cmo_runtime.decisions import is_decided
     from cmo_runtime.task_file import TaskFile, TaskFileError
 
     editor = editor.strip()
@@ -131,7 +152,7 @@ def save_article_edit(profile_dir: Path, task_id: str, text: str, editor: str) -
     article = console_board.artifact_for(task, profile_dir)
     if article is None:
         raise TaskFileError(f"{task_id} has no article to edit")
-    if is_decided(profile_dir, task_id):
+    if _decision_that_holds(profile_dir, task) is not None:
         raise TaskFileError(
             "this article already carries a human decision; editing it would change "
             "what was approved. Ask for a revision instead."

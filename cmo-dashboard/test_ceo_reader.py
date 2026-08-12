@@ -363,15 +363,38 @@ class ConsoleEditMakesARevision(unittest.TestCase):
         self.assertEqual(self.article.read_bytes(), before)
         self.assertFalse((self.root / "artifacts" / "TASK-1-content.r1.md").exists())
 
+    def current_fingerprint(self) -> str:
+        import console_board
+
+        task = ceo_actions._task(self.root / "tasks.md", "TASK-1")
+        return console_board.publish_fingerprint(task, self.root)
+
     def test_an_edit_after_a_human_decision_is_refused(self) -> None:
+        """A decision that still covers the article closes it. That rule stands."""
         from cmo_runtime.task_file import TaskFileError
 
-        with patch.object(ceo_actions, "_task", wraps=ceo_actions._task), patch(
-            "cmo_runtime.decisions.is_decided", return_value=True
-        ):
+        record = {"decision": "approve", "approver_id": "ceo@example.test",
+                  "timestamp": "2026-08-12T09:00:00Z",
+                  "publish_fingerprint": self.current_fingerprint()}
+        with patch("cmo_runtime.decisions.decision_record", return_value=record):
             with self.assertRaisesRegex(TaskFileError, "already carries a human decision"):
                 self.edit(ARTICLE.replace("wants", "needs"))
         self.assertEqual(self.article.read_text(encoding="utf-8"), ARTICLE)
+
+    def test_an_edit_is_allowed_again_once_the_decision_has_gone_stale(self) -> None:
+        """Approve-again alone would be a trap.
+
+        Re-read an article whose approval no longer covers it, find something
+        wrong, and the only control on screen approves it anyway. The approval
+        covers nothing, so nothing is weakened by reopening the editor.
+        """
+        record = {"decision": "approve", "approver_id": "ceo@example.test",
+                  "timestamp": "2026-08-12T09:00:00Z", "publish_fingerprint": "f" * 64}
+        with patch("cmo_runtime.decisions.decision_record", return_value=record):
+            result = self.edit(ARTICLE.replace("wants", "needs"))
+
+        self.assertEqual(result["revision_round"], 1)
+        self.assertIn("needs", self.article.read_text(encoding="utf-8"))
 
     def test_an_oversized_edit_is_refused(self) -> None:
         from cmo_runtime.task_file import TaskFileError

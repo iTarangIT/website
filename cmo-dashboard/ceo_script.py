@@ -1213,9 +1213,26 @@ function detailDiscussion(task){
 <p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>.</p>
 ${thread?`<h3>Thread</h3>${thread}`:''}`;
  }
+ const record=task.decision_summary||{};
+ const decided=record.approver_id?`by ${esc(record.approver_id)}`:'';
+ const when=record.timestamp?` on ${esc(record.timestamp)}`:'';
+ /* The approval no longer describes the article in front of him. Publish already
+    refuses it and asks for a fresh Gate 1 — so this is where that becomes possible,
+    or the card sits between "already decided" and "the approval does not match"
+    with no control that resolves either. */
+ if(task.decision_stale){
+  const changes=(task.decision_change||[]).map(line=>`<li>${esc(line)}</li>`).join('');
+  return `<h3>Decision</h3><p>Approved ${decided}${when}, <strong>but the article has changed since</strong>, so that approval no longer covers it.</p>
+${changes?`<p class="meta">What changed:</p><ul class="meta">${changes}</ul>`:''}
+<div class="actions"><button data-decision="approve" type="button">Approve again</button></div>
+<label class="field">Ask for changes<textarea id="revision-comment" rows="3" placeholder="State the exact change needed"></textarea></label>
+<div class="actions"><button class="ghost" data-revision="1" type="button">Ask for changes</button></div>
+${surfaces}
+<p class="meta">Approving again records a new decision and keeps the old one; nothing is overwritten. Revision round: <span class="num">${esc(task.revision_round||'0')}</span>.</p>
+${thread?`<h3>Thread</h3>${thread}`:''}`;
+ }
  if(task.decision_approved){
-  const record=task.decision_summary||{};
-  return `<h3>Decision</h3><p>Approved${record.approver_id?` by ${esc(record.approver_id)}`:''}${record.timestamp?` on ${esc(record.timestamp)}`:''}.</p>
+  return `<h3>Decision</h3><p>Approved ${decided}${when}.</p>
 <p class="meta">A revision is refused once a decision exists, so this article can no longer be changed here. Publish it from the Impact tab.</p>${surfaces}
 ${thread?`<h3>Thread</h3>${thread}`:''}`;
  }

@@ -143,38 +143,126 @@ def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) ->
     return result("awaiting_you", "Awaiting you")
 
 
-def publish_fingerprint(task: dict[str, Any], profile_dir: Path = PROFILE_DIR) -> str:
-    """A digest of exactly what a publish would put on the website.
+def publish_components(
+    task: dict[str, Any], profile_dir: Path = PROFILE_DIR
+) -> list[tuple[str, bytes, str]]:
+    """Exactly what a publish would put on the website, part by part.
 
-    Recorded when Gate 1 is approved, recomputed when publish is offered. If the
-    two differ, something about the card moved after it was approved and the
-    button refuses — "approved" has to mean approved *of this*, not of the card
-    that happens to be under that ID now.
+    Each entry is (name, the bytes that go into the fingerprint, something a human
+    can read). The digest is taken over the bytes and nothing else, so splitting
+    this out changes no decision — a fingerprint computed here is the same
+    fingerprint as before, byte for byte.
 
-    Deliberately narrow: the article bytes, the diagram bytes, and the three card
-    fields that decide where the post lands. A `Latest summary` reworded by the
-    hourly cycle is not a reason to refuse to publish.
+    The reason for the split is that a digest can say *that* something changed and
+    never *what*. When an approval goes stale, "the article changed" and "the
+    category changed from financing to safety" are different messages, and only one
+    of them tells you whether to look again.
+
+    Deliberately narrow: the article, the diagram, and the three card fields that
+    decide where the post lands. A `Latest summary` reworded by the hourly cycle is
+    not a reason to refuse to publish.
     """
-    digest = hashlib.sha256()
+    parts: list[tuple[str, bytes, str]] = []
+
     article = artifact_for(task, profile_dir)
-    digest.update((article.read_bytes() if article else b""))
-    digest.update(b"\x00")
+    body = article.read_bytes() if article else b""
+    parts.append(("article", body, f"sha256:{hashlib.sha256(body).hexdigest()[:12]}"))
+
     for name in ("category", "attachment"):
-        digest.update(str(task.get(name, "")).strip().encode("utf-8"))
-        digest.update(b"\x00")
+        value = str(task.get(name, "")).strip()
+        parts.append((name, value.encode("utf-8"), value or "(none)"))
+
     for key in sorted(key for key in task if key.startswith("image_slot_")):
         reference = str(task.get(key, "")).strip()
-        digest.update(f"{key}={reference}".encode("utf-8"))
-        digest.update(b"\x00")
         candidate = (profile_dir / reference).resolve() if reference.startswith("artifacts/") else None
+        image = b""
         try:
             if candidate is not None:
                 candidate.relative_to((profile_dir / "artifacts").resolve())
-                digest.update(candidate.read_bytes())
+                image = candidate.read_bytes()
         except (OSError, ValueError):
-            digest.update(b"<unreadable>")
+            image = b"<unreadable>"
+        parts.append((
+            key,
+            f"{key}={reference}".encode("utf-8") + b"\x00" + image,
+            f"{reference or '(none)'} sha256:{hashlib.sha256(image).hexdigest()[:12]}",
+        ))
+    return parts
+
+
+def publish_fingerprint(task: dict[str, Any], profile_dir: Path = PROFILE_DIR) -> str:
+    """One digest over `publish_components`, recorded when Gate 1 is approved.
+
+    Recomputed when publish is offered. If the two differ, something about the card
+    moved after it was approved — "approved" has to mean approved *of this*, not of
+    whatever is under that ID now.
+    """
+    digest = hashlib.sha256()
+    for _name, payload, _readable in publish_components(task, profile_dir):
+        digest.update(payload)
         digest.update(b"\x00")
     return digest.hexdigest()
+
+
+def publish_component_record(
+    task: dict[str, Any], profile_dir: Path = PROFILE_DIR
+) -> dict[str, str]:
+    """The readable half of the components, flat, for the decision record.
+
+    `decision_record` stringifies every value it reads back, so anything stored
+    there has to be a flat string. These are what let a later staleness name the
+    part that moved.
+    """
+    return {
+        f"component_{name}": readable
+        for name, _payload, readable in publish_components(task, profile_dir)
+    }
+
+
+#: Component name → how to say it to somebody who did not write the code.
+COMPONENT_NAMES = {
+    "article": "the article",
+    "category": "the category",
+    "attachment": "which file the card points at",
+}
+
+
+def describe_change(
+    record: dict[str, str],
+    task: dict[str, Any],
+    profile_dir: Path = PROFILE_DIR,
+) -> list[str]:
+    """What moved since this decision, in sentences rather than digests.
+
+    Compares the components recorded at approval with the ones measured now. A
+    record made before components were kept cannot name anything, so it says so
+    and points at what the card itself remembers — the thread entries and archived
+    versions written after the decision, which is where the answer actually is.
+    """
+    current = publish_component_record(task, profile_dir)
+    recorded = {name: value for name, value in record.items() if name.startswith("component_")}
+    if not recorded:
+        after = [
+            f"{name.replace('_', ' ')}: {value}"
+            for name, value in sorted(task.items())
+            if str(name).startswith(("approval_thread_", "revision_")) and str(value).strip()
+        ]
+        return [
+            "This approval predates the change record, so what moved was not captured.",
+            *(["The card remembers: " + "; ".join(after)] if after else []),
+        ]
+
+    changes: list[str] = []
+    for name in sorted(set(recorded) | set(current)):
+        was, now = recorded.get(name, "(absent)"), current.get(name, "(absent)")
+        if was == now:
+            continue
+        label = COMPONENT_NAMES.get(name[len("component_"):], name[len("component_"):])
+        changes.append(
+            f"{label} changed" if name == "component_article"
+            else f"{label} changed from {was} to {now}"
+        )
+    return changes or ["Something in the publish inputs changed."]
 
 
 def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -> dict[str, Any]:
@@ -198,7 +286,23 @@ def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -
         task["decision_approved"] = bool(
             decision_summary and decision_summary.get("decision") == "approve"
         )
-        task["decision_status"] = "approved" if task["decision_approved"] else "awaiting decision"
+        # A decision whose artifact has moved covers nothing. Publish already
+        # refuses it; the console has to say so and offer the way out, or the card
+        # deadlocks between "already decided" and "the approval does not match".
+        stale = False
+        changed: list[str] = []
+        if decision_summary:
+            fingerprint = publish_fingerprint(task, profile_dir)
+            stale = decisions.decision_is_stale(decision_summary, fingerprint)
+            if stale:
+                changed = describe_change(decision_summary, task, profile_dir)
+        task["decision_stale"] = stale
+        task["decision_change"] = changed
+        task["decision_status"] = (
+            "approval out of date" if stale
+            else "approved" if task["decision_approved"]
+            else "awaiting decision"
+        )
         task["approval_thread"] = dashboard_server.approval_thread(task)
         task["research_brief"] = ceo_artifacts.text_reference(task, profile_dir)
         task["article"] = ceo_artifacts.artifact_payload(task, artifact, profile_dir) if artifact else None

@@ -23,7 +23,7 @@ from pathlib import Path
 import ceo_blog_publish
 import console_board
 from ceo_blog_publish import PublicationConflict, PublicationRefused
-from cmo_runtime.decisions import DecisionStore
+from cmo_runtime.decisions import DecisionConflict, DecisionStore
 
 BLOG_POSTS = """export type BlogCategorySlug =
   | "financing"
@@ -155,13 +155,15 @@ class PublishFixture(unittest.TestCase):
 
     def approve(self, *, fingerprint: str | None = None) -> None:
         """Record Gate 1 exactly as the console does, via the only approval writer."""
-        recorded = console_board.publish_fingerprint(self.task(), self.profile) if fingerprint is None else fingerprint
+        task = self.task()
+        recorded = console_board.publish_fingerprint(task, self.profile) if fingerprint is None else fingerprint
         DecisionStore(self.profile).decide(
             "TASK-900",
             "approve",
             approver_id="ceo@itarang.test",
             surface="dashboard",
             publish_fingerprint=recorded,
+            components=console_board.publish_component_record(task, self.profile),
         )
 
     def preflight(self) -> ceo_blog_publish.BlogPreflight:
@@ -444,7 +446,7 @@ class ABlogIsAWebsiteChange(PublishFixture):
         card can supply at Gate 1. Dropping the rule outright would let a website
         card be approved with nothing recording what was approved.
         """
-        from cmo_runtime.decisions import DecisionStore, DecisionValidationError
+        from cmo_runtime.decisions import DecisionConflict, DecisionStore, DecisionValidationError
 
         with self.assertRaises(DecisionValidationError) as raised:
             DecisionStore(self.profile).decide(
@@ -453,6 +455,143 @@ class ABlogIsAWebsiteChange(PublishFixture):
 
         self.assertIn("publish fingerprint", str(raised.exception))
         self.assertEqual(self.section_of("TASK-900"), "Human Approval")
+
+
+class AStaleApprovalCanBeGivenAgain(PublishFixture):
+    """The deadlock, and the way out of it.
+
+    A card carried Gate 1 from 09:58. Its article changed afterwards, so publish
+    refused on the stale fingerprint and asked for a fresh Gate 1 — while
+    `DecisionStore` allowed one decision per card and the console offered no way to
+    give another. Three correct rules with no state transition between them.
+
+    The way out is not a looser fingerprint. The fingerprint caught a real change
+    to an approved artifact and is what grants the second decision: a card whose
+    digest still matches is decided, and stays decided.
+    """
+
+    def approvals(self) -> dict:
+        return json.loads((self.profile / "state" / "human-approvals.json").read_text(encoding="utf-8"))
+
+    def change_the_article(self) -> None:
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            ARTICLE.replace("A useful introduction", "A rather better introduction"),
+            encoding="utf-8",
+        )
+
+    def reapprove(self) -> None:
+        self.approve()
+
+    def test_a_decision_that_still_covers_the_article_is_not_re_openable(self) -> None:
+        """The rule that stands: one decision per card, first writer wins."""
+        self.approve()
+
+        with self.assertRaises(DecisionConflict) as raised:
+            self.approve()
+
+        self.assertIn("already decided", str(raised.exception))
+
+    def test_a_changed_article_makes_the_card_re_approvable(self) -> None:
+        self.approve()
+        self.assertFalse(console_board.read_board(self.profile / "tasks.md", self.profile)["tasks"][0]["decision_stale"])
+
+        self.change_the_article()
+
+        task = self.task()
+        self.assertTrue(task["decision_stale"])
+        self.assertEqual(task["decision_status"], "approval out of date")
+        self.assertIn("the article changed", " ".join(task["decision_change"]))
+
+    def test_the_new_decision_supersedes_the_old_and_keeps_it(self) -> None:
+        self.approve()
+        first = self.approvals()["TASK-900"]
+        self.change_the_article()
+
+        self.reapprove()
+
+        current = self.approvals()["TASK-900"]
+        self.assertNotEqual(current["publish_fingerprint"], first["publish_fingerprint"])
+        self.assertEqual(current["supersedes_timestamp"], first["timestamp"])
+        self.assertEqual(current["supersedes_fingerprint"], first["publish_fingerprint"])
+        self.assertEqual(current["supersedes_count"], "1")
+
+    def test_the_superseded_decision_survives_in_the_log(self) -> None:
+        """Nothing is overwritten; the log gains lines."""
+        self.approve()
+        first = self.approvals()["TASK-900"]
+        self.change_the_article()
+
+        self.reapprove()
+
+        events = self.log_events()
+        superseded = [event for event in events if event.get("outcome") == "superseded"]
+        recorded = [event for event in events if event.get("outcome") == "recorded"]
+        self.assertEqual(len(superseded), 1)
+        self.assertEqual(len(recorded), 2, "the original approval was rewritten rather than kept")
+        self.assertEqual(superseded[0]["timestamp"], first["timestamp"])
+        self.assertEqual(superseded[0]["publish_fingerprint"], first["publish_fingerprint"])
+        self.assertIn("the approved artifact changed", superseded[0]["reason"])
+        # Order matters: the decision being replaced is written before the one
+        # replacing it, so the log reads forwards.
+        self.assertLess(events.index(superseded[0]), events.index(recorded[-1]))
+
+    def test_the_card_carries_the_superseded_decision_too(self) -> None:
+        from cmo_runtime.agent_runtime import BoardStore
+
+        self.approve()
+        self.change_the_article()
+        self.reapprove()
+
+        card = BoardStore(self.profile).get("TASK-900")
+        note = card.fields.get("Superseded decision 1", "")
+        self.assertIn("ceo@itarang.test", note)
+        self.assertIn("the approved artifact changed", note)
+        self.assertEqual(card.fields.get("Human decision by"), "ceo@itarang.test")
+
+    def test_publish_then_proceeds_on_the_new_fingerprint(self) -> None:
+        """The whole point, end to end, against a real repository."""
+        self.approve()
+        self.change_the_article()
+        self.assertFalse(self.preflight().eligible)
+
+        self.reapprove()
+
+        check = self.preflight()
+        self.assertTrue(check.eligible, check.blockers)
+        outcome = self.publish()
+        self.assertEqual(outcome["result"], "pushed")
+        self.assertEqual(git(self.website, "rev-parse", "origin/main"), self.main_before)
+        page = git(self.website, "show",
+                   "origin/cmo-changes:src/app/(marketing)/blog/useful-finance-guide/page.tsx")
+        self.assertIn("A rather better introduction", page, "the old article was published")
+
+    def test_a_change_after_the_second_approval_makes_it_stale_again(self) -> None:
+        """The guard is not spent by being used once."""
+        self.approve()
+        self.change_the_article()
+        self.reapprove()
+        self.assertTrue(self.preflight().eligible)
+
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            ARTICLE.replace("A useful introduction", "A third introduction"), encoding="utf-8"
+        )
+
+        self.assertFalse(self.preflight().eligible)
+        self.assertTrue(self.task()["decision_stale"])
+
+    def test_a_record_with_no_fingerprint_stays_shut(self) -> None:
+        """Nothing can tell stale from unchanged there, so it is not guessed at."""
+        self.approve()
+        approvals = self.profile / "state" / "human-approvals.json"
+        record = json.loads(approvals.read_text(encoding="utf-8"))
+        del record["TASK-900"]["publish_fingerprint"]
+        approvals.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        self.change_the_article()
+
+        self.assertFalse(self.task()["decision_stale"])
+        with self.assertRaises(DecisionConflict) as raised:
+            self.approve()
+        self.assertIn("already decided", str(raised.exception))
 
 
 class NoAgentPathCanPublish(PublishFixture):

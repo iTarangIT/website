@@ -423,8 +423,10 @@ def dispatch(handler: Any, method: str) -> bool:
                         card_commit_sha=commit,
                         commit_sha=commit,
                         # What was approved, not merely that something was. Publish
-                        # recomputes this and refuses if the card has moved since.
+                        # recomputes this and refuses if the card has moved since —
+                        # and if it has, the components say which part moved.
                         publish_fingerprint=console_board.publish_fingerprint(task, PROFILE_DIR),
+                        components=console_board.publish_component_record(task, PROFILE_DIR),
                     )
                     result = {"ok": stored.recorded}
                 else:

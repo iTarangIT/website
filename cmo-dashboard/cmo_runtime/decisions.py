@@ -76,6 +76,7 @@ class DecisionStore:
         commit_sha: str = "",
         send_back_text: str = "",
         publish_fingerprint: str = "",
+        components: dict[str, str] | None = None,
     ) -> DecisionResult:
         """Record one human decision.
 
@@ -85,6 +86,10 @@ class DecisionStore:
         what it saw, and the publish path recomputes it later and refuses if the
         two differ. A surface that passes nothing records nothing, and a publish
         against that record fails closed rather than guessing.
+
+        `components` is the readable half of that digest — which article, which
+        category, which diagram. It decides nothing either; it is what lets a later
+        staleness say *what* moved rather than only that something did.
         """
         task_id = task_id.strip()
         decision = decision.strip().lower().replace("-", "_").replace(" ", "_")
@@ -118,22 +123,45 @@ class DecisionStore:
             self._ensure_managed_file(self.log_path, "")
             approvals = self._read_approvals()
             existing = approvals.get(task_id)
+            superseded_reason = ""
             if existing is not None:
-                reason = self._existing_reason(existing)
-                self._append_log_atomic(
-                    self._attempt_record(
-                        task_id,
-                        decision,
-                        approver_id,
-                        surface,
-                        timestamp,
-                        commit_sha,
-                        send_back_text,
-                        outcome="refused",
-                        reason=reason,
-                    )
+                # One decision per card, unless the thing decided no longer exists.
+                #
+                # A stale fingerprint is not an opinion: the caller passes what it
+                # measured, this compares it to what was recorded, and they differ
+                # only because the artifact moved. Without this the card deadlocks —
+                # publish refuses on the stale fingerprint and asks for a fresh Gate
+                # 1, and nothing can give one.
+                #
+                # Fail closed both ways. If either side has no fingerprint there is
+                # nothing to compare, so the first decision stands, exactly as it
+                # did before any of this existed.
+                recorded_fingerprint = str(existing.get("publish_fingerprint", "")).strip()
+                stale = bool(
+                    recorded_fingerprint
+                    and publish_fingerprint
+                    and recorded_fingerprint != publish_fingerprint
                 )
-                raise DecisionConflict(reason)
+                if not stale:
+                    reason = self._existing_reason(existing)
+                    self._append_log_atomic(
+                        self._attempt_record(
+                            task_id,
+                            decision,
+                            approver_id,
+                            surface,
+                            timestamp,
+                            commit_sha,
+                            send_back_text,
+                            outcome="refused",
+                            reason=reason,
+                        )
+                    )
+                    raise DecisionConflict(reason)
+                superseded_reason = (
+                    "the approved artifact changed: fingerprint "
+                    f"{recorded_fingerprint[:8]} → {publish_fingerprint[:8]}"
+                )
 
             board_text = self.tasks_path.read_text(encoding="utf-8")
             section = self._task_section(board_text, task_id)
@@ -193,11 +221,34 @@ class DecisionStore:
                 "commit_sha": commit_sha,
                 "send_back_text": send_back_text,
                 "publish_fingerprint": publish_fingerprint,
+                **{str(name): str(value) for name, value in (components or {}).items()},
             }
+            # Flat back-pointers only. `decision_record` stringifies everything it
+            # reads, so a nested chain would come back as a Python repr. The chain
+            # itself lives in approvals.log, which is append-only and is what
+            # SOUL 12.4 calls authoritative; this says where to start reading.
+            if superseded_reason:
+                record["supersedes_timestamp"] = str(existing.get("timestamp", ""))
+                record["supersedes_fingerprint"] = str(existing.get("publish_fingerprint", ""))
+                record["supersedes_count"] = str(int(existing.get("supersedes_count", "0") or 0) + 1)
             approvals[task_id] = record
             state_candidate = json.dumps(approvals, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-            log_event: dict[str, str] = {**record, "outcome": "recorded"}
-            log_candidate = self._log_candidate(log_event)
+
+            events: list[dict[str, str]] = []
+            if superseded_reason:
+                # The decision being replaced, written out in full before the one
+                # replacing it. Nothing is deleted; the log gains a line.
+                events.append({
+                    **{str(name): str(value) for name, value in existing.items()},
+                    "outcome": "superseded",
+                    "superseded_at": timestamp,
+                    "superseded_by": approver_id,
+                    "reason": superseded_reason,
+                })
+            events.append({**record, "outcome": "recorded"})
+            log_candidate = self.log_path.read_text(encoding="utf-8")
+            for event in events:
+                log_candidate = self._log_candidate(event, base=log_candidate)
             board_candidate = self._decision_candidate(
                 board_text,
                 task_id,
@@ -207,6 +258,8 @@ class DecisionStore:
                 timestamp,
                 send_back_text,
                 is_website,
+                superseded=existing if superseded_reason else None,
+                superseded_reason=superseded_reason,
             )
             self._commit_all(board_text, board_candidate, state_candidate, log_candidate)
             return DecisionResult(recorded=True, record=record)
@@ -297,8 +350,10 @@ class DecisionStore:
         if self.log_path.read_text(encoding="utf-8") != candidate:
             raise DecisionPersistenceError("approval log verification failed")
 
-    def _log_candidate(self, event: dict[str, str]) -> str:
-        original = self.log_path.read_text(encoding="utf-8")
+    def _log_candidate(self, event: dict[str, str], base: str | None = None) -> str:
+        # `base` lets a supersede append two lines in one transaction: the decision
+        # being replaced, then the one replacing it, in that order.
+        original = self.log_path.read_text(encoding="utf-8") if base is None else base
         separator = "" if not original or original.endswith("\n") else "\n"
         return original + separator + json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
 
@@ -312,6 +367,8 @@ class DecisionStore:
         timestamp: str,
         send_back_text: str,
         is_website: bool,
+        superseded: dict[str, str] | None = None,
+        superseded_reason: str = "",
     ) -> str:
         task_file = TaskFile(self.tasks_path, lock_path=self.lock_path)
         if decision == "send_back":
@@ -348,6 +405,19 @@ class DecisionStore:
             ),
         ):
             card = task_file._set_board_field(card, name, value)
+        if superseded is not None:
+            # Numbered and append-only, so the card carries the chain too rather
+            # than pointing at a log file nobody has open. The `Human decision*`
+            # fields keep mirroring the current decision; this is what they replaced.
+            number = int(str(superseded.get("supersedes_count", "0")) or 0) + 1
+            card = task_file._set_board_field(
+                card,
+                f"Superseded decision {number}",
+                f"{superseded.get('approver_id', 'unknown')} "
+                f"{superseded.get('decision', 'decided')}d at "
+                f"{superseded.get('timestamp', 'an unrecorded time')}; superseded "
+                f"{timestamp} because {superseded_reason or 'the artifact changed'}",
+            )
         if decision == "approve" and not is_website:
             card = task_file._set_board_field(card, "Completed date", timestamp)
         card = task_file._set_board_field(card, "Last updated", timestamp)
@@ -481,3 +551,21 @@ def is_approved(profile_dir: str | Path, task_id: str) -> bool:
 def is_decided(profile_dir: str | Path, task_id: str) -> bool:
     """Return true after any first-writer-wins human decision."""
     return decision_record(profile_dir, task_id) is not None
+
+
+def decision_is_stale(record: dict[str, str] | None, current_fingerprint: str) -> bool:
+    """Whether a recorded decision still covers the artifact in front of it.
+
+    Comparison only — nothing here reads a file or forms a view. The caller
+    measured the artifact; this says whether that measurement matches what was
+    approved.
+
+    False whenever there is nothing to compare: no record, no recorded
+    fingerprint, or no current one. A decision that cannot be shown to be stale is
+    treated as holding, because the alternative is deciding it is void on a guess.
+    """
+    if not record:
+        return False
+    recorded = str(record.get("publish_fingerprint", "")).strip()
+    current = str(current_fingerprint or "").strip()
+    return bool(recorded and current and recorded != current)

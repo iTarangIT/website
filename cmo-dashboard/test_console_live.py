@@ -379,6 +379,41 @@ class ConsoleStaysCurrent(unittest.TestCase):
                 self.assertNotIn('data-revision="1"', body, f"{state} offered Ask for changes")
                 self.assertIn(promise, body, f"{state} does not say when it will come to him")
 
+    def test_a_stale_approval_offers_approve_again_and_says_what_moved(self) -> None:
+        """The deadlock, from the seat it deadlocked in.
+
+        Approved, then the article changed. Publish refuses and asks for a fresh
+        Gate 1; without this control there is no click that gives one.
+        """
+        card = self.decidable_card("Human Approval", "approved", "Approved")
+        card["decision_approved"] = True
+        card["decision_stale"] = True
+        card["decision_status"] = "approval out of date"
+        card["decision_summary"] = {"approver_id": "ceo@itarang.com", "timestamp": "2026-08-12T09:58:01Z"}
+        card["decision_change"] = ["the article changed"]
+
+        body = self.discussion(card)
+
+        self.assertIn("Approve again", body)
+        self.assertIn('data-decision="approve"', body)
+        self.assertIn("the article has changed since", body)
+        self.assertIn("the article changed", body)
+        self.assertIn("keeps the old one", body)
+
+    def test_a_stale_approval_also_offers_ask_for_changes(self) -> None:
+        """Approve-only would be a trap: find a fault, and the only button approves."""
+        card = self.decidable_card("Human Approval", "approved", "Approved")
+        card["decision_approved"] = True
+        card["decision_stale"] = True
+        card["decision_summary"] = {"approver_id": "ceo@itarang.com", "timestamp": "2026-08-12T09:58:01Z"}
+        card["decision_change"] = ["the category changed from financing to safety"]
+
+        body = self.discussion(card)
+
+        self.assertIn('data-revision="1"', body)
+        self.assertIn("revision-comment", body)
+        self.assertIn("the category changed from financing to safety", body)
+
     def test_an_already_approved_card_shows_the_decision_not_the_buttons(self) -> None:
         card = self.decidable_card("Human Approval", "approved", "Approved")
         card["decision_approved"] = True
