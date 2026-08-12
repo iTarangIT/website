@@ -13,7 +13,7 @@ export default function ERickshawBatteryRepairOrReplacementRealCostArticle() {
     <BlogLayout
       title="E-Rickshaw Battery Repair or Replacement: How Drivers Can Judge the Real Cost"
       date="2026-08-12"
-      readTime="7 min read"
+      readTime="5 min read"
       category="battery-selection"
     >
       <p>An Lithium battery does not usually fail in one dramatic moment. For many users across mobility, the problem begins with shorter range, slower pickup, longer charging time, or the vehicle stopping earlier than expected during the working day. The first question is natural: should the battery be repaired, or is it time to replace it? The answer should not depend only on the workshop bill shown today.</p>
@@ -46,19 +46,9 @@ export default function ERickshawBatteryRepairOrReplacementRealCostArticle() {
       <p>Replacement becomes the safer choice when the battery is no longer predictable. If range keeps falling after repair, if the same fault returns, if charging time increases without stable backup, or if the vehicle cannot complete normal duty cycles, the driver is carrying business risk. At that point, the repair bill is only one part of the loss.</p>
       <p>Safety signs should push the decision faster. Swelling, leakage, burning smell, unusual heating, or damaged casing should be treated seriously and checked by a qualified technician. A driver should not keep using a battery just because it still moves the vehicle for a short distance. A weak battery can create operational risk for the driver, passengers, and workshop staff.</p>
       <p>Replacement is also easier to justify when the driver needs reliability for fixed routes, school trips, market timing, or fleet commitments. If one vehicle’s battery uncertainty affects customer trust, daily collection, or repayment discipline, the “cheaper” repair may not be cheaper at all. For financed vehicles, predictable performance is part of the asset’s value, not an optional comfort.</p>
-      <h2>Decision bullets:</h2>
-      <p>Before approving either repair or replacement, a driver or fleet owner should write down the business decision in plain numbers and plain facts. The goal is not to become a battery engineer. The goal is to avoid paying again and again for a battery that no longer supports the work.</p>
-      <ul>
-        <li>Choose repair when the fault is clear, limited, and the technician can explain what will change after repair.</li>
-        <li>Choose replacement when the same battery repeatedly reduces range, charging reliability, or working days.</li>
-        <li>Count downtime as a cost, because a vehicle in the workshop cannot earn daily income.</li>
-        <li>Treat heat, swelling, leakage, smell, and damaged casing as safety warnings, not normal ageing.</li>
-        <li>Keep service records so the next decision is based on evidence, not memory or pressure.</li>
-      </ul>
       <h2>Closing: think beyond today’s cash bill</h2>
       <p>The best repair-or-replace decision is practical, not emotional. Repair is sensible when it restores dependable earning capacity at a reasonable total cost. Replacement is sensible when it removes repeated uncertainty and gives the driver a stronger base for daily work. The bill amount matters, but the better question is whether the battery can still do the job safely and reliably.</p>
-      <p>For iTarang, this topic fits the wider battery lifecycle view shown on its own pages: finance, deploy, monitor, maintain, buyback, and recycle. Existing iTarang blog coverage also discusses battery lifecycle records through the battery passport concept. Claims requiring human verification before publication: any iTarang-specific repair programme, diagnostic process, replacement pricing, warranty promise, buyback value, or dealer-level service commitment.</p>
-      <p>Proposed internal links: iTarang Blog &amp; Insights, the Battery Passport article, and the For Investors lifecycle page where relevant. Non-published call to action for review: “Talk to iTarang before replacing a weak e-rickshaw battery, so the decision can be checked against financing, lifecycle, and maintenance options.” Source notes: retained pages were accessed on 2026-08-11; publication dates were unavailable unless shown in the source excerpt, such as CBC’s November 7, 2022 article and MarkNtel’s January 2024 page.</p>
+      <p>For iTarang, this topic fits the wider battery lifecycle view shown on its own pages: finance, deploy, monitor, maintain, buyback, and recycle. Existing iTarang blog coverage also discusses battery lifecycle records through the battery passport concept.</p>
     </BlogLayout>
   );
 }
