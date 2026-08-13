@@ -22,11 +22,40 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DATABASE_NAME = "console.db"
 
 PROPOSAL_STATUSES = ("proposed", "revising", "approved", "carded", "rejected")
 SOURCE_KINDS = ("search_console", "firecrawl", "cache", "legacy_board")
+
+#: The six stages of writing a blog, in the order Apoorv asked for them, mapped to
+#: the position they occupy on the Process tab. One definition, imported by the
+#: recorder that writes rows and the read model that renders them, so the two
+#: cannot drift into disagreeing about what a stage is called or where it sits.
+STAGE_ORDER: dict[str, int] = {
+    "topic": 1,
+    "keywords": 2,
+    "summary": 3,
+    "outline": 4,
+    "research": 5,
+    "writing": 6,
+}
+
+#: What a reader sees instead of the slug.
+STAGE_LABELS: dict[str, str] = {
+    "topic": "Topic selection",
+    "keywords": "Keyword selection",
+    "summary": "Summary",
+    "outline": "Outline",
+    "research": "Research",
+    "writing": "Writing",
+}
+
+STAGE_STATUSES = ("running", "completed", "failed")
+FETCH_KINDS = ("search", "scrape", "gsc", "leader")
+FETCH_OUTCOMES = ("fetched", "failed", "skipped", "cached")
+LEADER_KINDS = ("organisation", "person")
+CROSSPOST_PLATFORMS = ("x", "linkedin", "medium", "reddit")
 
 _STOPWORDS = frozenset(
     """
@@ -171,6 +200,78 @@ CREATE TABLE IF NOT EXISTS rejected_topics (
     created_at    TEXT NOT NULL,
     revoked_at    TEXT
 );
+
+-- The people and organisations whose published work feeds research. Declared
+-- before `stage_fetches` because that table points at it, and foreign keys are on.
+CREATE TABLE IF NOT EXISTS leaders (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL,
+    org         TEXT NOT NULL DEFAULT '',
+    kind        TEXT NOT NULL,          -- organisation|person
+    source_url  TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    note        TEXT NOT NULL DEFAULT '',
+    added_by    TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS leaders_source ON leaders(source_url);
+
+-- One row per pipeline stage that actually ran. A stage is opened in one
+-- transaction and closed in another, so a process killed mid-run leaves every
+-- finished stage committed and the interrupted one readable as 'running'. The
+-- console draws these rows and nothing else: a stage with no row is not drawn.
+CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id           INTEGER PRIMARY KEY,
+    task_id      TEXT NOT NULL DEFAULT '',
+    proposal_id  INTEGER REFERENCES proposals(id),
+    stage        TEXT NOT NULL,
+    ordinal      INTEGER NOT NULL,
+    attempt      INTEGER NOT NULL DEFAULT 1,
+    status       TEXT NOT NULL,         -- running|completed|failed
+    started_at   TEXT NOT NULL,
+    ended_at     TEXT,
+    duration_ms  INTEGER,
+    summary      TEXT NOT NULL DEFAULT '',
+    detail_json  TEXT NOT NULL DEFAULT '{}'
+);
+-- Two partial indexes, not one: the topic-side stages are recorded against a
+-- proposal before any card exists, and only acquire a task_id when the proposal
+-- is carded.
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_stages_task
+    ON pipeline_stages(task_id, stage, attempt) WHERE task_id <> '';
+CREATE INDEX IF NOT EXISTS pipeline_stages_proposal
+    ON pipeline_stages(proposal_id) WHERE proposal_id IS NOT NULL;
+
+-- The fetch ledger. Every attempt to read something, including the ones that
+-- failed. This is the only table the research stage's source list may be built
+-- from — a URL that reaches the console without a row here was never fetched.
+CREATE TABLE IF NOT EXISTS stage_fetches (
+    id             INTEGER PRIMARY KEY,
+    stage_id       INTEGER NOT NULL REFERENCES pipeline_stages(id),
+    kind           TEXT NOT NULL,        -- search|scrape|gsc|leader
+    query          TEXT NOT NULL DEFAULT '',
+    url            TEXT NOT NULL DEFAULT '',
+    title          TEXT NOT NULL DEFAULT '',
+    published_date TEXT NOT NULL DEFAULT '',
+    accessed_at    TEXT NOT NULL,
+    outcome        TEXT NOT NULL,        -- fetched|failed|skipped|cached
+    message        TEXT NOT NULL DEFAULT '',
+    leader_id      INTEGER REFERENCES leaders(id),
+    credits        INTEGER
+);
+CREATE INDEX IF NOT EXISTS stage_fetches_stage ON stage_fetches(stage_id);
+
+CREATE TABLE IF NOT EXISTS crosspost_drafts (
+    id                  INTEGER PRIMARY KEY,
+    task_id             TEXT NOT NULL,
+    platform            TEXT NOT NULL,
+    body                TEXT NOT NULL,
+    link                TEXT NOT NULL,
+    article_fingerprint TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS crosspost_drafts_key
+    ON crosspost_drafts(task_id, platform);
 """
 
 
@@ -326,6 +427,261 @@ class ConsoleDB:
             (iso_timestamp,),
         )
         return int(row["total"]) if row else 0
+
+    # ------------------------------------------------------- pipeline stages
+
+    def start_stage(
+        self,
+        stage: str,
+        *,
+        task_id: str = "",
+        proposal_id: int | None = None,
+        attempt: int = 1,
+        started_at: str | None = None,
+    ) -> int:
+        """Open a stage. Its own transaction, so it is durable before work begins.
+
+        The row is written *before* the work runs and closed afterwards. That is
+        the whole crash story: a process killed halfway leaves this row saying
+        `running` with a start time, which is both the honest record and exactly
+        what the console needs to show elapsed time against.
+        """
+        if stage not in STAGE_ORDER:
+            raise ConsoleDBError(f"unknown pipeline stage: {stage!r}")
+        if not task_id and proposal_id is None:
+            raise ConsoleDBError(f"stage {stage!r} names neither a task nor a proposal")
+        with self.write() as connection:
+            cursor = connection.execute(
+                "INSERT INTO pipeline_stages (task_id, proposal_id, stage, ordinal, attempt,"
+                " status, started_at) VALUES (?,?,?,?,?,'running',?)",
+                (
+                    task_id,
+                    proposal_id,
+                    stage,
+                    STAGE_ORDER[stage],
+                    attempt,
+                    started_at or utc_timestamp(),
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def finish_stage(
+        self,
+        stage_id: int,
+        *,
+        status: str = "completed",
+        summary: str = "",
+        detail: Mapping[str, Any] | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        """Close a stage. A separate transaction from `start_stage` on purpose."""
+        if status not in STAGE_STATUSES or status == "running":
+            raise ConsoleDBError(f"cannot finish a stage as {status!r}")
+        with self.write() as connection:
+            connection.execute(
+                "UPDATE pipeline_stages SET status = ?, ended_at = ?, duration_ms = ?,"
+                " summary = ?, detail_json = ? WHERE id = ?",
+                (
+                    status,
+                    utc_timestamp(),
+                    duration_ms,
+                    _single_line(summary, limit=600),
+                    json.dumps(detail or {}, ensure_ascii=False),
+                    stage_id,
+                ),
+            )
+
+    def record_fetch(
+        self,
+        stage_id: int,
+        *,
+        kind: str,
+        outcome: str,
+        url: str = "",
+        query: str = "",
+        title: str = "",
+        published_date: str = "",
+        accessed_at: str = "",
+        message: str = "",
+        leader_id: int | None = None,
+        credits: int | None = None,
+    ) -> int:
+        """Log one attempt to read something. Failures are rows too, not silence."""
+        if kind not in FETCH_KINDS:
+            raise ConsoleDBError(f"unknown fetch kind: {kind!r}")
+        if outcome not in FETCH_OUTCOMES:
+            raise ConsoleDBError(f"unknown fetch outcome: {outcome!r}")
+        if not url.strip() and not query.strip():
+            raise ConsoleDBError("a fetch record names neither a URL nor a query")
+        with self.write() as connection:
+            cursor = connection.execute(
+                "INSERT INTO stage_fetches (stage_id, kind, query, url, title, published_date,"
+                " accessed_at, outcome, message, leader_id, credits) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    stage_id,
+                    kind,
+                    _single_line(query, limit=300),
+                    _single_line(url, limit=2000),
+                    _single_line(title, limit=300),
+                    _single_line(published_date, limit=100),
+                    accessed_at or utc_timestamp(),
+                    outcome,
+                    _single_line(message, limit=600),
+                    leader_id,
+                    credits,
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def next_attempt(self, stage: str, *, task_id: str = "", proposal_id: int | None = None) -> int:
+        """The attempt number a fresh run of this stage should carry.
+
+        Nine failed generations are nine rows. A retry that overwrote its
+        predecessor would make the board say the writer succeeded first time.
+        """
+        if task_id:
+            row = self._one(
+                "SELECT MAX(attempt) AS highest FROM pipeline_stages WHERE task_id = ? AND stage = ?",
+                (task_id, stage),
+            )
+        else:
+            row = self._one(
+                "SELECT MAX(attempt) AS highest FROM pipeline_stages"
+                " WHERE proposal_id = ? AND stage = ?",
+                (proposal_id, stage),
+            )
+        highest = row["highest"] if row else None
+        return int(highest or 0) + 1
+
+    def bind_stages_to_task(self, proposal_id: int, task_id: str) -> int:
+        """Give the topic-side stages the card they turned out to belong to.
+
+        Stages 1-3 run before a card exists — that is the point of the topic flow.
+        They are recorded against the proposal and claimed here, at the moment
+        approval mints the card.
+        """
+        with self.write() as connection:
+            cursor = connection.execute(
+                "UPDATE pipeline_stages SET task_id = ? WHERE proposal_id = ? AND task_id = ''",
+                (task_id, proposal_id),
+            )
+            return cursor.rowcount
+
+    def stages_for_task(self, task_id: str) -> list[dict[str, Any]]:
+        """Every recorded stage for one card, in reading order, with its fetches.
+
+        Only rows. Nothing here infers a stage that has no row, which is what
+        keeps the Process tab honest about what actually ran.
+        """
+        if not task_id:
+            return []
+        rows = self._query(
+            "SELECT * FROM pipeline_stages WHERE task_id = ? ORDER BY ordinal, attempt, id",
+            (task_id,),
+        )
+        if not rows:
+            return []
+        fetches: dict[int, list[dict[str, Any]]] = {}
+        placeholders = ",".join("?" for _ in rows)
+        for fetch in self._query(
+            f"SELECT * FROM stage_fetches WHERE stage_id IN ({placeholders}) ORDER BY id",
+            [row["id"] for row in rows],
+        ):
+            fetches.setdefault(int(fetch["stage_id"]), []).append(dict(fetch))
+        return [self._stage_payload(row, fetches.get(int(row["id"]), [])) for row in rows]
+
+    @staticmethod
+    def _stage_payload(row: sqlite3.Row, fetches: list[dict[str, Any]]) -> dict[str, Any]:
+        try:
+            detail = json.loads(row["detail_json"])
+        except (TypeError, ValueError):
+            detail = {}
+        return {
+            **dict(row),
+            "label": STAGE_LABELS.get(row["stage"], row["stage"]),
+            "detail": detail if isinstance(detail, dict) else {},
+            "fetches": fetches,
+        }
+
+    # --------------------------------------------------------------- leaders
+
+    def add_leader(
+        self,
+        *,
+        name: str,
+        kind: str,
+        source_url: str,
+        org: str = "",
+        note: str = "",
+        added_by: str,
+        active: bool = True,
+    ) -> int:
+        """Insert one tracked source, or return the existing row for that URL."""
+        if kind not in LEADER_KINDS:
+            raise ConsoleDBError(f"unknown leader kind: {kind!r}")
+        if not name.strip():
+            raise ConsoleDBError("a leader with no name is not a leader")
+        if not source_url.strip():
+            raise ConsoleDBError(f"{name!r} names no source URL")
+        existing = self._one("SELECT id FROM leaders WHERE source_url = ?", (source_url,))
+        if existing is not None:
+            return int(existing["id"])
+        with self.write() as connection:
+            cursor = connection.execute(
+                "INSERT INTO leaders (name, org, kind, source_url, active, note, added_by,"
+                " created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    _single_line(name, limit=200),
+                    _single_line(org, limit=200),
+                    kind,
+                    _single_line(source_url, limit=2000),
+                    1 if active else 0,
+                    _single_line(note, limit=400),
+                    added_by,
+                    utc_timestamp(),
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def leaders(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM leaders"
+        if active_only:
+            sql += " WHERE active = 1"
+        return [dict(row) for row in self._query(sql + " ORDER BY kind, org, name")]
+
+    # ------------------------------------------------------ crosspost drafts
+
+    def save_crosspost_draft(
+        self,
+        *,
+        task_id: str,
+        platform: str,
+        body: str,
+        link: str,
+        article_fingerprint: str,
+    ) -> int:
+        if platform not in CROSSPOST_PLATFORMS:
+            raise ConsoleDBError(f"unknown cross-post platform: {platform!r}")
+        with self.write() as connection:
+            cursor = connection.execute(
+                "INSERT INTO crosspost_drafts (task_id, platform, body, link,"
+                " article_fingerprint, created_at) VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(task_id, platform) DO UPDATE SET body = excluded.body,"
+                " link = excluded.link, article_fingerprint = excluded.article_fingerprint,"
+                " created_at = excluded.created_at",
+                (task_id, platform, body, link, article_fingerprint, utc_timestamp()),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def crosspost_drafts(self, task_id: str) -> list[dict[str, Any]]:
+        if not task_id:
+            return []
+        return [
+            dict(row)
+            for row in self._query(
+                "SELECT * FROM crosspost_drafts WHERE task_id = ? ORDER BY platform", (task_id,)
+            )
+        ]
 
     # --------------------------------------------------------------- rejection
 
@@ -570,6 +926,14 @@ class ConsoleDB:
             connection.execute(
                 "UPDATE proposals SET task_id = ?, status = 'carded', updated_at = ? WHERE id = ?",
                 (task_id, utc_timestamp(), proposal_id),
+            )
+            # The topic-side stages ran before this card existed, which is the
+            # point of the topic flow. They are claimed here, inside the same
+            # transaction that mints the card, so no caller can card a proposal
+            # and forget to bring its recorded work along.
+            connection.execute(
+                "UPDATE pipeline_stages SET task_id = ? WHERE proposal_id = ? AND task_id = ''",
+                (task_id, proposal_id),
             )
             return dict(
                 connection.execute(

@@ -128,6 +128,7 @@ class FakeWriter:
         writer_contract: str,
         topic_outline: str = "",
         topic_keywords: str = "",
+        section_outline: Sequence[str] = (),
     ) -> ArticlePackage:
         self.calls.append(
             {
@@ -138,6 +139,7 @@ class FakeWriter:
                 "writer_contract": writer_contract,
                 "topic_outline": topic_outline,
                 "topic_keywords": topic_keywords,
+                "section_outline": tuple(section_outline),
             }
         )
         return self.package

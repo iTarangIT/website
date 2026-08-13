@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import ceo_artifacts
 import dashboard_server
 from cmo_runtime import decisions
+from cmo_runtime.console_db import ConsoleDB, ConsoleDBError
 from cmo_runtime.content_flow import (
     BLOCKING_CHANGE_STATUSES,
     NON_ARTICLE_WORK_TYPES,
@@ -265,10 +267,70 @@ def describe_change(
     return changes or ["Something in the publish inputs changed."]
 
 
+def process_payload(database: ConsoleDB | None, task_id: str) -> list[dict[str, Any]]:
+    """The recorded stages for one card, shaped for the Process tab.
+
+    Reads rows and only rows. A stage the pipeline never recorded produces no
+    entry — the tab has no notion of a stage that "should" be there, so it can
+    never imply work that did not happen. The source list under research is built
+    from `stage_fetches`, so a URL the article happens to cite but nothing ever
+    fetched cannot appear here.
+    """
+    if database is None or not task_id:
+        return []
+    try:
+        stages = database.stages_for_task(task_id)
+    except (ConsoleDBError, sqlite3.Error):
+        return []
+    payload: list[dict[str, Any]] = []
+    for stage in stages:
+        fetches = stage.get("fetches", [])
+        payload.append(
+            {
+                "stage": stage["stage"],
+                "label": stage["label"],
+                "ordinal": stage["ordinal"],
+                "attempt": stage["attempt"],
+                "status": stage["status"],
+                "started_at": stage["started_at"],
+                "ended_at": stage["ended_at"],
+                "duration_ms": stage["duration_ms"],
+                "summary": stage["summary"],
+                "detail": stage["detail"],
+                "fetches": [
+                    {
+                        "kind": item["kind"],
+                        "outcome": item["outcome"],
+                        "url": item["url"],
+                        "query": item["query"],
+                        "title": item["title"],
+                        "published_date": item["published_date"],
+                        "accessed_at": item["accessed_at"],
+                        "message": item["message"],
+                    }
+                    for item in fetches
+                ],
+                "fetched": sum(
+                    1 for item in fetches if item["outcome"] in ("fetched", "cached")
+                ),
+                "failed": sum(1 for item in fetches if item["outcome"] == "failed"),
+            }
+        )
+    return payload
+
+
 def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -> dict[str, Any]:
     text = tasks_file.read_text(encoding="utf-8")
     tasks = dashboard_server.parse_tasks(text)
     heartbeat = worker_heartbeat(profile_dir)
+    # One connection for the whole board read, not one per card. Opened lazily and
+    # never allowed to take the board down with it: a console that cannot show the
+    # process is still a console that shows the work.
+    database: ConsoleDB | None = None
+    try:
+        database = ConsoleDB(profile_dir)
+    except (ConsoleDBError, sqlite3.Error, OSError):
+        database = None
     blogs: list[dict[str, Any]] = []
     for task in tasks:
         # `research_brief` is about to be replaced by the loaded document, and a
@@ -342,5 +404,8 @@ def read_board(tasks_file: Path = TASKS_FILE, profile_dir: Path = PROFILE_DIR) -
         work_type = str(task.get("work_type", "")).strip().casefold()
         if _is_content(task) and work_type not in NON_ARTICLE_WORK_TYPES:
             task["blog"] = blog_state(task, heartbeat)
+            task["process"] = process_payload(database, task["id"])
             blogs.append(task)
+    if database is not None:
+        database.close()
     return {"tasks": tasks, "blogs": blogs}

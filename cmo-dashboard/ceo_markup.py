@@ -131,7 +131,7 @@ BODY = '''<main id="app">
 
 <dialog id="detail" aria-labelledby="detail-title">
 <div class="dialog-head"><div class="section-head"><div><p id="detail-id" class="eyebrow"></p><h2 id="detail-title"></h2></div><button id="close-detail" class="ghost small" type="button">Close</button></div></div>
-<nav class="nested" aria-label="Blog detail"><button class="active" data-detail="read" type="button">Read</button><button data-detail="impact" type="button">Impact</button><button data-detail="discussion" type="button">Discussion</button><button data-detail="files" type="button">Files</button></nav>
+<nav class="nested" aria-label="Blog detail"><button class="active" data-detail="read" type="button">Read</button><button data-detail="process" type="button">Process</button><button data-detail="impact" type="button">Impact</button><button data-detail="discussion" type="button">Discussion</button><button data-detail="files" type="button">Files</button></nav>
 <div class="dialog-body"><div id="detail-body"></div></div>
 </dialog>
 </main>'''

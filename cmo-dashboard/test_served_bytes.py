@@ -171,6 +171,52 @@ BOARD = """# iTarang CMO Task Board
 """
 
 
+def seed_recorded_stages(root: Path) -> None:
+    """Record three of the six stages for TASK-777, the way a real run would.
+
+    The store is used rather than hand-written SQL: a fixture that builds rows by
+    hand drifts from the writer that builds them for real, and then the tab passes
+    against a shape nothing produces. This is not the render path — the suite still
+    imports none of that, and reads everything back over a socket.
+
+    TASK-779 is left with no stages on purpose, so "nothing was recorded" stays a
+    distinguishable outcome on the wire.
+    """
+    sys.path.insert(0, str(HERE))
+    from cmo_runtime.console_db import ConsoleDB
+    from cmo_runtime.pipeline_stages import StageRecorder
+
+    database = ConsoleDB(root)
+    try:
+        recorder = StageRecorder(database, task_id="TASK-777")
+        with recorder.stage("topic") as stage:
+            stage.finish(
+                summary="Chose the replacement-cost angle",
+                why="Search Console shows unanswered demand for replacement pricing.",
+            )
+        with recorder.stage("research") as stage:
+            stage.record_sources(
+                [
+                    {
+                        "url": "https://really-fetched.test/pricing",
+                        "title": "Replacement pricing survey",
+                        "published_date": "2026-07-01",
+                        "accessed_date": "2026-08-11",
+                    },
+                    {
+                        "url": "https://really-fetched.test/down",
+                        "outcome": "failed",
+                        "message": "HTTP 502",
+                    },
+                ]
+            )
+            stage.finish(summary="1/2 source page(s) fetched")
+        with recorder.stage("writing") as stage:
+            stage.finish(summary="1,180 words in 5 section(s)", words=1180)
+    finally:
+        database.close()
+
+
 def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -225,6 +271,7 @@ class ServedPageTests(unittest.TestCase):
         (root / "tasks.md").write_text(BOARD, encoding="utf-8")
         (root / "artifacts" / "TASK-777-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-779-content.md").write_text(ARTICLE, encoding="utf-8")
+        seed_recorded_stages(root)
         cls.root = root
         cls.port = free_port()
         cls.supabase = socketserver.TCPServer(("127.0.0.1", 0), FakeSupabase)
@@ -509,6 +556,60 @@ class ServedPageTests(unittest.TestCase):
 
         self.assertEqual(status, 401, "the change token is readable without a session")
         self.assertIn(b"bearer", body.lower())
+
+    # ---- the process tab, on the wire ------------------------------------
+
+    def test_the_served_page_orders_the_blog_card_tabs_with_process_after_read(self) -> None:
+        """The detail tab order was never asserted over the wire until now.
+
+        A tab that renders nothing and a tab that is missing look identical in a
+        module; over the socket they do not.
+        """
+        page = self.text("/ceo")
+        nav = page.split('<nav class="nested"', 1)[1].split("</nav>", 1)[0]
+
+        self.assertEqual(
+            re.findall(r'data-detail="([a-z-]+)"', nav),
+            ["read", "process", "impact", "discussion", "files"],
+        )
+        self.assertRegex(nav, r'class="active" data-detail="read"')
+        self.assertIn(">Process<", nav)
+
+    def test_the_state_endpoint_serves_only_the_stages_that_were_recorded(self) -> None:
+        """Invariant 2, over the socket."""
+        served = self.blogs()["TASK-777"]
+
+        self.assertEqual(
+            [(stage["ordinal"], stage["stage"]) for stage in served["process"]],
+            [(1, "topic"), (5, "research"), (6, "writing")],
+        )
+        self.assertEqual(
+            served["process"][0]["detail"]["why"],
+            "Search Console shows unanswered demand for replacement pricing.",
+            "the recorded reason for choosing the topic did not reach the page",
+        )
+
+    def test_a_card_with_no_recorded_stages_serves_an_empty_process_list(self) -> None:
+        self.assertEqual(
+            self.blogs()["TASK-779"]["process"],
+            [],
+            "a card whose stages were never recorded had some invented for it",
+        )
+
+    def test_the_served_research_stage_itemises_what_failed_as_well_as_what_worked(self) -> None:
+        research = [
+            stage for stage in self.blogs()["TASK-777"]["process"] if stage["stage"] == "research"
+        ][0]
+
+        self.assertEqual((research["fetched"], research["failed"]), (1, 1))
+        self.assertEqual(
+            [(item["url"], item["outcome"]) for item in research["fetches"]],
+            [
+                ("https://really-fetched.test/pricing", "fetched"),
+                ("https://really-fetched.test/down", "failed"),
+            ],
+            "a source that failed to fetch was dropped instead of reported",
+        )
 
     # ---- invariant 8, on the wire ----------------------------------------
 

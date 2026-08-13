@@ -152,7 +152,7 @@ const primaryButtons = ['topics', 'blogs', 'analytics'].map(name => {
   if (name === 'topics') button.classList.add('active');
   return button;
 });
-const nestedButtons = ['read', 'impact', 'discussion', 'files'].map(name => {
+const nestedButtons = ['read', 'process', 'impact', 'discussion', 'files'].map(name => {
   const button = makeElement('', 'button');
   button.dataset.detail = name;
   return button;

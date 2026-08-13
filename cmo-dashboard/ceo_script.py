@@ -1253,6 +1253,73 @@ function detailFiles(task){
 <h3>Image slots</h3><div class="rows">${slots||'<p class="empty">The article declares no image slots.</p>'}</div>
 <p class="meta">Images: PNG, JPG, JPEG, WEBP or GIF, maximum 5 MB. SVG is not accepted for upload.</p>`;
 }
+/* How much work went into this piece, stage by stage.
+
+   Every line here is a row the pipeline wrote while it was running. Nothing is
+   inferred and nothing is filled in: a stage the pipeline never recorded is
+   simply absent, so this can never imply work that did not happen. The source
+   list under research comes from the fetch ledger, never from the article's own
+   citations — an article can name a URL nobody fetched, and that is exactly the
+   claim this tab exists to refuse. */
+function stageDuration(stage){
+ if(stage.status==='running')return '';
+ const ms=Number(stage.duration_ms);
+ if(!Number.isFinite(ms)||ms<=0)return '';
+ if(ms<1000)return `${ms}ms`;
+ const seconds=Math.round(ms/1000);
+ if(seconds<60)return `${seconds}s`;
+ return `${Math.floor(seconds/60)}m ${seconds%60}s`;
+}
+function stageFetchHtml(stage){
+ if(!stage.fetches||!stage.fetches.length)return '';
+ const rows=stage.fetches.map(item=>{
+  /* A URL is shown as text, never as a link. This page requests nothing from
+     another host, and an anchor here would be the first thing to break that. */
+  const what=item.url||item.query||'—';
+  const when=[item.published_date,item.accessed_at].filter(Boolean).join(' · read ');
+  const note=[item.title,when,item.message].filter(Boolean).join(' — ');
+  return `<div class="list-row"><div class="card-main"><span class="num">${esc(what)}</span>${note?`<p class="meta">${esc(note)}</p>`:''}</div><span class="meta">${esc(item.outcome)}</span></div>`;
+ }).join('');
+ const failed=Number(stage.failed)||0;
+ const counted=`${grouped.format(Number(stage.fetched)||0)} retrieved`+(failed?`, ${grouped.format(failed)} failed`:'');
+ return `<p class="meta">${esc(counted)}. Every attempt is listed, including the ones that returned nothing.</p><div class="rows">${rows}</div>`;
+}
+function stageDetailHtml(stage){
+ const detail=stage.detail||{};
+ const parts=Object.keys(detail).map(key=>{
+  const value=detail[key];
+  if(value===null||value===undefined||value==='')return '';
+  const text=Array.isArray(value)
+   ?(value.length?value.map((item,index)=>`${index+1}. ${typeof item==='object'?JSON.stringify(item):item}`).join('\n'):'')
+   :(typeof value==='object'?JSON.stringify(value,null,1):String(value));
+  if(!text)return '';
+  const label=key.replace(/_/g,' ');
+  return `<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`;
+ }).filter(Boolean).join('');
+ return parts?`<dl class="stage-detail">${parts}</dl>`:'';
+}
+function detailProcess(task){
+ const stages=task.process||[];
+ if(!stages.length){
+  return `<h3>Process</h3>${emptyState('Nothing recorded yet','No stage of this article has been recorded. Cards written before the pipeline started recording its stages show nothing here — this is what was logged, not what was reconstructed.')}`;
+ }
+ const done=stages.filter(item=>item.status==='completed').length;
+ const running=stages.filter(item=>item.status==='running').length;
+ const failed=stages.filter(item=>item.status==='failed').length;
+ const headline=[`${done} stage(s) completed`,running?`${running} in progress`:'',failed?`${failed} failed`:'']
+  .filter(Boolean).join(' · ');
+ const body=stages.map(stage=>{
+  const clock=stage.status==='running'
+   ?` · <span class="num" data-elapsed="${esc(stage.started_at)}">${esc(elapsedText(stage.started_at))}</span>`
+   :(stageDuration(stage)?` · <span class="num">${esc(stageDuration(stage))}</span>`:'');
+  const again=Number(stage.attempt)>1?` · attempt ${esc(stage.attempt)}`:'';
+  const mark=stage.status==='running'?'in progress':stage.status==='failed'?'failed':'done';
+  return `<details class="stage" data-key="${esc(stage.stage)}-${esc(stage.attempt)}"${stage.status==='running'?' open':''}>
+<summary><strong>${esc(stage.ordinal)}. ${esc(stage.label)}</strong> <span class="meta">${esc(mark)}${again}</span>${clock}</summary>
+<div class="body"><p>${esc(stage.summary||'No summary was recorded for this stage.')}</p>${stageDetailHtml(stage)}${stageFetchHtml(stage)}</div></details>`;
+ }).join('');
+ return `<h3>Process</h3><p class="meta">${esc(headline)}. Each stage was written when it finished, so this survives a run that dies halfway.</p><div class="stages">${body}</div>`;
+}
 /* `force` is for a tab or mode change, where the body must be rebuilt. Left alone,
    this paints only when the markup actually differs, and puts the reading position
    back where it was — a background update must not scroll the open article. */
@@ -1261,7 +1328,7 @@ async function renderDetail(force=false){
  $('#detail-id').textContent=task.id;$('#detail-title').textContent=task.title||task.id;
  $$('.nested button').forEach(node=>node.classList.toggle('active',node.dataset.detail===detailTab));
  const body=$('#detail-body');
- const render={read:detailRead,impact:detailImpact,discussion:detailDiscussion,files:detailFiles}[detailTab];
+ const render={read:detailRead,process:detailProcess,impact:detailImpact,discussion:detailDiscussion,files:detailFiles}[detailTab];
  if(force)painted.delete(body);
  const where=body?body.scrollTop||0:0;
  const repainted=setHtml(body,render(task));

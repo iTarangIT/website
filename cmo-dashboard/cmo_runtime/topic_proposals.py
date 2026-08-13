@@ -21,12 +21,13 @@ import json
 import os
 import re
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from cmo_runtime.console_db import (
     ConsoleDB,
@@ -35,7 +36,13 @@ from cmo_runtime.console_db import (
     norm_key,
     utc_timestamp,
 )
+from cmo_runtime.pipeline_stages import StageRecorder
 from cmo_runtime.task_file import TaskFile, TaskFileError
+
+#: How many Search Console rows the keyword stage keeps as evidence. The reader
+#: is owed the rows that justify the keywords, not all 250 the API returned —
+#: the full count is recorded on the stage either way.
+KEYWORD_EVIDENCE_ROWS = 10
 
 # Section 3: one rough subject buys one bounded research pass, not a crawl.
 PROPOSAL_PAGE_CAP = 5
@@ -358,14 +365,19 @@ a source, a date or a demand figure.
 
 Propose at most {MAX_CANDIDATES} candidate topics from the rough subject. For each,
 return a real article title (not the rough subject restated), the search keywords it
-targets, and one short outline paragraph saying what the blog should cover and for whom.
+targets, one or two sentences on why this topic is worth writing, and one short outline
+paragraph saying what the blog should cover and for whom.
+
+The "why" is read by a human deciding whether to approve the topic, so ground it in the
+evidence below — the demand figures or the source pages that support it. Name what it
+rests on. If the evidence is thin, say that instead of inventing a reason.
 
 Never propose any of these previously rejected topics, or a close rewording of one:
 {forbidden}
 {revision_block}
 Return only a JSON array between the delimiters, no prose:
 <<<BEGIN_CANDIDATES>>>
-[{{"title": "...", "keywords": ["...", "..."], "outline": "..."}}]
+[{{"title": "...", "keywords": ["...", "..."], "why": "...", "outline": "..."}}]
 <<<END_CANDIDATES>>>
 
 ROUGH SUBJECT: {subject}
@@ -658,13 +670,151 @@ class TopicProposalService:
             )
         return candidates, dropped
 
+    def _record_topic_stages(
+        self,
+        added: Sequence[Mapping[str, Any]],
+        *,
+        research: ResearchPass,
+        whys: Mapping[str, str],
+        outlines: Mapping[str, str],
+        keywords: Mapping[str, Sequence[str]],
+        research_started: str,
+        research_ms: int,
+        proposer_started: str,
+        proposer_ms: int,
+    ) -> None:
+        """Write stages 1-3 for every proposal this pass produced.
+
+        One research pass and one proposer call served all of them, so each
+        proposal's stages carry the same measured timings and say so. Recording
+        them per proposal rather than per pass is deliberate: the reader opens
+        one card and is owed that card's provenance without having to know that
+        five siblings shared it.
+
+        Never allowed to break the flow. A proposal that exists and cannot be
+        annotated is still a proposal; losing the run to a bookkeeping error
+        would be the worse outcome.
+        """
+        pages = [
+            {
+                "url": page.url,
+                "title": page.title,
+                "accessed_at": research_started,
+                "outcome": "cached" if research.cache_hit_of is not None else "fetched",
+            }
+            for page in research.pages
+        ]
+        gsc_rows = list(research.gsc_rows)
+        for entry in added:
+            proposal_id = int(entry.get("id") or 0)
+            title = str(entry.get("title") or "")
+            if not proposal_id:
+                continue
+            recorder = StageRecorder(self.database, proposal_id=proposal_id)
+            try:
+                with recorder.replay(
+                    "topic", started_at=research_started, duration_ms=research_ms
+                ) as stage:
+                    stage.record_sources(pages, kind="scrape")
+                    if research.cache_hit_of is None and research.pages_requested > len(pages):
+                        # Asked for more than came back. The gap is the record.
+                        stage.note(
+                            pages_missing=research.pages_requested - len(pages),
+                        )
+                    stage.finish(
+                        summary=f"Chose {title!r} from {len(pages)} source page(s)",
+                        title=title,
+                        why=whys.get(title, ""),
+                        source_kind=research.source_kind(),
+                        pages_requested=research.pages_requested,
+                        pages_fetched=len(pages),
+                        credits_used=research.credits_used,
+                        credits_remaining=research.credits_remaining,
+                        shared_pass="One research pass and one proposer call served every "
+                        "candidate topic from this subject.",
+                        cache_hit_of=research.cache_hit_of,
+                        message=research.message,
+                    )
+                with recorder.replay(
+                    "keywords", started_at=proposer_started, duration_ms=proposer_ms
+                ) as stage:
+                    for row in gsc_rows[:KEYWORD_EVIDENCE_ROWS]:
+                        stage.record_fetch(
+                            kind="gsc",
+                            outcome="fetched",
+                            query=str(row.get("query", "")),
+                            accessed_at=research_started,
+                            message=(
+                                f"impressions {row.get('impressions', 0)},"
+                                f" clicks {row.get('clicks', 0)},"
+                                f" position {round(float(row.get('position', 0) or 0), 1)}"
+                            ),
+                        )
+                    chosen = list(keywords.get(title, ()))
+                    stage.finish(
+                        summary=(
+                            f"{len(chosen)} keyword(s), grounded in {len(gsc_rows)}"
+                            " Search Console row(s)"
+                            if gsc_rows
+                            else f"{len(chosen)} keyword(s); no Search Console demand data"
+                        ),
+                        keywords=chosen,
+                        gsc_rows_available=len(gsc_rows),
+                        gsc_rows_shown=len(gsc_rows[:KEYWORD_EVIDENCE_ROWS]),
+                        gsc_message=research.gsc_message,
+                        provenance="Chosen in the topic call alongside the title, then "
+                        "checked against Search Console demand. Not a separate generation.",
+                    )
+                with recorder.replay(
+                    "summary", started_at=proposer_started, duration_ms=proposer_ms
+                ) as stage:
+                    summary_text = outlines.get(title, "")
+                    stage.finish(
+                        summary="What the article will say, as approved with the topic",
+                        text=summary_text,
+                        words=len(summary_text.split()),
+                        provenance="Written in the topic call and shown to the human who "
+                        "approved this topic. It is the approved statement of scope.",
+                    )
+            except ConsoleDBError:
+                # Bookkeeping must not cost a proposal that already exists.
+                continue
+
+    @staticmethod
+    def _candidate_fields(
+        rows: Sequence[dict[str, Any]],
+    ) -> tuple[dict[str, str], dict[str, str], dict[str, list[str]]]:
+        """Index the proposer's own answers by the title they belong to.
+
+        `why` is carried here rather than on `ProposalCandidate` because it is
+        provenance for the console, not part of what makes a candidate valid.
+        """
+        whys: dict[str, str] = {}
+        outlines: dict[str, str] = {}
+        keywords: dict[str, list[str]] = {}
+        for row in rows:
+            title = _single_line(row.get("title", ""), limit=180)
+            if not title:
+                continue
+            whys[title] = _single_line(row.get("why", ""), limit=600)
+            outlines[title] = str(row.get("outline", "")).strip()
+            keywords[title] = [
+                _single_line(item, limit=80)
+                for item in (row.get("keywords") or [])
+                if _single_line(item, limit=80)
+            ]
+        return whys, outlines, keywords
+
     def propose(self, raw_subject: str, actor: str) -> ProposalRun:
         """Turn one rough subject into a list of candidate topics. Writes no board card."""
         subject = self.database.subject_for(raw_subject, actor)
         subject_id = int(subject["id"])
+        research_started = utc_timestamp()
+        research_clock = time.monotonic()
         research = self._research(
             subject["raw_text"], page_cap=PROPOSAL_PAGE_CAP, subject_id=subject_id, kind="initial"
         )
+        research_ms = int((time.monotonic() - research_clock) * 1000)
         run_id = self.database.record_research_run(
             subject_id=subject_id,
             kind="initial",
@@ -680,14 +830,29 @@ class TopicProposalService:
             message=research.message,
         )
         rejected = [item["title"] for item in self.database.rejected_topics()]
+        proposer_started = utc_timestamp()
+        proposer_clock = time.monotonic()
         rows = self.proposer.propose(
             subject=subject["raw_text"],
             evidence=research.evidence_markdown(),
             rejected_titles=rejected,
         )
+        proposer_ms = int((time.monotonic() - proposer_clock) * 1000)
         candidates, dropped = self._candidates_from(research, rows)
         result = self.database.add_candidates(
             subject_id=subject_id, research_run_id=run_id, candidates=candidates
+        )
+        whys, outlines, keywords = self._candidate_fields(rows)
+        self._record_topic_stages(
+            result["added"],
+            research=research,
+            whys=whys,
+            outlines=outlines,
+            keywords=keywords,
+            research_started=research_started,
+            research_ms=research_ms,
+            proposer_started=proposer_started,
+            proposer_ms=proposer_ms,
         )
         messages = [message for message in (research.message, research.gsc_message) if message]
         return ProposalRun(

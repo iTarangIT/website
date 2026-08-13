@@ -328,6 +328,124 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertIn("Being rewritten", step["blogsHtml"])
         self.assertEqual(step["editorText"], "My unsaved sentence.")
 
+    # ---- the process tab draws rows, and only rows ---------------------------
+
+    def process_body(self, stages: list[dict]) -> str:
+        card = _blog("TASK-9", "Battery repair costs")
+        card["process"] = stages
+        return self.steps({
+            "state": _state([], [card]),
+            "steps": [{"do": "detail", "task": "TASK-9", "tab": "process"}],
+        })[0]["detailBody"]
+
+    @staticmethod
+    def _stage(stage: str, ordinal: int, **overrides: object) -> dict:
+        row = {
+            "stage": stage,
+            "label": stage.title(),
+            "ordinal": ordinal,
+            "attempt": 1,
+            "status": "completed",
+            "started_at": "2026-08-13T05:00:00Z",
+            "ended_at": "2026-08-13T05:00:04Z",
+            "duration_ms": 4200,
+            "summary": f"{stage} ran",
+            "detail": {},
+            "fetches": [],
+            "fetched": 0,
+            "failed": 0,
+        }
+        row.update(overrides)
+        return row
+
+    def test_a_card_with_no_recorded_stages_says_so_rather_than_drawing_six(self) -> None:
+        body = self.process_body([])
+
+        self.assertIn("Nothing recorded yet", body)
+        self.assertNotIn("data-key=", body, "an empty process list still drew stage blocks")
+
+    def test_only_the_recorded_stages_are_drawn(self) -> None:
+        body = self.process_body([
+            self._stage("topic", 1),
+            self._stage("writing", 6),
+        ])
+
+        self.assertIn("1. Topic", body)
+        self.assertIn("6. Writing", body)
+        for absent in ("Keywords", "Summary", "Outline", "Research"):
+            self.assertNotIn(
+                f">{absent}<", body, f"a {absent} stage was drawn without a row to draw it from"
+            )
+
+    def test_a_running_stage_is_open_and_carries_a_ticking_elapsed_time(self) -> None:
+        body = self.process_body([
+            self._stage("research", 5, status="running", ended_at=None, duration_ms=None),
+        ])
+
+        self.assertIn("data-elapsed=", body, "a running stage cannot show how long it has been going")
+        self.assertIn("in progress", body)
+        self.assertRegex(body, r"<details class=\"stage\"[^>]*\sopen>")
+
+    def test_a_finished_stage_is_closed_and_shows_its_measured_duration(self) -> None:
+        body = self.process_body([self._stage("writing", 6)])
+
+        self.assertNotIn("data-elapsed=", body)
+        self.assertIn("4s", body)
+        self.assertNotRegex(body, r"<details class=\"stage\"[^>]*\sopen>")
+
+    def test_a_repeated_stage_says_which_attempt_it_was(self) -> None:
+        body = self.process_body([
+            self._stage("writing", 6, attempt=1, status="failed", summary="writer article has 1806 words"),
+            self._stage("writing", 6, attempt=2),
+        ])
+
+        self.assertIn("attempt 2", body)
+        self.assertIn("failed", body)
+        self.assertIn("1806 words", body)
+
+    def test_a_failed_fetch_is_drawn_next_to_the_ones_that_worked(self) -> None:
+        body = self.process_body([
+            self._stage(
+                "research",
+                5,
+                fetched=1,
+                failed=1,
+                fetches=[
+                    {"kind": "scrape", "outcome": "fetched", "url": "https://really-fetched.test/a",
+                     "query": "", "title": "A", "published_date": "2026-07-01",
+                     "accessed_at": "2026-08-11", "message": ""},
+                    {"kind": "scrape", "outcome": "failed", "url": "https://really-fetched.test/b",
+                     "query": "", "title": "", "published_date": "", "accessed_at": "",
+                     "message": "HTTP 502"},
+                ],
+            ),
+        ])
+
+        self.assertIn("https://really-fetched.test/a", body)
+        self.assertIn("https://really-fetched.test/b", body)
+        self.assertIn("HTTP 502", body)
+        self.assertIn("1 retrieved, 1 failed", body)
+
+    def test_a_source_url_is_drawn_as_text_and_never_as_a_link(self) -> None:
+        """This page requests nothing from another host. An anchor here would be
+        the first thing to break that, and a source list is exactly where one
+        would feel natural to add."""
+        body = self.process_body([
+            self._stage(
+                "research",
+                5,
+                fetched=1,
+                fetches=[
+                    {"kind": "scrape", "outcome": "fetched", "url": "https://really-fetched.test/a",
+                     "query": "", "title": "A", "published_date": "", "accessed_at": "",
+                     "message": ""},
+                ],
+            ),
+        ])
+
+        self.assertIn("https://really-fetched.test/a", body)
+        self.assertNotIn("<a ", body, "a source was rendered as a clickable link")
+
     # ---- the decision controls appear only where a decision can be recorded --
 
     def decidable_card(self, section: str, state: str, label: str) -> dict:

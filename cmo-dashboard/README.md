@@ -87,6 +87,57 @@ how a reader that printed raw Markdown stayed green for weeks:
   reply came back", "the unchanged row is still the same node" and "the textarea was
   not overwritten" checkable at all.
 
+## Showing the work: the Process tab
+
+A blog used to go from an approved topic to a finished article with nothing visible in
+between. The **Process** tab on a blog card is the record of what actually happened,
+stage by stage, in the order they are meant to be read:
+
+```text
+1  Topic selection    the topic, and why it was chosen
+2  Keyword selection  the keywords, and the Search Console rows behind them
+3  Summary            what the article will say, as approved
+4  Outline            the sections it will carry
+5  Research           every page fetched, and every one that failed
+6  Writing            words, sections, trim passes, refusals
+```
+
+**Rows, and only rows.** Every stage is written by the pipeline while it runs; the tab
+renders the query result directly. A stage that never ran has no row, so it is not
+drawn — there is no notion of a stage that "should" be there and therefore no way to
+imply work that did not happen. Cards written before this existed show an empty tab,
+which is the honest answer rather than a reconstructed one.
+
+**A stage completed is a stage recorded.** `pipeline_stages` rows are opened before the
+work (`status='running'`, `started_at` set) and closed after it, in two separate
+`ConsoleDB.write()` transactions. A process killed mid-run therefore leaves every
+finished stage committed and the interrupted one readable as `running` — which is also
+exactly what the tab needs to show elapsed time. `tests/test_pipeline_stages.py` proves
+this by `SIGKILL`ing a real subprocess and reading the database back.
+
+**The source list comes from the fetch ledger, never from the article.** `stage_fetches`
+holds one row per attempt to read something, failures included, and
+`console_board.process_payload()` builds the research stage from that table alone. An
+article can cite any URL it likes; a URL with no fetch record cannot reach the page.
+There is a test for exactly that, because "here are six sources" and "we asked for eight
+and six came back" read identically until someone writes the second one down.
+
+**Retries do not overwrite.** `attempt` increments, so three failed generations are three
+rows rather than one row that eventually says `completed`.
+
+Two of the six stages did not exist as discrete steps and now do. `Topic selection`
+gained a `why` — one more key in the proposer's existing JSON contract, not a second
+call. `Outline` is new: `HermesContentWriter.outline()` agrees 4-6 section headings from
+the approved scope and the research brief before `write()` is called, and those headings
+are passed into the writer as a constraint. `Keyword selection` was deliberately *not*
+split into its own generation — the keywords come back attached to the title they belong
+to, and a second call would drift from it; the stage records them with the Search Console
+demand rows that justify them, and says so.
+
+The tab updates live through the existing token: `ceo_version.py` already watches
+`console.db` and its `-wal` sidecar, so a stage row committed by the writer reaches an
+open console within three seconds with no new mechanism.
+
 ## The console updates itself
 
 Sanchit never presses refresh. Two separate mechanisms, because the two problems are

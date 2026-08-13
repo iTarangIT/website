@@ -329,6 +329,20 @@ border-radius:var(--radius-sm);background:#f7f9f7}
 .review-notes h2{margin:16px 0 6px;font-size:var(--f-md)}
 .review-notes h2:first-child{margin-top:0}
 .review-notes .meta{margin:0 0 10px}
+/* Process: one collapsible block per recorded stage. A stage still running is
+   left open, because that is the one a reader opening the tab came to see. */
+.stages{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.stage{border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff}
+.stage[open]{background:#f7f9f7}
+.stage summary{padding:11px var(--pad);min-height:var(--tap);display:flex;
+align-items:center;gap:8px;flex-wrap:wrap}
+.stage .body{padding:0 var(--pad) var(--pad)}
+.stage .body>p:first-child{margin-top:0}
+.stage-detail{display:grid;grid-template-columns:minmax(9rem,auto) 1fr;gap:4px 14px;
+margin:10px 0;font-size:var(--f-sm)}
+.stage-detail dt{color:var(--faint);font-weight:700}
+.stage-detail dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.stage .list-row .num{overflow-wrap:anywhere}
 .editor{max-width:min(1000px,100%);margin-top:14px}
 .editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
 .editor-pane{display:flex;flex-direction:column;min-height:0}
