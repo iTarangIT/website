@@ -41,6 +41,14 @@ export const blogPosts: BlogPost[] = [
     readTime: "5 min read",
     category: "battery-selection",
   },
+  {
+    slug: "independence-day-ai-powered-ev-energy-network",
+    title: "iTarang : Building Bharat's AI-Powered EV Energy Network",
+    excerpt: "How an AI-powered EV Energy Network connects OEMs, dealers, financiers and consumers across every stage of an electric vehicle's lifecycle.",
+    date: "2026-08-14",
+    readTime: "6 min read",
+    category: "partners-industry",
+  },
 ];
 
 export function categoryHasPosts(slug: BlogCategorySlug): boolean {
