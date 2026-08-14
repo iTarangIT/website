@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { ArrowLeft, Clock, Calendar } from "lucide-react";
 import Badge from "@/components/ui/Badge";
+import ShareBar from "@/components/blog/ShareBar";
 
 interface BlogLayoutProps {
   title: string;
+  slug: string;
   date: string;
   readTime: string;
   category: string;
@@ -12,6 +14,7 @@ interface BlogLayoutProps {
 
 export default function BlogLayout({
   title,
+  slug,
   date,
   readTime,
   category,
@@ -58,8 +61,8 @@ export default function BlogLayout({
           {children}
         </div>
 
-        {/* Share placeholder */}
-        <div className="mt-12 border-t border-gray-200 pt-8 flex items-center justify-between">
+        {/* Article footer — back link + share */}
+        <div className="mt-12 border-t border-gray-200 pt-8 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/blog"
             className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 transition-colors"
@@ -67,7 +70,7 @@ export default function BlogLayout({
             <ArrowLeft className="h-4 w-4" />
             Back to Blog
           </Link>
-          <p className="text-sm text-gray-400">Share this article</p>
+          <ShareBar title={title} slug={slug} />
         </div>
       </div>
     </article>

@@ -12,6 +12,7 @@ export default function BatteryPassportArticle() {
   return (
     <BlogLayout
       title="The Battery Passport: What It Means for India's EV Circular Economy"
+      slug="battery-passport"
       date="2026-03-15"
       readTime="8 min read"
       category="Vision"

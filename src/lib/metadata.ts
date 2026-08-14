@@ -17,7 +17,7 @@ export function createMetadata({ title, description, path, ogImage }: MetadataIn
       description,
       url: `https://www.itarang.com${path}`,
       siteName: "iTarang Technologies",
-      images: [ogImage || "/og-image.png"],
+      images: [ogImage || "/og-image.jpg"],
       type: "website",
     },
     twitter: { card: "summary_large_image" },

@@ -12,6 +12,7 @@ export default function InformalFinancingArticle() {
   return (
     <BlogLayout
       title="Why 90% of E-Rickshaw Battery Financing Is Informal — And What It Costs"
+      slug="informal-financing"
       date="2026-03-20"
       readTime="6 min read"
       category="Industry Insights"
