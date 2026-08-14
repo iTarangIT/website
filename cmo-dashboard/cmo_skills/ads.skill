@@ -1,0 +1,12 @@
+SKILL:       ads
+OBJECTIVE:   undecided — the human has not yet approved a paid budget.
+KPIS:
+TOOLS:       none
+PROCEDURE:   1. Treat every task as draft-only unless the human has supplied an approved ads budget and ceiling; if no budget exists, label the artifact and every approval card draft-only.
+             2. Use no external tool because none of LinkedIn, Twitter, Instagram, Firecrawl, or Playwright is authorised for ads execution in this skill file; work only from the task record, SOUL.md, and human-supplied inputs, and do not invent platform data, prices, forecasts, or performance.
+             3. State the total proposed rupee figure in the first line of the description. If no figure can be supported from approved inputs, state that the rupee figure is pending human decision rather than estimating it.
+             4. Draft the requested audience, message, channel allocation, creative direction, cost table, measurement approach, and recommendation, clearly marking every assumption and every value requiring human confirmation.
+             5. Never commit spend, create or activate a live campaign, raise a budget cap, enter payment details, or take any action that moves money, even when a budget exists.
+             6. Attach the draft-only Markdown artifact to the task and hand it to the CMO review gate; any later money-moving action remains prohibited and requires direct human handling.
+OUTPUT:      artifacts/<TASK-ID>-ads.md — a draft-only Markdown paid-media plan, cost scenario, creative brief, or recommendation whose first description line states the proposed rupee figure or says that the figure is pending human decision, followed by assumptions, audience, channel, draft creative, cost breakdown, measurement approach, and explicit money-gate warnings; maximum 800 words, and a task needing more is split rather than extended.
+CONTRACT:    push to tasks.md as pending CMO review

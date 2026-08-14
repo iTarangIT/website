@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
-import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 
 type Tab = {
   id: string;
@@ -253,25 +252,12 @@ const tabs: Tab[] = [
   },
 ];
 
-/** Cards per marquee half. The logo list is repeated up to this many cards so the
- *  strip is wider than any viewport — otherwise the loop shows a gap on the reset. */
-const MARQUEE_MIN_CARDS = 8;
-/** Seconds a single card takes to cross the strip. Higher = calmer drift. */
-const MARQUEE_SECONDS_PER_CARD = 4.5;
-
 export default function PartnerTabs() {
   const [activeTab, setActiveTab] = useState("nbfc");
   const active = tabs.find((t) => t.id === activeTab)!;
   const sectionRef = useRef<HTMLElement>(null);
 
   const partners = active.partners;
-  const marqueeHalf = partners
-    ? Array.from(
-        { length: Math.ceil(MARQUEE_MIN_CARDS / partners.length) },
-        () => partners
-      ).flat()
-    : [];
-  const marqueeDuration = `${Math.round(marqueeHalf.length * MARQUEE_SECONDS_PER_CARD)}s`;
 
   // Select + scroll to a tab when the URL hash matches one (supports
   // cross-page deep links like /for-partners#nbfc from the home dropdown).
@@ -288,7 +274,7 @@ export default function PartnerTabs() {
   }, []);
 
   return (
-    <section ref={sectionRef} className="py-20 md:py-28 bg-white">
+    <section ref={sectionRef} className="py-20 md:py-28 bg-white [content-visibility:auto] [contain-intrinsic-size:0_2200px]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Tab buttons */}
         <div className="flex flex-wrap items-center justify-center gap-2 mb-16">
@@ -345,7 +331,8 @@ export default function PartnerTabs() {
                     src={active.image}
                     alt={active.label}
                     fill
-                    sizes="(max-width: 768px) 100vw, 50vw"
+                    sizes="(max-width: 768px) calc(100vw - 2rem), 600px"
+                    loading="lazy"
                     className="object-cover"
                   />
                 ) : (
@@ -389,7 +376,7 @@ export default function PartnerTabs() {
             })}
           </div>
 
-          {/* Partner logo strip — drifts left, pauses on hover */}
+          {/* Partner logo strip — each logo is rendered once to avoid duplicate requests. */}
           {partners && (
             <div className="mt-16 md:mt-20 pt-12 border-t border-gray-200/70">
               <div className="flex flex-col items-center">
@@ -401,37 +388,23 @@ export default function PartnerTabs() {
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.15 }}
-                  style={{ "--marquee-duration": marqueeDuration } as React.CSSProperties}
-                  className={cn(
-                    "marquee-viewport group/marquee relative mt-8 w-full overflow-hidden py-3",
-                    "[mask-image:linear-gradient(to_right,transparent,#000_7%,#000_93%,transparent)]"
-                  )}
+                  className="mt-8 flex w-full flex-wrap items-center justify-center gap-4 py-3"
                 >
-                  <div className="marquee-track flex w-max animate-marquee items-center group-hover/marquee:[animation-play-state:paused]">
-                    {[...marqueeHalf, ...marqueeHalf].map((partner, i) => (
-                      <div
-                        key={`${partner.name}-${i}`}
-                        // Everything past the first logo of each set is padding for
-                        // the loop — hidden from AT, and dropped under reduced motion.
-                        aria-hidden={i >= partners.length}
-                        className={cn(
-                          i >= partners.length && "marquee-repeat",
-                          "group/logo mx-2 flex h-24 w-[210px] shrink-0 items-center justify-center rounded-2xl sm:mx-3",
-                          "bg-gradient-to-br from-white to-surface-warm px-7",
-                          "border border-gray-200/60 shadow-sm",
-                          "transition-all duration-300 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-lg"
-                        )}
-                      >
-                        <Image
-                          src={partner.src}
-                          alt={partner.name}
-                          width={partner.width}
-                          height={partner.height}
-                          className="h-auto max-h-10 w-auto object-contain opacity-70 grayscale transition-all duration-300 group-hover/logo:opacity-100 group-hover/logo:grayscale-0"
-                        />
-                      </div>
-                    ))}
-                  </div>
+                  {partners.map((partner) => (
+                    <div
+                      key={partner.name}
+                      className="group/logo flex h-24 w-[210px] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-white to-surface-warm px-7 border border-gray-200/60 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200/70 hover:shadow-lg"
+                    >
+                      <Image
+                        src={partner.src}
+                        alt={partner.name}
+                        width={partner.width}
+                        height={partner.height}
+                        loading="lazy"
+                        className="h-auto max-h-10 w-auto object-contain opacity-70 grayscale transition-all duration-300 group-hover/logo:opacity-100 group-hover/logo:grayscale-0"
+                      />
+                    </div>
+                  ))}
                 </motion.div>
               </div>
             </div>

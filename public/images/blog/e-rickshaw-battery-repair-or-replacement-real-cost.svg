@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">E-rickshaw battery repair or replacement decision guide</title>
+  <desc id="desc">A self-contained diagram showing four checks for judging whether to repair or replace an e-rickshaw battery: repair bill, replacement bill, downtime, and remaining usable life.</desc>
+  <rect width="960" height="540" fill="#f7fafc"/>
+  <rect x="56" y="48" width="848" height="444" rx="28" fill="#ffffff" stroke="#d6dee8" stroke-width="3"/>
+  <text x="480" y="96" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#18324a">Battery decision: repair or replace?</text>
+  <text x="480" y="130" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#4b6175">Compare today’s bill with earning days, downtime, and reliability.</text>
+
+  <line x1="480" y1="158" x2="480" y2="402" stroke="#b9c7d6" stroke-width="3" stroke-dasharray="8 8"/>
+  <line x1="160" y1="280" x2="800" y2="280" stroke="#b9c7d6" stroke-width="3" stroke-dasharray="8 8"/>
+
+  <rect x="88" y="174" width="330" height="82" rx="18" fill="#e8f5ee" stroke="#7ac79a" stroke-width="2"/>
+  <circle cx="126" cy="215" r="20" fill="#2f9d5b"/>
+  <text x="126" y="222" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#ffffff">₹</text>
+  <text x="158" y="207" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#173f2a">Repair bill</text>
+  <text x="158" y="232" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#315b43" textLength="178" lengthAdjust="spacingAndGlyphs">Is the fault clear and limited?</text>
+
+  <rect x="542" y="174" width="330" height="82" rx="18" fill="#eef4ff" stroke="#79a8e8" stroke-width="2"/>
+  <circle cx="580" cy="215" r="20" fill="#2f6fbe"/>
+  <text x="580" y="222" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#ffffff">N</text>
+  <text x="612" y="207" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#17365f">Replacement bill</text>
+  <text x="612" y="232" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#345477" textLength="199" lengthAdjust="spacingAndGlyphs">Will it restore dependable work?</text>
+
+  <rect x="88" y="304" width="330" height="82" rx="18" fill="#fff7e8" stroke="#e6b35f" stroke-width="2"/>
+  <circle cx="126" cy="345" r="20" fill="#c77b16"/>
+  <path d="M126 333 v13 l10 7" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="158" y="337" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#61420f">Downtime</text>
+  <text x="158" y="362" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#70511c" textLength="234" lengthAdjust="spacingAndGlyphs">Workshop days are lost earning days.</text>
+
+  <rect x="542" y="304" width="330" height="82" rx="18" fill="#fdeff1" stroke="#e08391" stroke-width="2"/>
+  <circle cx="580" cy="345" r="20" fill="#c83f55"/>
+  <path d="M571 345 h18 M580 336 v18" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <text x="612" y="337" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#61202a">Remaining life</text>
+  <text x="612" y="362" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#74323b" textLength="233" lengthAdjust="spacingAndGlyphs">Will range and charging stay reliable?</text>
+
+  <text x="480" y="446" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#18324a">Pick the option that protects safe working days</text>
+</svg>

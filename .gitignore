@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# CMO dashboard runtime state (the source under cmo-dashboard/ is tracked).
+cmo-dashboard/**/__pycache__/
+cmo-dashboard/*.pyc
+cmo-dashboard/state/
+cmo-dashboard/logs/

@@ -97,7 +97,7 @@ const stages = [
 
 export default function LifecycleJourney() {
   return (
-    <section id="lifecycle-journey" className="py-20 md:py-28 bg-white">
+    <section id="lifecycle-journey" className="py-20 md:py-28 bg-white [content-visibility:auto] [contain-intrinsic-size:0_2400px]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <FadeInOnScroll>
           <div className="text-center mb-16">
@@ -140,7 +140,8 @@ export default function LifecycleJourney() {
                           src={stage.image}
                           alt={stage.title}
                           fill
-                          sizes="(max-width: 768px) 100vw, 50vw"
+                          sizes="(max-width: 768px) calc(100vw - 2rem), 600px"
+                          loading="lazy"
                           className="object-cover"
                         />
                       ) : (

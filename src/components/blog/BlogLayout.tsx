@@ -2,13 +2,14 @@ import Link from "next/link";
 import { ArrowLeft, Clock, Calendar } from "lucide-react";
 import Badge from "@/components/ui/Badge";
 import ShareBar from "@/components/blog/ShareBar";
+import { blogCategories, type BlogCategorySlug } from "@/data/blog-posts";
 
 interface BlogLayoutProps {
   title: string;
   slug: string;
   date: string;
   readTime: string;
-  category: string;
+  category: BlogCategorySlug;
   children: React.ReactNode;
 }
 
@@ -20,10 +21,12 @@ export default function BlogLayout({
   category,
   children,
 }: BlogLayoutProps) {
+  // Not destructured: `slug` is already this component's post-slug prop.
+  const categoryDetails = blogCategories.find((c) => c.slug === category);
+
   return (
     <article className="py-16 md:py-24">
       <div className="mx-auto max-w-3xl px-4 sm:px-6">
-        {/* Back link */}
         <Link
           href="/blog"
           className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 mb-8 transition-colors"
@@ -32,10 +35,21 @@ export default function BlogLayout({
           Back to Blog
         </Link>
 
-        {/* Article header */}
+        <nav aria-label="Breadcrumb" className="mb-6 text-sm text-gray-500">
+          <Link href="/" className="hover:text-brand-600">Home</Link>
+          <span className="mx-2">/</span>
+          <Link href="/blog" className="hover:text-brand-600">Blog</Link>
+          <span className="mx-2">/</span>
+          <Link href={`/blog/category/${category}`} className="hover:text-brand-600">
+            {categoryDetails?.name}
+          </Link>
+          <span className="mx-2">/</span>
+          <span aria-current="page">Article</span>
+        </nav>
+
         <header className="mb-10">
           <Badge variant="default" className="mb-4">
-            {category}
+            {categoryDetails?.name}
           </Badge>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight mb-4">
             {title}
@@ -56,19 +70,21 @@ export default function BlogLayout({
           </div>
         </header>
 
-        {/* Article body */}
-        <div className="prose prose-lg prose-gray max-w-none prose-headings:tracking-tight prose-a:text-brand-600 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl">
+        {/* `prose-*` here were Tailwind Typography classes, and that plugin is not
+            installed — under Tailwind v4 they resolved to nothing at all, so every
+            article rendered as unstyled <p> and <h2>. The real styles live in
+            globals.css under .article-prose. */}
+        <div className="article-prose">
           {children}
         </div>
 
-        {/* Article footer — back link + share */}
         <div className="mt-12 border-t border-gray-200 pt-8 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <Link
-            href="/blog"
+            href={`/blog/category/${category}`}
             className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Blog
+            More in {categoryDetails?.name}
           </Link>
           <ShareBar title={title} slug={slug} />
         </div>

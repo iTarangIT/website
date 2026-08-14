@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Clock, Calendar } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
-import type { BlogPost } from "@/data/blog-posts";
+import { blogCategories, type BlogPost } from "@/data/blog-posts";
 
 interface BlogCardProps {
   post: BlogPost;
@@ -10,9 +10,9 @@ interface BlogCardProps {
 
 export default function BlogCard({ post }: BlogCardProps) {
   const categoryColor =
-    post.category === "Industry Insights"
+    post.category === "financing"
       ? "from-brand-600 to-brand-800"
-      : post.category === "Vision"
+      : post.category === "partners-industry"
         ? "from-accent-sky to-brand-600"
         : "from-brand-700 to-accent-green";
 
@@ -22,7 +22,7 @@ export default function BlogCard({ post }: BlogCardProps) {
         {/* Cover placeholder */}
         <div className={`relative h-44 bg-gradient-to-br ${categoryColor} flex items-end p-5`}>
           <Badge variant="accent" className="absolute top-4 left-4 text-xs">
-            {post.category}
+            {blogCategories.find(({ slug }) => slug === post.category)?.name}
           </Badge>
         </div>
 

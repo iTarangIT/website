@@ -15,7 +15,7 @@ export default function InformalFinancingArticle() {
       slug="informal-financing"
       date="2026-03-20"
       readTime="6 min read"
-      category="Industry Insights"
+      category="financing"
     >
       <p>
         India has over 30 lakh e-rickshaws on its roads today, and that number is growing

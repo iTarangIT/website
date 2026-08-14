@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" role="img" aria-labelledby="title desc">
+  <title id="title">Battery-as-a-Service lifecycle for light electric vehicles in India</title>
+  <desc id="desc">A simple circular diagram showing how financing, deployment, monitoring, maintenance, buyback, and recycling connect around an e-rickshaw battery, with drivers, dealers, and lenders benefiting from asset visibility.</desc>
+  <rect width="900" height="620" fill="#f7faf8"/>
+
+  <g font-family="Arial, sans-serif" font-size="16" fill="#173b2b">
+    <rect x="345" y="16" width="210" height="38" rx="10" fill="#dff1e7" stroke="#b8d8c7"/>
+    <text x="450" y="41" text-anchor="middle" font-weight="700">Battery-as-a-Service</text>
+  </g>
+
+  <g transform="translate(0,50)">
+    <circle cx="450" cy="280" r="150" fill="#e8f5ee" stroke="#1f7a4d" stroke-width="3"/>
+    <rect x="365" y="240" width="170" height="80" rx="18" fill="#ffffff" stroke="#1f7a4d" stroke-width="3"/>
+    <rect x="392" y="260" width="116" height="40" rx="8" fill="#2fb36d"/>
+    <rect x="508" y="272" width="14" height="16" rx="3" fill="#2fb36d"/>
+    <text x="450" y="350" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#173b2b">Managed battery</text>
+    <text x="450" y="376" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#355446">for e-rickshaws and light EVs</text>
+
+    <g font-family="Arial, sans-serif">
+      <g>
+        <circle cx="450" cy="70" r="52" fill="#ffffff" stroke="#244c78" stroke-width="3"/>
+        <text x="450" y="66" text-anchor="middle" font-size="18" font-weight="700" fill="#1d3654">Finance</text>
+        <text x="450" y="90" text-anchor="middle" font-size="13" fill="#355">asset access</text>
+      </g>
+      <g>
+        <circle cx="650" cy="160" r="52" fill="#ffffff" stroke="#244c78" stroke-width="3"/>
+        <text x="650" y="156" text-anchor="middle" font-size="18" font-weight="700" fill="#1d3654">Deploy</text>
+        <text x="650" y="180" text-anchor="middle" font-size="13" fill="#355">dealer handoff</text>
+      </g>
+      <g>
+        <circle cx="650" cy="400" r="52" fill="#ffffff" stroke="#244c78" stroke-width="3"/>
+        <text x="650" y="396" text-anchor="middle" font-size="18" font-weight="700" fill="#1d3654">Monitor</text>
+        <text x="650" y="420" text-anchor="middle" font-size="13" fill="#355">asset visibility</text>
+      </g>
+      <g>
+        <circle cx="450" cy="490" r="52" fill="#ffffff" stroke="#244c78" stroke-width="3"/>
+        <text x="450" y="486" text-anchor="middle" font-size="18" font-weight="700" fill="#1d3654">Maintain</text>
+        <text x="450" y="510" text-anchor="middle" font-size="13" fill="#355">uptime support</text>
+      </g>
+      <g>
+        <circle cx="250" cy="400" r="52" fill="#ffffff" stroke="#244c78" stroke-width="3"/>
+        <text x="250" y="396" text-anchor="middle" font-size="18" font-weight="700" fill="#1d3654">Buyback</text>
+        <text x="250" y="420" text-anchor="middle" font-size="13" fill="#355">residual value</text>
+      </g>
+      <g>
+        <circle cx="250" cy="160" r="52" fill="#ffffff" stroke="#244c78" stroke-width="3"/>
+        <text x="250" y="156" text-anchor="middle" font-size="18" font-weight="700" fill="#1d3654">Recycle</text>
+        <text x="250" y="180" text-anchor="middle" font-size="13" fill="#355">responsible end</text>
+      </g>
+    </g>
+
+    <g fill="none" stroke="#1f7a4d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M499 88 C560 105 600 125 623 145"/>
+      <path d="M676 210 C700 270 700 330 676 350"/>
+      <path d="M623 415 C585 452 535 477 502 483"/>
+      <path d="M398 483 C345 470 300 440 277 415"/>
+      <path d="M224 350 C200 290 200 230 224 210"/>
+      <path d="M277 145 C318 105 380 82 398 77"/>
+    </g>
+
+    <g fill="#1f7a4d">
+      <path d="M622 145 l-17 -2 l10 -14 z"/>
+      <path d="M676 350 l-11 -14 l17 -3 z"/>
+      <path d="M502 483 l13 -12 l4 17 z"/>
+      <path d="M277 415 l17 2 l-10 14 z"/>
+      <path d="M224 210 l11 14 l-17 3 z"/>
+      <path d="M398 77 l-13 12 l-4 -17 z"/>
+    </g>
+
+    <g font-family="Arial, sans-serif" font-size="16" fill="#173b2b">
+      <rect x="70" y="245" width="170" height="70" rx="14" fill="#ffffff" stroke="#c8ded2"/>
+      <text x="155" y="273" text-anchor="middle" font-weight="700">Drivers</text>
+      <text x="155" y="297" text-anchor="middle">need uptime</text>
+
+      <rect x="660" y="245" width="170" height="70" rx="14" fill="#ffffff" stroke="#c8ded2"/>
+      <text x="745" y="273" text-anchor="middle" font-weight="700">Lenders</text>
+      <text x="745" y="297" text-anchor="middle">need visibility</text>
+    </g>
+  </g>
+</svg>

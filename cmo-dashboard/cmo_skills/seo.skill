@@ -1,0 +1,12 @@
+SKILL:       seo
+OBJECTIVE:   improve search ranking for iTarang's target keywords on Google, Bing and Yahoo.
+KPIS:
+TOOLS:       Firecrawl, Playwright
+PROCEDURE:   1. Confirm that the human-approved SEO KPI set is recorded for the task; if it is absent, set the task to pending human decision and stop without generating or executing SEO work.
+             2. Confirm Firecrawl is connected before using it; if it is not connected, write blocked — Firecrawl not connected to the task and stop. Use Firecrawl to collect current crawl, indexability, metadata, content, link, and source evidence required by the task.
+             3. Confirm Playwright is connected before using it; if it is not connected, write blocked — Playwright not connected to the task and stop. Use Playwright to verify rendered pages, browser-visible metadata and headings, navigation paths, responsive behavior, and other findings that cannot be established from crawl output alone.
+             4. Compare the verified evidence with the task's target keywords and approved KPI, separating confirmed findings from hypotheses and recording the source URL or captured evidence for every finding.
+             5. Prioritize recommendations by expected effect on the approved KPI, implementation effort, and risk; do not change the live website, publish content, or contact anyone.
+             6. Produce the specified SEO artifact, attach it to the task, and hand it to the CMO review gate.
+OUTPUT:      artifacts/<TASK-ID>-seo.md — a Markdown SEO audit, keyword report, content brief, or prioritized recommendation report containing scope, dated evidence with source URLs, confirmed findings, assumptions requiring verification, recommended actions, and the approved KPI measurement method; maximum 1,200 words, and a task needing more is split rather than extended.
+CONTRACT:    push to tasks.md as pending CMO review

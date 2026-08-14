@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PROFILE_DIR="/opt/data/profiles/itarang_cmo"
+PROFILE_ENV="$PROFILE_DIR/.env"
+ENV_FILE="$PROFILE_DIR/dashboard/.env"
+if [[ ! -r "$ENV_FILE" ]]; then
+  printf 'Missing dashboard credentials file: %s\n' "$ENV_FILE" >&2
+  exit 1
+fi
+# Credentials are loaded from the mode-600 file, never supplied on the command line.
+set -a
+if [[ -r "$PROFILE_ENV" ]]; then
+  . "$PROFILE_ENV"
+fi
+. "$ENV_FILE"
+set +a
+: "${CMO_DASHBOARD_USERNAME:?Missing CMO_DASHBOARD_USERNAME in $ENV_FILE}"
+: "${CMO_DASHBOARD_PASSWORD:?Missing CMO_DASHBOARD_PASSWORD in $ENV_FILE}"
+exec /opt/hermes/.venv/bin/python "$PROFILE_DIR/dashboard/dashboard_server.py"

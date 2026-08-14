@@ -140,6 +140,8 @@ const TestimonialCarousel = React.forwardRef<
                   <img
                     src={testimonial.avatar}
                     alt={testimonial.name}
+                    loading="lazy"
+                    decoding="async"
                     className="w-16 h-16 rounded-full object-cover"
                   />
                   <h3 className="text-lg font-semibold text-gray-800 dark:text-foreground">

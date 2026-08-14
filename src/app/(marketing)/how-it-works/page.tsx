@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
 import LifecycleJourney from "@/components/how-it-works/LifecycleJourney";
-import LoanCalculator from "@/components/products/LoanCalculator";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
 import HowItWorksHero from "@/components/how-it-works/HowItWorksHero";
-import BatteryComparison from "@/components/how-it-works/BatteryComparison";
+
+const BatteryComparison = dynamic(() => import("@/components/how-it-works/BatteryComparison"), {
+  loading: () => <div className="min-h-[420px] bg-white" aria-hidden="true" />,
+});
+const LoanCalculator = dynamic(() => import("@/components/products/LoanCalculator"), {
+  loading: () => <div className="min-h-[520px] rounded-2xl border border-gray-200 bg-white/50" aria-label="Loan calculator loading" />,
+});
 
 export const metadata: Metadata = {
   title: "How It Works | iTarang",

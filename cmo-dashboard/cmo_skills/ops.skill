@@ -1,0 +1,7 @@
+SKILL:       ops
+OBJECTIVE:   not defined — skill disabled
+KPIS:
+TOOLS:       none — skill disabled
+PROCEDURE:
+OUTPUT:      none — skill disabled until the human supplies a one-line objective and approves a KPI set; reserved artifact path convention: artifacts/<TASK-ID>-ops.md
+CONTRACT:    none — skill disabled

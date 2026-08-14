@@ -15,7 +15,7 @@ export default function BatteryPassportArticle() {
       slug="battery-passport"
       date="2026-03-15"
       readTime="8 min read"
-      category="Vision"
+      category="partners-industry"
     >
       <p>
         As India accelerates its transition to electric mobility, a critical question is emerging:

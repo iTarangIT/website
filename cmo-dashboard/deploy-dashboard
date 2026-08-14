@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Ship this checkout to the directory the console is actually served from.
+#
+# dashboard_server.py runs from $PROFILE_DIR/dashboard, which is a COPY of this
+# directory — not a checkout, not a symlink. Committing to the repo changes
+# nothing that anyone can see. This script is the missing step, and it refuses to
+# report success unless the served build stamp actually moved.
+#
+#   ./deploy-dashboard            copy, restart, verify
+#   ./deploy-dashboard --dry-run  list what would change and stop
+set -euo pipefail
+
+SOURCE="$(cd "$(dirname "$0")" && pwd)"
+PROFILE_DIR="${CMO_DASHBOARD_PROFILE_DIR:-/opt/data/profiles/itarang_cmo}"
+TARGET="$PROFILE_DIR/dashboard"
+PORT="${CMO_DASHBOARD_PORT:-8080}"
+SESSION="cmo-dashboard"
+TMUX_BIN="$PROFILE_DIR/bin/tmux"
+RUN="$PROFILE_DIR/bin/run-dashboard"
+HEALTHY="$PROFILE_DIR/bin/dashboard-session-healthy"
+DRY_RUN=0
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+
+fail() { printf 'deploy failed: %s\n' "$1" >&2; exit 1; }
+
+# $TMUX is tmux's own protocol variable: when set, tmux treats its value as the
+# server socket to talk to. Inside a tmux pane it is already exported, so naming a
+# script variable TMUX would rewrite it for every child — and the next tmux server
+# would create its socket wherever we pointed it, over whatever was already there.
+# Never call a variable TMUX here, and drop any inherited one before starting a
+# server, so a deploy run from inside a pane cannot leak its parent's socket.
+unset TMUX TMUX_PANE
+
+# The vendored tmux carries its own libevent. A shell that did not inherit this —
+# `su hermes` without a login profile, a cron-style environment — gets
+# "libevent_core-2.1.so.7: cannot open shared object file" from the restart step,
+# after the copy has already happened. That is the worst possible place to fail:
+# the deployed tree has moved and the running process has not.
+export LD_LIBRARY_PATH="/opt/data/.local/tmux-pkg/unpacked/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+[[ -d "$TARGET" ]] || fail "no deployed tree at $TARGET"
+[[ -x "$RUN" ]]    || fail "missing $RUN"
+# A clobbered tmux is exactly the failure this script once caused; refuse to run
+# rather than start a server against a path that is no longer the binary.
+[[ -x "$TMUX_BIN" && ! -S "$TMUX_BIN" ]] || fail "$TMUX_BIN is not an executable tmux"
+
+# The stamp the live server is serving right now, before anything moves.
+# A stopped console is a normal starting state for a deploy, so a failed probe
+# here must not abort the run.
+before="$(curl -fsS -o /dev/null -D - "http://127.0.0.1:$PORT/ceo" 2>/dev/null \
+  | tr -d '\r' | awk 'tolower($1)=="x-cmo-build:"{ $1=""; sub(/^ /,""); print }' || true)"
+[[ -n "$before" ]] || before="(none — the live build predates the build stamp)"
+printf 'live build before : %s\n' "$before"
+
+# --- what differs ------------------------------------------------------------
+changed=()
+# Every module and every harness: a deployed tree missing a harness has suites
+# that error instead of running, which reads as a broken console rather than a
+# missing file.
+for path in "$SOURCE"/*.py "$SOURCE"/*.js; do
+  [[ -e "$path" ]] || continue
+  name="$(basename "$path")"
+  if [[ ! -e "$TARGET/$name" ]] || ! cmp -s "$path" "$TARGET/$name"; then
+    changed+=("$name")
+  fi
+done
+runtime_changed=()
+for path in "$SOURCE"/cmo_runtime/*.py; do
+  [[ -e "$path" ]] || continue
+  name="$(basename "$path")"
+  if [[ ! -e "$PROFILE_DIR/cmo_runtime/$name" ]] || ! cmp -s "$path" "$PROFILE_DIR/cmo_runtime/$name"; then
+    runtime_changed+=("cmo_runtime/$name")
+  fi
+done
+
+if ((${#changed[@]} == 0 && ${#runtime_changed[@]} == 0)); then
+  printf 'nothing to copy: the deployed tree already matches this checkout\n'
+else
+  printf 'files to copy     : %s\n' "${changed[*]-} ${runtime_changed[*]-}"
+fi
+
+if ((DRY_RUN)); then
+  printf 'dry run — nothing copied, nothing restarted\n'
+  exit 0
+fi
+
+# --- copy --------------------------------------------------------------------
+# .env is mode 600 runtime credentials and is never part of a deploy.
+for name in "${changed[@]-}"; do
+  [[ -n "$name" ]] || continue
+  install -m 0644 "$SOURCE/$name" "$TARGET/$name"
+done
+for name in "${runtime_changed[@]-}"; do
+  [[ -n "$name" ]] || continue
+  mkdir -p "$PROFILE_DIR/cmo_runtime"
+  install -m 0644 "$SOURCE/$name" "$PROFILE_DIR/$name"
+done
+rm -rf "$TARGET/__pycache__" "$PROFILE_DIR/cmo_runtime/__pycache__"
+
+# --- restart -----------------------------------------------------------------
+# run-dashboard exits early when the session is already healthy, so a copy alone
+# would leave the old process serving the old bytes in memory. Kill first.
+"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
+pkill -f "$TARGET/dashboard_server.py" 2>/dev/null || true
+sleep 1
+"$RUN"
+
+# --- verify ------------------------------------------------------------------
+for _ in $(seq 1 30); do
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/" || true)"
+  [[ "$code" != "000" ]] && break
+  sleep 0.5
+done
+# 401 is healthy: Basic Auth answered, so the server is up.
+[[ "$code" == "000" ]] && fail "nothing is listening on port $PORT"
+printf 'health check      : HTTP %s on port %s\n' "$code" "$PORT"
+
+if [[ -x "$HEALTHY" ]]; then
+  "$HEALTHY" "$SESSION" "$PORT" "$TARGET/dashboard_server.py" \
+    || fail "the tmux session does not own the listener"
+  printf 'session ownership : %s owns the listener on %s\n' "$SESSION" "$PORT"
+fi
+
+running="$(pgrep -fc "$TARGET/dashboard_server.py" || echo 0)"
+[[ "$running" == "1" ]] || fail "expected exactly one dashboard_server.py, found $running"
+printf 'processes         : 1\n'
+
+after="$(curl -fsS -o /dev/null -D - "http://127.0.0.1:$PORT/ceo" \
+  | tr -d '\r' | awk 'tolower($1)=="x-cmo-build:"{ $1=""; sub(/^ /,""); print }')"
+[[ -n "$after" ]] || fail "the served page carries no X-CMO-Build header"
+printf 'live build after  : %s\n' "$after"
+
+# The check this whole script exists for: a deploy that changed files but did not
+# change what is being served is a failed deploy, not a successful one.
+if ((${#changed[@]} + ${#runtime_changed[@]} > 0)) && [[ "$before" == "$after" ]]; then
+  fail "files were copied but the served build stamp did not move"
+fi
+
+printf 'DEPLOYED\n'

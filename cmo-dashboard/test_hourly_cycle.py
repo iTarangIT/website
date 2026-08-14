@@ -1,0 +1,43 @@
+import importlib.util
+import unittest
+from pathlib import Path
+
+def _tracked(relative: str) -> Path:
+    """Resolve a tracked source asset from either the repo or the profile layout."""
+    here = Path(__file__).resolve().parent
+    for base in (here, *here.parents):
+        candidate = base / relative
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(relative)
+
+
+SCRIPT = _tracked('scripts/hourly-cycle.py')
+spec = importlib.util.spec_from_file_location('hourly_cycle', SCRIPT)
+hourly = importlib.util.module_from_spec(spec)
+assert spec.loader
+spec.loader.exec_module(hourly)
+
+
+class HourlyCycleContractTests(unittest.TestCase):
+    def test_parse_website_implementation_requires_commit_and_three_lines(self):
+        result = hourly.parse_implementation_result(
+            '{"commit":"abcdef1","look":["Check hero","Check mobile","Check CTA"]}'
+        )
+        self.assertEqual('abcdef1', result['commit'])
+        self.assertEqual(3, len(result['look']))
+        with self.assertRaises(ValueError):
+            hourly.parse_implementation_result('{"commit":"abcdef1","look":["Only one"]}')
+
+    def test_website_task_is_explicit_not_guessed_from_free_text(self):
+        task = {'fields': {'Change type': 'website'}}
+        self.assertTrue(hourly.is_website_change(task))
+        self.assertFalse(hourly.is_website_change({'fields': {'Objective': 'website audit only'}}))
+
+    def test_metrics_summary_is_single_line_for_markdown_card(self):
+        rows = [{'metric': 'performance score', 'before': 80, 'after': 90, 'delta': 10}]
+        self.assertEqual('performance score: 80 → 90 (+10)', hourly.metric_summary(rows))
+
+
+if __name__ == '__main__':
+    unittest.main()

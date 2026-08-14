@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Keep exactly one content worker running, and say so.
+#
+# The worker is what turns an approved topic into a run. It is a long-lived
+# process rather than a cron job because there is no cron here and cron_mode is
+# deny; a tmux session is the durable runtime this box actually has.
+#
+# Idempotent on purpose: the entrypoint calls it on every container start, and
+# a human can call it any time. If a healthy worker is already up it exits 0 and
+# changes nothing.
+set -euo pipefail
+
+PROFILE_DIR="${CMO_DASHBOARD_PROFILE_DIR:-/opt/data/profiles/itarang_cmo}"
+SESSION="cmo-content-worker"
+TMUX_BIN="$PROFILE_DIR/bin/tmux"
+PYTHON="${CMO_WORKER_PYTHON:-/opt/hermes/.venv/bin/python}"
+LOG="$PROFILE_DIR/logs/content-worker.log"
+
+# The vendored tmux carries its own libevent. Without this it fails to start with
+# a shared-library error, which reads exactly like a missing binary.
+export LD_LIBRARY_PATH="/opt/data/.local/tmux-pkg/unpacked/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# $TMUX is tmux's own protocol variable: inside a pane it is already exported and
+# names the server socket. Assigning to a variable of that name once replaced the
+# tmux binary at $PROFILE_DIR/bin/tmux with a socket. Never name one that, and
+# drop any inherited one so a run from inside a pane cannot leak its parent's.
+unset TMUX TMUX_PANE
+
+fail() { printf 'content worker: %s\n' "$1" >&2; exit 1; }
+
+[[ -x "$TMUX_BIN" && ! -S "$TMUX_BIN" ]] || fail "$TMUX_BIN is not an executable tmux"
+[[ -x "$PYTHON" ]] || fail "missing interpreter: $PYTHON"
+[[ -f "$PROFILE_DIR/cmo_runtime/content_worker.py" ]] || fail "the worker is not deployed to $PROFILE_DIR/cmo_runtime"
+mkdir -p "$(dirname "$LOG")"
+
+# A live pane is not enough: the pane can be sitting on a dead shell. Ask whether
+# a worker process for THIS profile is actually running.
+if "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null \
+  && pgrep -f "cmo_runtime.content_worker.*--profile $PROFILE_DIR" >/dev/null 2>&1; then
+  printf 'content worker: already running (session %s)\n' "$SESSION"
+  exit 0
+fi
+
+"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
+pkill -f "cmo_runtime.content_worker.*--profile $PROFILE_DIR" 2>/dev/null || true
+
+# `-u` so the log is written as it happens rather than when the buffer fills; a
+# worker whose log appears an hour late is a worker you cannot debug.
+"$TMUX_BIN" new-session -d -s "$SESSION" -x 160 -y 48 \
+  "cd '$PROFILE_DIR' && PYTHONPATH='$PROFILE_DIR' exec '$PYTHON' -u -m cmo_runtime.content_worker --profile '$PROFILE_DIR' >>'$LOG' 2>&1"
+
+for _ in $(seq 1 20); do
+  if pgrep -f "cmo_runtime.content_worker.*--profile $PROFILE_DIR" >/dev/null 2>&1; then
+    printf 'content worker: started (session %s, log %s)\n' "$SESSION" "$LOG"
+    exit 0
+  fi
+  sleep 0.5
+done
+
+tail -20 "$LOG" >&2 || true
+fail "the worker did not come up; see $LOG"

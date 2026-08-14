@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" role="img" aria-labelledby="title description">
+  <title id="title">Writer seam test diagram</title>
+  <desc id="description">Approved topic flows to a Markdown artifact and then to a blog row.</desc>
+  <rect width="720" height="180" fill="#f4f7f5"/>
+  <g fill="#ffffff" stroke="#245744" stroke-width="2">
+    <rect x="30" y="55" width="180" height="70" rx="10"/>
+    <rect x="270" y="55" width="180" height="70" rx="10"/>
+    <rect x="510" y="55" width="180" height="70" rx="10"/>
+  </g>
+  <g fill="#173f31" font-family="system-ui, sans-serif" font-size="18" text-anchor="middle">
+    <text x="120" y="96">Approved topic</text>
+    <text x="360" y="86">Markdown artifact</text>
+    <text x="360" y="108" font-size="14">under artifacts/</text>
+    <text x="600" y="96">CEO blog row</text>
+  </g>
+  <g stroke="#d36b35" stroke-width="4" fill="none">
+    <path d="M210 90h48"/>
+    <path d="m248 80 10 10-10 10"/>
+    <path d="M450 90h48"/>
+    <path d="m488 80 10 10-10 10"/>
+  </g>
+</svg>
