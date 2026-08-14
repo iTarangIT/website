@@ -49,6 +49,14 @@ export const blogPosts: BlogPost[] = [
     readTime: "6 min read",
     category: "partners-industry",
   },
+  {
+    slug: "battery-as-a-service-india-electric-mobility",
+    title: "Why India Is a Strong Use Case for Battery-as-a-Service in Electric Mobility",
+    excerpt: "A plain-language guide to why dense urban routes, limited home charging, and e-rickshaw growth make India a strong fit for Battery-as-a-Service models.",
+    date: "2026-08-14",
+    readTime: "6 min read",
+    category: "financing",
+  },
 ];
 
 export function categoryHasPosts(slug: BlogCategorySlug): boolean {
