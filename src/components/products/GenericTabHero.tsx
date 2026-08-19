@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import Button from "@/components/ui/Button";
+import { siteConfig } from "@/data/site";
 import ProductPlaceholder from "./ProductPlaceholder";
 
 interface GenericTabHeroProps {
@@ -48,6 +50,15 @@ export default function GenericTabHero({
         <p className="mt-4 text-sm leading-relaxed text-white/70 max-w-[400px]">
           {description}
         </p>
+
+        <Button
+          href={siteConfig.storeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-6"
+        >
+          Buy Now
+        </Button>
       </div>
 
       {/* Image / Placeholder (Right) */}

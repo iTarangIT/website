@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Button from "@/components/ui/Button";
 import type { ERickshawBattery } from "@/data/products";
+import { siteConfig } from "@/data/site";
 
 export default function TabHero({ battery }: { battery: ERickshawBattery }) {
     // Use a fallback description if not present, similar to the HTML mockup
@@ -33,6 +35,15 @@ export default function TabHero({ battery }: { battery: ERickshawBattery }) {
                 <p className="mt-4 text-sm leading-relaxed text-white/70 max-w-[400px]">
                     {fallbackDesc}
                 </p>
+
+                <Button
+                    href={siteConfig.storeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-6"
+                >
+                    Buy Now
+                </Button>
             </div>
 
             {/* Hero Image / Icon (Right) */}
