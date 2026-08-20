@@ -10,10 +10,11 @@ const MARQUEE_MIN_CARDS = 8;
 /** Seconds a single card takes to cross the strip. Higher = calmer drift. */
 const MARQUEE_SECONDS_PER_CARD = 4.5;
 
-/** Logo heights are set per-partner, not shared. These marks range from 1.55:1
- *  (Trontek) to 6.1:1 (BatteryPool); a single height would let the wide wordmarks
- *  dominate the row and shrink Trontek to nothing. Each height below keeps the
- *  rendered width inside the card's 154px content box (w-[210px] less px-7). */
+/** Logo heights are set per-partner, not shared. These marks range from 1.06:1
+ *  (Taru) to 6.1:1 (BatteryPool); a single height would let the wide wordmarks
+ *  dominate the row and shrink the round marks to nothing. Each height below keeps
+ *  the rendered width inside the card's 154px content box (w-[210px] less px-7),
+ *  and the stacked lockups sit at h-14 so their wordmark still reads at a glance. */
 const partners = [
   {
     name: "BatteryPool",
@@ -35,6 +36,20 @@ const partners = [
     width: 759,
     height: 489,
     logoHeight: "h-12",
+  },
+  {
+    name: "NavPrakriti",
+    src: "/logos/navprakriti.png",
+    width: 670,
+    height: 443,
+    logoHeight: "h-14",
+  },
+  {
+    name: "Taru Investment Agencies",
+    src: "/logos/taru.png",
+    width: 374,
+    height: 352,
+    logoHeight: "h-14",
   },
 ];
 
@@ -102,11 +117,12 @@ export default function PartnersMarquee() {
                       width={partner.width}
                       height={partner.height}
                       loading="lazy"
+                      // Brand colours, no grayscale filter — the row is meant to
+                      // show the partner marks as they actually look.
                       className={cn(
                         "w-auto max-w-full object-contain",
                         partner.logoHeight,
-                        "opacity-70 grayscale transition-all duration-300",
-                        "group-hover/logo:opacity-100 group-hover/logo:grayscale-0",
+                        "transition-transform duration-300 group-hover/logo:scale-105",
                       )}
                     />
                   </div>
