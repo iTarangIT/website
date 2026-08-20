@@ -39,6 +39,7 @@
   --animate-grain: grain 8s steps(10) infinite;
   --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
   --animate-marquee: marquee var(--marquee-duration, 36s) linear infinite;
+  --animate-marquee-reverse: marquee-reverse var(--marquee-duration, 36s) linear infinite;
 }
 
 /* shadcn CSS variables mapped to iTarang brand */
@@ -119,6 +120,15 @@
 @keyframes marquee {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
+}
+
+/* Same loop travelling the other way, for strips that should drift left-to-right.
+   This is a separate keyframe rather than `animation-direction: reverse` because
+   the `animate-*` utility emits the `animation` shorthand, which resets direction
+   to normal — a longhand override would depend on utility ordering to win. */
+@keyframes marquee-reverse {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
 }
 
 /* ========================================

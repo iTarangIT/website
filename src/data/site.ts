@@ -13,8 +13,8 @@ export const siteConfig = {
   hours: "Mon-Fri 9am-6pm",
   social: {
     facebook: "https://www.facebook.com/itarang",
-    instagram: "https://www.instagram.com/itarang",
-    twitter: "https://twitter.com/itarang",
+    instagram: "https://www.instagram.com/itarangtechnologies",
+    twitter: "https://x.com/iTarangOfficial",
     linkedin: "https://www.linkedin.com/company/itarang",
   },
   legal: {

@@ -19,7 +19,7 @@ const moreLinks = [
 
 const socialLinks = [
   { href: siteConfig.social.linkedin, label: "LinkedIn" },
-  { href: siteConfig.social.twitter, label: "Twitter" },
+  { href: siteConfig.social.twitter, label: "X" },
   { href: siteConfig.social.instagram, label: "Instagram" },
 ];
 
