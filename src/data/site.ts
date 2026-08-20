@@ -4,6 +4,7 @@ export const siteConfig = {
   description:
     "We finance, track, maintain, and recycle EV batteries across India. Drivers get affordable EMIs. Lenders get visibility. Nothing falls through the cracks.",
   url: "https://www.itarang.com",
+  storeUrl: "https://firebrick-cassowary-579804.hostingersite.com/",
   email: "care@itarang.com",
   supportEmail: "care@itarang.com",
   phone: "+91-8076841497",
@@ -12,8 +13,8 @@ export const siteConfig = {
   hours: "Mon-Fri 9am-6pm",
   social: {
     facebook: "https://www.facebook.com/itarang",
-    instagram: "https://www.instagram.com/itarang",
-    twitter: "https://twitter.com/itarang",
+    instagram: "https://www.instagram.com/itarangtechnologies",
+    twitter: "https://x.com/iTarangOfficial",
     linkedin: "https://www.linkedin.com/company/itarang",
   },
   legal: {

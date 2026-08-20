@@ -1,6 +1,7 @@
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import HeroSection from "@/components/home/HeroSection";
+import PartnersMarquee from "@/components/home/PartnersMarquee";
 import LifecycleStrip from "@/components/home/LifecycleStrip";
 import ProofStrip from "@/components/home/ProofStrip";
 import WhoWeServe from "@/components/home/WhoWeServe";
@@ -14,6 +15,7 @@ export default function Home() {
 
       <main className="flex-1">
         <HeroSection />
+        <PartnersMarquee />
         <LifecycleStrip />
         <ProofStrip />
         <WhoWeServe />
