@@ -3,9 +3,16 @@ import { getContextForQuery } from "@/data/company-knowledge";
 
 export const maxDuration = 60;
 
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY,
-});
+// Singleton client — constructed on first request, not at module load, so that
+// `next build` can import this route without GROQ_API_KEY present.
+let groq: Groq | null = null;
+
+function getGroq(): Groq {
+    if (!groq) {
+        groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    }
+    return groq;
+}
 
 export async function POST(req: Request) {
     try {
@@ -29,7 +36,7 @@ Rules:
 3. Keep your answers concise, clear, and action-oriented. Don't invent or hallucinate information about pricing or policies not mentioned in the context.
 4. Format using markdown when helpful (like bolding key terms).`;
 
-        const chatResponse = await groq.chat.completions.create({
+        const chatResponse = await getGroq().chat.completions.create({
             messages: [
                 { role: "system", content: systemPrompt },
                 ...messages.map((m: any) => ({

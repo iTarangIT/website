@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "perf:scan": "tsx scripts/perf/scan.ts",
+    "perf:scan:throttle": "tsx scripts/perf/scan.ts --throttle=mobile --device=mobile"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1027.0",
@@ -52,6 +54,7 @@
     "@types/uuid": "^10.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"

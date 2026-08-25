@@ -36,7 +36,11 @@ export function useRole(): { role: PortalRole | null; ready: boolean } {
     getRole,
     () => null,
   );
-  const ready = typeof window !== "undefined";
+  // The hydration render uses the server snapshot, so `role` is null on the first
+  // client commit even when localStorage holds one. `ready` flips in the same
+  // commit that `role` becomes readable, which keeps consumers from acting on
+  // that transient null and redirecting a user away from a page they may see.
+  const ready = useSyncExternalStore(subscribe, () => true, () => false);
   return { role, ready };
 }
 

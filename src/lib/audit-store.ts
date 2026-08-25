@@ -8,6 +8,10 @@ import { seedAuditLog, type AuditEntry } from "@/data/portal/audit-log";
 const EVENT_NAME = "itarang:audit-updated";
 
 let runtimeEntries: AuditEntry[] = [];
+// useSyncExternalStore compares snapshots with Object.is, so getAuditEntries must
+// return the same reference until the data actually changes. Rebuilding the array
+// on every call makes every render look like a store update and loops forever.
+let snapshot: AuditEntry[] | null = null;
 
 function currentIstTimestamp(): string {
   try {
@@ -34,6 +38,7 @@ export function appendAuditEntry(entry: Omit<AuditEntry, "id" | "timestamp">): A
   const id = `aud-${String(Math.floor(Math.random() * 900000) + 100000)}`;
   const full: AuditEntry = { ...entry, id, timestamp: currentIstTimestamp() };
   runtimeEntries = [full, ...runtimeEntries];
+  snapshot = null;
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(EVENT_NAME));
   }
@@ -41,7 +46,8 @@ export function appendAuditEntry(entry: Omit<AuditEntry, "id" | "timestamp">): A
 }
 
 export function getAuditEntries(): AuditEntry[] {
-  return [...runtimeEntries, ...seedAuditLog];
+  if (snapshot === null) snapshot = [...runtimeEntries, ...seedAuditLog];
+  return snapshot;
 }
 
 export function subscribeToAudit(callback: () => void): () => void {
