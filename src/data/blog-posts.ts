@@ -34,6 +34,15 @@ export const blogCategories: BlogCategory[] = [
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "battery-waste-management-rules-2022-gazette-vs-market",
+    title: "Battery Waste Management Rules 2022: what the gazette says, and what the internet keeps repeating",
+    excerpt:
+      "S.O. 958(E) makes battery QR codes optional, not mandatory. What the notifications actually say, why the wrong version spread, and three questions that let you check any compliance claim in ten minutes.",
+    date: "2026-08-25",
+    readTime: "6 min read",
+    category: "lifecycle-recycling",
+  },
+  {
     slug: "e-rickshaw-battery-repair-or-replacement-real-cost",
     title: "E-Rickshaw Battery Repair or Replacement: How Drivers Can Judge the Real Cost",
     excerpt: "A practical guide for e-rickshaw drivers and fleet owners comparing battery repair and replacement cost, warning signs, downtime, safety, and long-term value.",
