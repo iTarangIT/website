@@ -13,7 +13,7 @@ export interface BlogPost {
   date: string;
   readTime: string;
   category: BlogCategorySlug;
-  /** Optional. `BlogCard` renders a category gradient, so no post needs one today. */
+  /** Optional cover art for `BlogCard`; posts without one fall back to the category gradient. */
   coverImage?: string;
 }
 
@@ -33,6 +33,15 @@ export const blogCategories: BlogCategory[] = [
 ];
 
 export const blogPosts: BlogPost[] = [
+  {
+    slug: "electric-light-goods-vehicle-battery-planning-delhi-ncr",
+    title: "Electric Light Goods Vehicles in Delhi-NCR: Battery Planning Before the Mandate",
+    excerpt: "A plain-language guide for Delhi-NCR fleet owners planning lithium batteries, charging access, replacement timing, and reliability for electric light goods vehicles.",
+    date: "2026-08-26",
+    readTime: "6 min read",
+    category: "battery-selection",
+    coverImage: "/images/blog/electric-light-goods-vehicle-battery-planning-delhi-ncr-cover.svg",
+  },
   {
     slug: "battery-waste-management-rules-2022-gazette-vs-market",
     title: "Battery Waste Management Rules 2022: what the gazette says, and what the internet keeps repeating",
