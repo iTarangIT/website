@@ -59,6 +59,13 @@ const partners = [
     height: 338,
     logoHeight: "h-10",
   },
+  {
+    name: "peakAmp",
+    src: "/logos/peakamp.png",
+    width: 1998,
+    height: 421,
+    logoHeight: "h-7",
+  },
 ];
 
 const marqueeHalf = Array.from(
