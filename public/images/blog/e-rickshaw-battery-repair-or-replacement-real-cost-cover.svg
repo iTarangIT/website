@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="coverTitle coverDesc">
+  <title id="coverTitle">Judging e-rickshaw battery repair against replacement</title>
+  <desc id="coverDesc">A balance weighing a worn battery under repair against a fresh replacement pack, over the e-rickshaw whose earning day depends on the answer.</desc>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#011a2a"/>
+      <stop offset="0.55" stop-color="#02314e"/>
+      <stop offset="1" stop-color="#165e73"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c9eaf7"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#sky)"/>
+  <g stroke="#38bdf8" stroke-opacity="0.07" stroke-width="2">
+    <path d="M0 135h1200M0 270h1200M0 405h1200M0 540h1200"/>
+    <path d="M150 0v675M300 0v675M450 0v675M600 0v675M750 0v675M900 0v675M1050 0v675"/>
+  </g>
+
+  <!-- the vehicle the decision is really about -->
+  <g fill="#0d4a5e" fill-opacity="0.5">
+    <path d="M120 566v-96a92 92 0 0 1 92-92h116a92 92 0 0 1 92 92v96z"/>
+    <rect x="386" y="470" width="96" height="96" rx="18"/>
+  </g>
+  <g fill="#011a2a" fill-opacity="0.5">
+    <circle cx="196" cy="566" r="34"/><circle cx="430" cy="566" r="34"/>
+  </g>
+
+  <!-- the balance -->
+  <rect x="586" y="216" width="28" height="330" rx="14" fill="#e8f6fc"/>
+  <rect x="510" y="536" width="180" height="26" rx="13" fill="#e8f6fc"/>
+  <circle cx="600" cy="216" r="26" fill="#38bdf8"/>
+  <path d="M310 250h580" stroke="#e8f6fc" stroke-width="18" stroke-linecap="round"/>
+
+  <!-- repair: the pack you already own -->
+  <g>
+    <path d="M310 250v122" stroke="#90d4ef" stroke-width="8" stroke-linecap="round"/>
+    <path d="M214 372h192l-28 58H242z" fill="#0d4a5e" stroke="#38bdf8" stroke-width="5"/>
+    <rect x="258" y="296" width="104" height="62" rx="12" fill="#02314e" stroke="#e8f6fc" stroke-width="5"/>
+  <rect x="362" y="315.84" width="9" height="22" rx="5" fill="#e8f6fc"/>
+  <rect x="270" y="308" width="22" height="37" rx="6" fill="#10b981"/>
+  <rect x="299" y="308" width="22" height="37" rx="6" fill="none" stroke="#38bdf8" stroke-width="4" stroke-dasharray="8 6"/>
+  <rect x="327" y="308" width="22" height="37" rx="6" fill="none" stroke="#38bdf8" stroke-width="4" stroke-dasharray="8 6"/>
+    <!-- open-end wrench, laid across the pack -->
+    <g transform="translate(376 306) rotate(38)">
+      <rect x="0" y="-9" width="72" height="18" rx="7" fill="#f0b429"/>
+      <path d="M0 -22 a 22 22 0 1 0 0 44 v-13 a 9 9 0 1 1 0 -18 z" fill="#f0b429"/>
+      <rect x="66" y="-13" width="24" height="26" rx="6" fill="#f0b429"/>
+      <rect x="76" y="-6" width="16" height="12" fill="#02314e"/>
+    </g>
+  </g>
+
+  <!-- replace: the pack you would buy -->
+  <g>
+    <path d="M890 250v122" stroke="#90d4ef" stroke-width="8" stroke-linecap="round"/>
+    <path d="M794 372h192l-28 58H822z" fill="#0d4a5e" stroke="#38bdf8" stroke-width="5"/>
+    <rect x="838" y="296" width="104" height="62" rx="12" fill="#02314e" stroke="#e8f6fc" stroke-width="5"/>
+  <rect x="942" y="315.84" width="9" height="22" rx="5" fill="#e8f6fc"/>
+  <rect x="850" y="308" width="22" height="37" rx="6" fill="#10b981"/>
+  <rect x="879" y="308" width="22" height="37" rx="6" fill="#10b981"/>
+  <rect x="907" y="308" width="22" height="37" rx="6" fill="#10b981"/>
+    <g stroke="#38bdf8" stroke-width="7" stroke-linecap="round">
+      <path d="M962 262v26M975 275h-26"/>
+      <path d="M814 256v20M824 266h-20"/>
+    </g>
+  </g>
+  <rect x="0" y="600" width="1200" height="75" fill="#011a2a" fill-opacity="0.45"/>
+</svg>

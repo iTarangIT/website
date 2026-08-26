@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="coverTitle coverDesc">
+  <title id="coverTitle">Battery Waste Management Rules 2022, read at the source</title>
+  <desc id="coverDesc">A gazette notification carrying a battery QR code clause, held under a magnifier, beside the recycling loop the rules govern.</desc>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#011a2a"/>
+      <stop offset="0.55" stop-color="#02314e"/>
+      <stop offset="1" stop-color="#165e73"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c9eaf7"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#sky)"/>
+  <g stroke="#38bdf8" stroke-opacity="0.07" stroke-width="2">
+    <path d="M0 135h1200M0 270h1200M0 405h1200M0 540h1200"/>
+    <path d="M150 0v675M300 0v675M450 0v675M600 0v675M750 0v675M900 0v675M1050 0v675"/>
+  </g>
+
+  <!-- the recycling loop the rules govern -->
+  <g transform="translate(892 336)">
+    <path d="M109.6 23.3 A 112 112 0 0 1 3.9 111.9" fill="none" stroke="#10b981" stroke-width="17" stroke-linecap="round"/>
+    <polygon points="-30.1,113.1 4.6,132.9 3.2,90.9" fill="#10b981"/>
+    <path d="M-74.9 83.2 A 112 112 0 0 1 -98.9 -52.6" fill="none" stroke="#10b981" stroke-width="17" stroke-linecap="round"/>
+    <polygon points="-82.9,-82.6 -117.4,-62.4 -80.3,-42.7" fill="#10b981"/>
+    <path d="M-34.6 -106.5 A 112 112 0 0 1 95.0 -59.4" fill="none" stroke="#10b981" stroke-width="17" stroke-linecap="round"/>
+    <polygon points="113.0,-30.5 112.8,-70.5 77.2,-48.2" fill="#10b981"/>
+    <rect x="-56" y="-36" width="104" height="72" rx="12" fill="#02314e" stroke="#e8f6fc" stroke-width="5"/>
+  <rect x="48" y="-12.96" width="10" height="26" rx="5" fill="#e8f6fc"/>
+  <rect x="-42" y="-22" width="20" height="43" rx="6" fill="#10b981"/>
+  <rect x="-14" y="-22" width="20" height="43" rx="6" fill="#10b981"/>
+  <rect x="13" y="-22" width="20" height="43" rx="6" fill="none" stroke="#38bdf8" stroke-width="4" stroke-dasharray="8 6"/>
+  </g>
+
+  <!-- the notification itself -->
+  <g transform="rotate(-4 420 338)">
+    <rect x="238" y="140" width="368" height="404" rx="18" fill="url(#body)"/>
+    <rect x="238" y="140" width="368" height="56" rx="18" fill="#2e68b2"/>
+    <rect x="238" y="178" width="368" height="18" fill="#2e68b2"/>
+    <g fill="#8aa0b3">
+      <rect x="274" y="234" width="200" height="12" rx="6"/>
+      <rect x="274" y="266" width="296" height="10" rx="5"/>
+      <rect x="274" y="292" width="296" height="10" rx="5"/>
+      <rect x="274" y="318" width="232" height="10" rx="5"/>
+    </g>
+    <!-- the clause everyone argues about, dashed because the gazette says "may" -->
+    <rect x="262" y="352" width="320" height="112" rx="12" fill="#e8f6fc" stroke="#38bdf8" stroke-width="4" stroke-dasharray="10 7"/>
+    <g fill="#02314e"><rect x="286" y="372" width="8" height="8"/><rect x="294" y="372" width="8" height="8"/><rect x="302" y="372" width="8" height="8"/><rect x="334" y="372" width="8" height="8"/><rect x="350" y="372" width="8" height="8"/><rect x="286" y="380" width="8" height="8"/><rect x="302" y="380" width="8" height="8"/><rect x="318" y="380" width="8" height="8"/><rect x="326" y="380" width="8" height="8"/><rect x="350" y="380" width="8" height="8"/><rect x="286" y="388" width="8" height="8"/><rect x="294" y="388" width="8" height="8"/><rect x="302" y="388" width="8" height="8"/><rect x="334" y="388" width="8" height="8"/><rect x="342" y="388" width="8" height="8"/><rect x="350" y="388" width="8" height="8"/><rect x="310" y="396" width="8" height="8"/><rect x="318" y="396" width="8" height="8"/><rect x="342" y="396" width="8" height="8"/><rect x="294" y="404" width="8" height="8"/><rect x="302" y="404" width="8" height="8"/><rect x="326" y="404" width="8" height="8"/><rect x="334" y="404" width="8" height="8"/><rect x="350" y="404" width="8" height="8"/><rect x="286" y="412" width="8" height="8"/><rect x="310" y="412" width="8" height="8"/><rect x="326" y="412" width="8" height="8"/><rect x="286" y="420" width="8" height="8"/><rect x="294" y="420" width="8" height="8"/><rect x="302" y="420" width="8" height="8"/><rect x="318" y="420" width="8" height="8"/><rect x="326" y="420" width="8" height="8"/><rect x="342" y="420" width="8" height="8"/><rect x="286" y="428" width="8" height="8"/><rect x="302" y="428" width="8" height="8"/><rect x="334" y="428" width="8" height="8"/><rect x="342" y="428" width="8" height="8"/><rect x="286" y="436" width="8" height="8"/><rect x="294" y="436" width="8" height="8"/><rect x="302" y="436" width="8" height="8"/><rect x="318" y="436" width="8" height="8"/><rect x="342" y="436" width="8" height="8"/><rect x="350" y="436" width="8" height="8"/><rect x="286" y="372" width="24" height="24" fill="#02314e"/><rect x="291" y="377" width="14" height="14" fill="#ffffff"/><rect x="294" y="380" width="8" height="8" fill="#02314e"/><rect x="334" y="372" width="24" height="24" fill="#02314e"/><rect x="339" y="377" width="14" height="14" fill="#ffffff"/><rect x="342" y="380" width="8" height="8" fill="#02314e"/><rect x="286" y="420" width="24" height="24" fill="#02314e"/><rect x="291" y="425" width="14" height="14" fill="#ffffff"/><rect x="294" y="428" width="8" height="8" fill="#02314e"/></g>
+    <g fill="#8aa0b3">
+      <rect x="386" y="382" width="164" height="11" rx="5"/>
+      <rect x="386" y="408" width="140" height="11" rx="5"/>
+      <rect x="386" y="434" width="104" height="11" rx="5"/>
+    </g>
+    <g fill="#8aa0b3">
+      <rect x="274" y="492" width="180" height="10" rx="5"/>
+      <rect x="274" y="518" width="128" height="10" rx="5"/>
+    </g>
+  </g>
+
+  <!-- read it yourself -->
+  <g transform="translate(566 452) rotate(12)">
+    <circle cx="0" cy="0" r="92" fill="#38bdf8" fill-opacity="0.12" stroke="#38bdf8" stroke-width="10"/>
+    <rect x="-14" y="86" width="30" height="118" rx="15" fill="#38bdf8"/>
+  </g>
+  <rect x="0" y="600" width="1200" height="75" fill="#011a2a" fill-opacity="0.45"/>
+</svg>

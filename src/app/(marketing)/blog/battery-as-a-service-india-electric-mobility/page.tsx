@@ -6,6 +6,7 @@ export const metadata = createMetadata({
   title: "Battery-as-a-Service in India’s Electric Mobility Market",
   description: "A plain-language guide to why dense urban routes, limited home charging, and e-rickshaw growth make India a strong fit for Battery-as-a-Service models.",
   path: "/blog/battery-as-a-service-india-electric-mobility",
+  ogImage: "/images/blog/battery-as-a-service-india-electric-mobility-cover.png",
 });
 
 export default function BatteryAsAServiceIndiaElectricMobilityArticle() {

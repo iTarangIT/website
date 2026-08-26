@@ -50,6 +50,7 @@ export const blogPosts: BlogPost[] = [
     date: "2026-08-25",
     readTime: "6 min read",
     category: "lifecycle-recycling",
+    coverImage: "/images/blog/battery-waste-management-rules-2022-gazette-vs-market-cover.svg",
   },
   {
     slug: "e-rickshaw-battery-repair-or-replacement-real-cost",
@@ -58,6 +59,7 @@ export const blogPosts: BlogPost[] = [
     date: "2026-08-12",
     readTime: "5 min read",
     category: "battery-selection",
+    coverImage: "/images/blog/e-rickshaw-battery-repair-or-replacement-real-cost-cover.svg",
   },
   {
     slug: "independence-day-ai-powered-ev-energy-network",
@@ -66,6 +68,7 @@ export const blogPosts: BlogPost[] = [
     date: "2026-08-14",
     readTime: "6 min read",
     category: "partners-industry",
+    coverImage: "/images/blog/independence-day-ai-powered-ev-energy-network-cover.svg",
   },
   {
     slug: "battery-as-a-service-india-electric-mobility",
@@ -74,6 +77,7 @@ export const blogPosts: BlogPost[] = [
     date: "2026-08-14",
     readTime: "6 min read",
     category: "financing",
+    coverImage: "/images/blog/battery-as-a-service-india-electric-mobility-cover.svg",
   },
 ];
 
