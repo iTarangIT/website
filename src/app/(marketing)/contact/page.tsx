@@ -19,7 +19,7 @@ const contactInfo = [
 ];
 
 const whatsappRoles = [
-  { label: "I'm a Driver", message: "Hi, I'm a driver interested in iTarang batteries.", emoji: "🛺" },
+  { label: "I'm a Consumer", message: "Hi, I'm a consumer interested in iTarang batteries.", emoji: "🛺" },
   { label: "I'm a Dealer", message: "Hi, I'm a dealer interested in partnering with iTarang.", emoji: "🏪" },
   { label: "I'm an NBFC", message: "Hi, I represent an NBFC interested in iTarang's lending platform.", emoji: "🏦" },
   { label: "I'm an Investor", message: "Hi, I'm an investor interested in learning more about iTarang.", emoji: "📊" },

@@ -6,6 +6,7 @@ export const metadata = createMetadata({
   title: "E-Rickshaw Battery Repair or Replacement Cost Guide",
   description: "A practical guide for e-rickshaw drivers and fleet owners comparing battery repair and replacement cost, warning signs, downtime, safety, and long-term value.",
   path: "/blog/e-rickshaw-battery-repair-or-replacement-real-cost",
+  ogImage: "/images/blog/e-rickshaw-battery-repair-or-replacement-real-cost-cover.png",
 });
 
 export default function ERickshawBatteryRepairOrReplacementRealCostArticle() {

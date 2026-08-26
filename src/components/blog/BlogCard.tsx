@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Clock, Calendar } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -19,8 +20,18 @@ export default function BlogCard({ post }: BlogCardProps) {
   return (
     <Link href={`/blog/${post.slug}`} className="group block">
       <Card className="overflow-hidden transition-shadow hover:shadow-md h-full flex flex-col">
-        {/* Cover placeholder */}
+        {/* Cover art when the post ships one; the category gradient otherwise. */}
         <div className={`relative h-44 bg-gradient-to-br ${categoryColor} flex items-end p-5`}>
+          {post.coverImage && (
+            <Image
+              src={post.coverImage}
+              alt=""
+              fill
+              sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+              unoptimized
+              className="object-cover"
+            />
+          )}
           <Badge variant="accent" className="absolute top-4 left-4 text-xs">
             {blogCategories.find(({ slug }) => slug === post.category)?.name}
           </Badge>

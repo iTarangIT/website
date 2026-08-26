@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="coverTitle coverDesc">
+  <title id="coverTitle">An AI-powered EV energy network for Bharat</title>
+  <desc id="coverDesc">OEMs, dealers, financiers, service partners, drivers and charging linked around one intelligent battery core, under a tricolour sweep.</desc>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#011a2a"/>
+      <stop offset="0.55" stop-color="#02314e"/>
+      <stop offset="1" stop-color="#165e73"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c9eaf7"/>
+    </linearGradient>
+    <linearGradient id="tiranga" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff9933"/>
+      <stop offset="0.5" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#19a544"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#sky)"/>
+  <g stroke="#38bdf8" stroke-opacity="0.07" stroke-width="2">
+    <path d="M0 135h1200M0 270h1200M0 405h1200M0 540h1200"/>
+    <path d="M150 0v675M300 0v675M450 0v675M600 0v675M750 0v675M900 0v675M1050 0v675"/>
+  </g>
+
+  <!-- tricolour sweep, kept below the card's category badge -->
+  <g transform="translate(0 128)">
+    <path d="M0 118 C 300 34, 900 190, 1200 96 L1200 40 C 900 134, 300 -22, 0 62 Z" fill="url(#tiranga)" opacity="0.85"/>
+    <path d="M0 168 C 320 90, 880 240, 1200 150 L1200 122 C 880 212, 320 62, 0 140 Z" fill="url(#tiranga)" opacity="0.22"/>
+  </g>
+
+  <!-- links, drawn before the nodes so they sit behind -->
+  <g stroke="#38bdf8" stroke-width="4" stroke-opacity="0.55" stroke-dasharray="12 10">
+    <path d="M600 404 L 232 300"/><path d="M600 404 L 396 214"/>
+    <path d="M600 404 L 804 214"/><path d="M600 404 L 968 300"/>
+    <path d="M600 404 L 340 546"/><path d="M600 404 L 860 546"/>
+  </g>
+
+  <!-- the intelligent core -->
+  <circle cx="600" cy="404" r="128" fill="#38bdf8" fill-opacity="0.1" stroke="#38bdf8" stroke-width="3" stroke-dasharray="6 10"/>
+  <circle cx="600" cy="404" r="96" fill="#02314e" stroke="#10b981" stroke-width="6"/>
+  <rect x="552" y="374" width="96" height="62" rx="12" fill="#02314e" stroke="#e8f6fc" stroke-width="5"/>
+  <rect x="648" y="393.84" width="9" height="22" rx="5" fill="#e8f6fc"/>
+  <rect x="564" y="386" width="20" height="37" rx="6" fill="#10b981"/>
+  <rect x="590" y="386" width="20" height="37" rx="6" fill="#10b981"/>
+  <rect x="616" y="386" width="20" height="37" rx="6" fill="#10b981"/>
+  <g stroke="#10b981" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M600 308v-26M600 500v26M504 404h-26M696 404h26"/>
+  </g>
+
+  <!-- the partners on the network -->
+  <g fill="#0d4a5e" stroke="#38bdf8" stroke-width="5">
+    <circle cx="232" cy="300" r="52"/><circle cx="396" cy="214" r="52"/>
+    <circle cx="804" cy="214" r="52"/><circle cx="968" cy="300" r="52"/>
+    <circle cx="340" cy="546" r="52"/><circle cx="860" cy="546" r="52"/>
+  </g>
+  <g fill="#90d4ef">
+    <!-- OEM: a plant with a saw-tooth roof -->
+    <path d="M206 316v-24l16 11v-11l16 11v-11l16 11v13z"/>
+    <rect x="206" y="278" width="10" height="16"/>
+    <!-- dealer: a shopfront with an awning -->
+    <path d="M372 202h48l6 14h-60z"/>
+    <rect x="376" y="220" width="40" height="22"/>
+    <rect x="390" y="228" width="12" height="14" fill="#0d4a5e"/>
+    <!-- financier: the rupee -->
+    <text x="804" y="230" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700" fill="#90d4ef">₹</text>
+    <!-- service: a wrench -->
+    <g transform="translate(968 300) rotate(-40)">
+      <rect x="-6" y="-4" width="34" height="13" rx="5"/>
+      <path d="M-6 -15 a 16 16 0 1 0 0 32 v-10 a 6 6 0 1 1 0 -12 z"/>
+      <rect x="24" y="-8" width="16" height="21" rx="5"/>
+      <rect x="31" y="-3" width="11" height="10" fill="#0d4a5e"/>
+    </g>
+    <!-- driver -->
+    <circle cx="340" cy="532" r="12"/><path d="M320 564a20 20 0 0 1 40 0z"/>
+    <!-- charging -->
+    <rect x="846" y="526" width="28" height="40" rx="6"/>
+    <path d="M862 532l-12 18h8l-5 15 13-20h-8z" fill="#10b981"/>
+  </g>
+  <rect x="0" y="600" width="1200" height="75" fill="#011a2a" fill-opacity="0.45"/>
+</svg>

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="coverTitle coverDesc">
+  <title id="coverTitle">Battery-as-a-Service for India’s light electric vehicles</title>
+  <desc id="coverDesc">A battery held inside a managed service loop that runs from financing to the vehicle, charging and recovery, rather than sold once and forgotten.</desc>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#011a2a"/>
+      <stop offset="0.55" stop-color="#02314e"/>
+      <stop offset="1" stop-color="#165e73"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c9eaf7"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#sky)"/>
+  <g stroke="#38bdf8" stroke-opacity="0.07" stroke-width="2">
+    <path d="M0 135h1200M0 270h1200M0 405h1200M0 540h1200"/>
+    <path d="M150 0v675M300 0v675M450 0v675M600 0v675M750 0v675M900 0v675M1050 0v675"/>
+  </g>
+
+  <!-- the managed loop -->
+  <circle cx="600" cy="360" r="216" fill="none" stroke="#38bdf8" stroke-opacity="0.28" stroke-width="56"/>
+  <circle cx="600" cy="360" r="216" fill="none" stroke="#38bdf8" stroke-width="5" stroke-dasharray="20 16"/>
+  <!-- direction of travel, set on the diagonals so the nodes never cover it -->
+  <polygon points="772.5,227.1 764.8,195.2 740.7,219.3" fill="#38bdf8"/>
+  <polygon points="732.9,532.5 764.8,524.8 740.7,500.7" fill="#38bdf8"/>
+  <polygon points="427.5,492.9 435.2,524.8 459.3,500.7" fill="#38bdf8"/>
+  <polygon points="467.1,187.5 435.2,195.2 459.3,219.3" fill="#38bdf8"/>
+
+  <!-- the asset the loop manages -->
+  <circle cx="600" cy="360" r="124" fill="#02314e" stroke="#10b981" stroke-width="6"/>
+  <rect x="534" y="322" width="132" height="76" rx="14" fill="#02314e" stroke="#e8f6fc" stroke-width="5"/>
+  <rect x="666" y="346.32" width="11" height="27" rx="5" fill="#e8f6fc"/>
+  <rect x="549" y="337" width="20" height="46" rx="6" fill="#10b981"/>
+  <rect x="576" y="337" width="20" height="46" rx="6" fill="#10b981"/>
+  <rect x="604" y="337" width="20" height="46" rx="6" fill="#10b981"/>
+  <rect x="631" y="337" width="20" height="46" rx="6" fill="#10b981"/>
+  <text x="600" y="446" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#90d4ef">₹ / km</text>
+
+  <!-- stations on the loop -->
+  <g fill="#0d4a5e" stroke="#38bdf8" stroke-width="5">
+    <circle cx="600" cy="144" r="58"/><circle cx="816" cy="360" r="58"/>
+    <circle cx="600" cy="576" r="58"/><circle cx="384" cy="360" r="58"/>
+  </g>
+  <g fill="#90d4ef">
+    <!-- financed -->
+    <text x="600" y="164" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="700" fill="#90d4ef">₹</text>
+    <!-- charged -->
+    <rect x="802" y="336" width="28" height="42" rx="6"/>
+    <path d="M818 342l-12 19h8l-5 15 13-21h-8z" fill="#10b981"/>
+    <!-- driven -->
+    <path d="M570 566v-18a22 22 0 0 1 22-22h16a22 22 0 0 1 22 22v18z"/>
+    <circle cx="582" cy="576" r="8"/><circle cx="618" cy="576" r="8"/>
+    <!-- recovered -->
+    <g fill="none" stroke="#10b981" stroke-width="7" stroke-linecap="round">
+      <path d="M364 352 A 24 24 0 0 1 396 334"/>
+      <path d="M404 366 A 24 24 0 0 1 372 386"/>
+    </g>
+    <polygon points="398,326 406,344 386,344" fill="#10b981"/>
+    <polygon points="370,394 362,376 382,376" fill="#10b981"/>
+  </g>
+
+  <!-- the street it all serves -->
+  <g stroke="#38bdf8" stroke-opacity="0.22" stroke-width="7" stroke-linecap="round">
+    <path d="M60 640h84M200 640h84M340 640h84M760 640h84M900 640h84M1040 640h84"/>
+  </g>
+  <rect x="0" y="600" width="1200" height="75" fill="#011a2a" fill-opacity="0.45"/>
+</svg>

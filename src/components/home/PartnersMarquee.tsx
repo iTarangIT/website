@@ -11,10 +11,11 @@ const MARQUEE_MIN_CARDS = 8;
 const MARQUEE_SECONDS_PER_CARD = 4.5;
 
 /** Logo heights are set per-partner, not shared. These marks range from 1.06:1
- *  (Taru) to 6.1:1 (BatteryPool); a single height would let the wide wordmarks
- *  dominate the row and shrink the round marks to nothing. Each height below keeps
- *  the rendered width inside the card's 154px content box (w-[210px] less px-7),
- *  and the stacked lockups sit at h-14 so their wordmark still reads at a glance. */
+ *  (Taru) through 3.0:1 (heyev) to 6.1:1 (BatteryPool); a single height would let
+ *  the wide wordmarks dominate the row and shrink the round marks to nothing.
+ *  Each height below keeps the rendered width inside the card's 154px content
+ *  box (w-[210px] less px-7), and the stacked lockups sit at h-14 so their
+ *  wordmark still reads at a glance. */
 const partners = [
   {
     name: "BatteryPool",
@@ -50,6 +51,13 @@ const partners = [
     width: 374,
     height: 352,
     logoHeight: "h-14",
+  },
+  {
+    name: "heyev",
+    src: "/logos/heyev.png",
+    width: 1010,
+    height: 338,
+    logoHeight: "h-10",
   },
 ];
 

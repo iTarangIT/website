@@ -6,6 +6,7 @@ export const metadata = createMetadata({
   title: "Building Bharat's AI-Powered EV Energy Network | iTarang",
   description: "How an AI-powered EV Energy Network connects OEMs, dealers, financiers and consumers across every stage of an electric vehicle's lifecycle.",
   path: "/blog/independence-day-ai-powered-ev-energy-network",
+  ogImage: "/images/blog/independence-day-ai-powered-ev-energy-network-cover.png",
 });
 
 export default function IndependenceDayAiPoweredEvEnergyNetworkArticle() {

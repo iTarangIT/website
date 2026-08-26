@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Battery planning map for electric light goods vehicles</title>
+  <desc id="desc">A self-contained diagram showing how a Delhi-NCR goods vehicle operator can connect daily route needs, charging access, lithium battery readiness, replacement planning, and operating reliability before expanding a fleet.</desc>
+  <rect width="960" height="540" fill="#f7fafc"/>
+  <rect x="40" y="40" width="880" height="460" rx="28" fill="#ffffff" stroke="#d7e2ea" stroke-width="3"/>
+  <text x="480" y="88" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#12324a">Electric Goods Vehicle Battery Plan</text>
+  <text x="480" y="120" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#52677a">Plan the workday before selecting the battery pack</text>
+
+  <circle cx="480" cy="285" r="88" fill="#e8f5ee" stroke="#1f8f5f" stroke-width="4"/>
+  <rect x="438" y="252" width="84" height="52" rx="10" fill="#1f8f5f"/>
+  <rect x="522" y="268" width="10" height="20" rx="3" fill="#1f8f5f"/>
+  <rect x="449" y="263" width="50" height="30" rx="4" fill="#ffffff"/>
+  <rect x="449" y="263" width="34" height="30" rx="4" fill="#9ee6bd"/>
+  <text x="480" y="330" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#12324a">Usable battery</text>
+  <text x="480" y="352" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">with daily reserve</text>
+
+  <rect x="90" y="175" width="210" height="90" rx="18" fill="#eef6ff" stroke="#2c77b8" stroke-width="3"/>
+  <text x="195" y="210" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#12324a">Daily route</text>
+  <text x="195" y="237" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">Distance, payload, traffic,</text>
+  <text x="195" y="256" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">detours, return-to-base</text>
+
+  <rect x="660" y="175" width="210" height="90" rx="18" fill="#fff7e8" stroke="#d58a1f" stroke-width="3"/>
+  <text x="765" y="210" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#12324a">Charging access</text>
+  <text x="765" y="237" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">Depot routine, parking,</text>
+  <text x="765" y="256" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">shift timing, fallback</text>
+
+  <rect x="90" y="340" width="210" height="90" rx="18" fill="#f2ecff" stroke="#7a55c7" stroke-width="3"/>
+  <text x="195" y="375" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#12324a">Replacement plan</text>
+  <text x="195" y="402" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">Warranty, service time,</text>
+  <text x="195" y="421" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">finance and resale</text>
+
+  <rect x="660" y="340" width="210" height="90" rx="18" fill="#eaf8f7" stroke="#249a9a" stroke-width="3"/>
+  <text x="765" y="375" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#12324a">Reliability check</text>
+  <text x="765" y="402" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">Start charge, route done,</text>
+  <text x="765" y="421" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#52677a">return reserve, downtime</text>
+
+  <path d="M302 220 C350 220 374 245 397 262" fill="none" stroke="#8aa0b3" stroke-width="4" stroke-linecap="round"/>
+  <path d="M658 220 C610 220 586 245 563 262" fill="none" stroke="#8aa0b3" stroke-width="4" stroke-linecap="round"/>
+  <path d="M302 385 C350 385 373 347 397 316" fill="none" stroke="#8aa0b3" stroke-width="4" stroke-linecap="round"/>
+  <path d="M658 385 C610 385 587 347 563 316" fill="none" stroke="#8aa0b3" stroke-width="4" stroke-linecap="round"/>
+
+  <polygon points="392,254 410,272 386,274" fill="#8aa0b3"/>
+  <polygon points="568,254 550,272 574,274" fill="#8aa0b3"/>
+  <polygon points="390,324 410,307 386,304" fill="#8aa0b3"/>
+  <polygon points="570,324 550,307 574,304" fill="#8aa0b3"/>
+
+  <line x1="480" y1="145" x2="480" y2="188" stroke="#d7e2ea" stroke-width="3"/>
+  <circle cx="480" cy="145" r="5" fill="#1f8f5f"/>
+  <text x="480" y="472" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52677a">Use one pilot route to test the plan before scaling the fleet.</text>
+</svg>
