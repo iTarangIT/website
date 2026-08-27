@@ -21,7 +21,7 @@ import ceo_reader
 import ceo_version
 import console_board
 from ceo_page import page_build_header, render_page
-from cmo_runtime import competitors, topic_proposals
+from cmo_runtime import competitors, news_radar, topic_proposals
 from cmo_runtime.console_db import ConsoleDBError
 from cmo_runtime.decisions import DecisionConflict, DecisionError, DecisionStore
 from cmo_runtime.task_file import TaskFileError
@@ -309,7 +309,10 @@ def dispatch(handler: Any, method: str) -> bool:
             "/ceo/api/proposal/suggest",
             "/ceo/api/proposal/reject",
             "/ceo/api/proposal/undo-rejection",
+            "/ceo/api/proposal/archive",
+            "/ceo/api/proposal/restore",
             "/ceo/api/competitor",
+            "/ceo/api/radar/scan",
         }:
             payload = _body(handler)
             service = _service()
@@ -321,6 +324,14 @@ def dispatch(handler: Any, method: str) -> bool:
                 elif path == "/ceo/api/propose":
                     run = service.propose(str(payload.get("subject", "")), email)
                     result = {"ok": True, **run.as_dict()}
+                elif path == "/ceo/api/radar/scan":
+                    # The same sweep the daily job runs, on demand. It refuses on
+                    # its own budget floor, so a button press cannot spend the
+                    # credits a manual subject would need.
+                    sweep = news_radar.NewsRadar(
+                        PROFILE_DIR, service=service, database=service.database
+                    ).scan(email, mode="manual", dry_run=bool(payload.get("dry_run")))
+                    result = {"ok": sweep.status == "completed", **sweep.as_dict()}
                 else:
                     proposal_id = payload.get("proposal_id")
                     if not isinstance(proposal_id, int) or proposal_id <= 0:
@@ -334,6 +345,10 @@ def dispatch(handler: Any, method: str) -> bool:
                         result.pop("proposal", None)
                     elif path == "/ceo/api/proposal/reject":
                         result = service.reject(proposal_id, str(payload.get("reason", "")), email)
+                    elif path == "/ceo/api/proposal/archive":
+                        result = service.archive(proposal_id, email)
+                    elif path == "/ceo/api/proposal/restore":
+                        result = service.restore(proposal_id, email)
                     else:
                         result = service.undo_rejection(proposal_id, email)
             finally:
@@ -438,6 +453,7 @@ def dispatch(handler: Any, method: str) -> bool:
         TaskFileError,
         ConsoleDBError,
         topic_proposals.ProposalRefused,
+        news_radar.RadarRefused,
         competitors.CompetitorRefused,
     ) as exc:
         _json(handler, HTTPStatus.BAD_REQUEST, {"error": str(exc)})

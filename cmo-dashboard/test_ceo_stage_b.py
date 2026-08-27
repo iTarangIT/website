@@ -318,6 +318,9 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/proposal/suggest", {"proposal_id": 1, "comment": "narrower"}, None, ""),
             ("/ceo/api/proposal/reject", {"proposal_id": 1, "reason": "covered"}, None, ""),
             ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/proposal/archive", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/proposal/restore", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/radar/scan", {}, None, ""),
             ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
             ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
@@ -330,21 +333,10 @@ class CeoStageBTests(unittest.TestCase):
         ]
 
     def test_preview_forbids_every_ceo_write_route(self):
-        routes = [
-            ("/ceo/api/propose", {"subject": "battery data"}, None, ""),
-            ("/ceo/api/proposal/approve", {"proposal_id": 1}, None, ""),
-            ("/ceo/api/proposal/suggest", {"proposal_id": 1, "comment": "narrower"}, None, ""),
-            ("/ceo/api/proposal/reject", {"proposal_id": 1, "reason": "covered"}, None, ""),
-            ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
-            ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
-            ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
-            ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
-            ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
-            ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
-            ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
-            ("/ceo/api/article/edit", {"task_id": "TASK-001", "text": "# Edited\n"}, None, ""),
-            ("/ceo/api/article/preview", {"text": "# Draft\n"}, None, ""),
-        ]
+        # The same list the coverage test above measures against. Two lists drifted
+        # apart once already — /ceo/api/competitor was declared covered and never
+        # actually exercised — so there is now only one.
+        routes = self.preview_routes()
         with patch.dict(os.environ, {"CMO_DASHBOARD_PREVIEW": "1"}), patch.object(
             ceo_console.console_auth, "authorize", return_value=("ceo@test", "ceo")
         ):

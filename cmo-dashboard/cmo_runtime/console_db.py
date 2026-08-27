@@ -22,10 +22,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DATABASE_NAME = "console.db"
 
-PROPOSAL_STATUSES = ("proposed", "revising", "approved", "carded", "rejected")
+#: `archived` is not a soft rejection. A rejection is remembered by norm_key and
+#: suppresses the idea forever; archiving only clears the screen. An archived
+#: proposal can be restored by hand, and `add_candidates` below resurfaces one on
+#: its own if the same idea comes back through research. Nothing about archiving
+#: touches `rejected_topics`.
+PROPOSAL_STATUSES = ("proposed", "revising", "approved", "carded", "rejected", "archived")
+
+#: The statuses a norm_key can hold while still blocking a fresh candidate. A
+#: rejected key is suppressed outright; an archived one is resurfaced instead, so
+#: neither counts as live.
+_LIVE_PROPOSAL_STATUSES = tuple(
+    status for status in PROPOSAL_STATUSES if status not in {"rejected", "archived"}
+)
 SOURCE_KINDS = ("search_console", "firecrawl", "cache", "legacy_board")
 
 #: The six stages of writing a blog, in the order Apoorv asked for them, mapped to
@@ -272,6 +284,19 @@ CREATE TABLE IF NOT EXISTS crosspost_drafts (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS crosspost_drafts_key
     ON crosspost_drafts(task_id, platform);
+
+CREATE TABLE IF NOT EXISTS radar_runs (
+    id              INTEGER PRIMARY KEY,
+    started_at      TEXT NOT NULL,
+    mode            TEXT NOT NULL,          -- due|forced|manual|dry-run
+    beats_json      TEXT NOT NULL DEFAULT '[]',
+    headlines_seen  INTEGER NOT NULL DEFAULT 0,
+    subjects_json   TEXT NOT NULL DEFAULT '[]',
+    proposals_added INTEGER NOT NULL DEFAULT 0,
+    credits_used    INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL,          -- completed|refused|failed
+    message         TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -427,6 +452,61 @@ class ConsoleDB:
             (iso_timestamp,),
         )
         return int(row["total"]) if row else 0
+
+    # ------------------------------------------------------------ news radar
+
+    def record_radar_run(
+        self,
+        *,
+        started_at: str,
+        mode: str,
+        beats: Sequence[str],
+        headlines_seen: int,
+        subjects: Sequence[str],
+        proposals_added: int,
+        credits_used: int,
+        status: str,
+        message: str = "",
+    ) -> int:
+        """One row per sweep, refusals included.
+
+        A refused sweep that left no trace reads as a sweep that never ran, and the
+        console cannot tell an operator why nothing new appeared this morning.
+        """
+        with self.write() as connection:
+            cursor = connection.execute(
+                "INSERT INTO radar_runs (started_at, mode, beats_json, headlines_seen,"
+                " subjects_json, proposals_added, credits_used, status, message)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    started_at,
+                    _single_line(mode, limit=40),
+                    json.dumps([str(beat) for beat in beats], ensure_ascii=False),
+                    int(headlines_seen),
+                    json.dumps([str(subject) for subject in subjects], ensure_ascii=False),
+                    int(proposals_added),
+                    int(credits_used),
+                    _single_line(status, limit=40),
+                    _single_line(message, limit=1000),
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def latest_radar_run(self) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM radar_runs ORDER BY id DESC LIMIT 1")
+        if row is None:
+            return None
+        record = dict(row)
+        record["beats"] = json.loads(record.pop("beats_json"))
+        record["subjects"] = json.loads(record.pop("subjects_json"))
+        return record
+
+    def radar_seen_urls(self, *, limit: int = 400) -> set[str]:
+        """URLs the pipeline has already fetched, so a sweep does not re-read them."""
+        rows = self._query(
+            "SELECT url FROM stage_fetches WHERE url != '' ORDER BY id DESC LIMIT ?", (int(limit),)
+        )
+        return {str(row["url"]) for row in rows}
 
     # ------------------------------------------------------- pipeline stages
 
@@ -719,15 +799,19 @@ class ConsoleDB:
         subject_id: int,
         research_run_id: int | None,
         candidates: Sequence[ProposalCandidate],
+        actor: str = "research",
     ) -> dict[str, list[dict[str, Any]]]:
         """Insert candidates, suppressing anything Sanchit already rejected.
 
         Suppression is reported, never silent — an operator who cannot see why an
-        obvious topic never appears will assume the agent is broken.
+        obvious topic never appears will assume the agent is broken. The same rule
+        covers the archive: an archived candidate that research finds again is
+        resurfaced and reported, because archiving was never a veto.
         """
         added: list[dict[str, Any]] = []
         suppressed: list[dict[str, Any]] = []
         duplicates: list[dict[str, Any]] = []
+        resurfaced: list[dict[str, Any]] = []
         stamp = utc_timestamp()
         seen: set[str] = set()
         with self.write() as connection:
@@ -744,12 +828,40 @@ class ConsoleDB:
                         {"title": candidate.title, "reason": f"previously rejected as {rejected['title']!r}"}
                     )
                     continue
+                if key in seen:
+                    duplicates.append({"title": candidate.title, "reason": "already a live proposal"})
+                    continue
+                placeholders = ",".join("?" for _ in _LIVE_PROPOSAL_STATUSES)
                 live = connection.execute(
-                    "SELECT id, status FROM proposals WHERE norm_key = ? AND status != 'rejected'",
+                    f"SELECT id, status FROM proposals WHERE norm_key = ?"
+                    f" AND status IN ({placeholders})",
+                    (key, *_LIVE_PROPOSAL_STATUSES),
+                ).fetchone()
+                if live is not None:
+                    duplicates.append({"title": candidate.title, "reason": "already a live proposal"})
+                    continue
+                # An archived row is not a veto, so research finding the idea again
+                # brings it back rather than silently dropping it as a duplicate.
+                shelved = connection.execute(
+                    "SELECT id FROM proposals WHERE norm_key = ? AND status = 'archived'",
                     (key,),
                 ).fetchone()
-                if key in seen or live is not None:
-                    duplicates.append({"title": candidate.title, "reason": "already a live proposal"})
+                if shelved is not None:
+                    proposal_id = int(shelved["id"])
+                    connection.execute(
+                        "UPDATE proposals SET status = 'proposed', updated_at = ? WHERE id = ?",
+                        (stamp, proposal_id),
+                    )
+                    self._record_event(
+                        connection,
+                        proposal_id=proposal_id,
+                        action="resurface",
+                        actor=actor,
+                        comment="research surfaced this archived topic again",
+                        stamp=stamp,
+                    )
+                    seen.add(key)
+                    resurfaced.append({"id": proposal_id, "title": candidate.title})
                     continue
                 seen.add(key)
                 cursor = connection.execute(
@@ -771,7 +883,12 @@ class ConsoleDB:
                     (version_id, proposal_id),
                 )
                 added.append({"id": proposal_id, "title": candidate.title})
-        return {"added": added, "suppressed": suppressed, "duplicates": duplicates}
+        return {
+            "added": added,
+            "suppressed": suppressed,
+            "duplicates": duplicates,
+            "resurfaced": resurfaced,
+        }
 
     @staticmethod
     def _insert_version(
@@ -1075,6 +1192,104 @@ class ConsoleDB:
                 connection.execute(
                     "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
                 ).fetchone()
+            )
+
+    def archive_siblings(self, proposal_id: int, actor: str) -> list[dict[str, Any]]:
+        """Clear the candidates left over from the same subject, reversibly.
+
+        One subject fans out to up to six candidates and only one of them becomes a
+        card. The rest are not wrong — they are simply not the decision that was
+        made — so they are set aside, not vetoed. Nothing here writes to
+        `rejected_topics`; `restore_proposal` below is the way back.
+        """
+        stamp = utc_timestamp()
+        archived: list[dict[str, Any]] = []
+        with self.write() as connection:
+            row = connection.execute(
+                "SELECT subject_id FROM proposals WHERE id = ?", (proposal_id,)
+            ).fetchone()
+            if row is None:
+                raise ConsoleDBError(f"no proposal {proposal_id}")
+            siblings = connection.execute(
+                "SELECT p.id AS id, v.title AS title FROM proposals p"
+                " LEFT JOIN proposal_versions v ON v.id = p.current_version_id"
+                " WHERE p.subject_id = ? AND p.id != ? AND p.status IN ('proposed','revising')"
+                " ORDER BY p.id",
+                (int(row["subject_id"]), proposal_id),
+            ).fetchall()
+            for sibling in siblings:
+                sibling_id = int(sibling["id"])
+                connection.execute(
+                    "UPDATE proposals SET status = 'archived', updated_at = ? WHERE id = ?",
+                    (stamp, sibling_id),
+                )
+                self._record_event(
+                    connection,
+                    proposal_id=sibling_id,
+                    action="archive",
+                    actor=actor,
+                    comment=f"set aside when proposal {proposal_id} was approved",
+                    stamp=stamp,
+                )
+                archived.append({"id": sibling_id, "title": sibling["title"] or ""})
+        return archived
+
+    def archive_proposal(self, proposal_id: int, actor: str) -> dict[str, Any]:
+        """Set one candidate aside by hand. Same reversibility as the sweep above."""
+        stamp = utc_timestamp()
+        with self.write() as connection:
+            row = connection.execute(
+                "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+            ).fetchone()
+            if row is None:
+                raise ConsoleDBError(f"no proposal {proposal_id}")
+            if row["status"] not in {"proposed", "revising"}:
+                raise ConsoleDBError(
+                    f"proposal {proposal_id} is {row['status']}, so there is nothing to archive"
+                )
+            connection.execute(
+                "UPDATE proposals SET status = 'archived', updated_at = ? WHERE id = ?",
+                (stamp, proposal_id),
+            )
+            self._record_event(
+                connection,
+                proposal_id=proposal_id,
+                action="archive",
+                actor=actor,
+                comment="set aside from Topics",
+                stamp=stamp,
+            )
+            return dict(
+                connection.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+            )
+
+    def restore_proposal(self, proposal_id: int, actor: str) -> dict[str, Any]:
+        """Bring an archived candidate back to the pool it came from."""
+        stamp = utc_timestamp()
+        with self.write() as connection:
+            row = connection.execute(
+                "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+            ).fetchone()
+            if row is None:
+                raise ConsoleDBError(f"no proposal {proposal_id}")
+            if row["status"] != "archived":
+                raise ConsoleDBError(
+                    f"proposal {proposal_id} is {row['status']}, not archived; there is nothing to restore"
+                )
+            connection.execute(
+                "UPDATE proposals SET status = 'proposed', updated_at = ? WHERE id = ?",
+                (stamp, proposal_id),
+            )
+            self._record_event(
+                connection,
+                proposal_id=proposal_id,
+                action="restore",
+                actor=actor,
+                comment="restored from Archived",
+                stamp=stamp,
+            )
+            return dict(
+                connection.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
             )
 
     def proposal_for_task(self, task_id: str) -> dict[str, Any] | None:

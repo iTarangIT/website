@@ -65,13 +65,13 @@ function byId(id) {
   return registry.get(id);
 }
 
-const panels = ['topics', 'blogs', 'analytics'].map(name => {
+const panels = ['topics', 'blogs', 'analytics', 'archived'].map(name => {
   const panel = makeElement(`panel-${name}`, 'section');
   panel.hidden = name !== 'topics';
   registry.set(`panel-${name}`, panel);
   return panel;
 });
-const primaryButtons = ['topics', 'blogs', 'analytics'].map(name => {
+const primaryButtons = ['topics', 'blogs', 'analytics', 'archived'].map(name => {
   const button = makeElement('', 'button');
   button.dataset.view = name;
   if (name === 'topics') button.classList.add('active');
@@ -175,6 +175,10 @@ setTimeout(() => {
     activeView: primaryButtons.filter(b => b.classList.contains('active')).map(b => b.dataset.view),
     visiblePanels: panels.filter(p => !p.hidden).map(p => p.id),
     proposals: html('proposal-list'),
+    archived: html('archived-list'),
+    archivedCount: byId('archived-count').textContent,
+    needsYou: html('needs-you'),
+    radarStatus: byId('radar-status').textContent,
     topicsPager: html('topics-pager'),
     topicsCount: byId('topics-count').textContent,
     topicsFilter: html('topics-filter'),

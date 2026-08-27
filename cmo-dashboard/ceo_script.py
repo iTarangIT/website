@@ -3,7 +3,7 @@ const $$=selector=>[...document.querySelectorAll(selector)];
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 /* Tab order is the order the work happens, and it is fixed. The stored UI state
    below deliberately does not include the tab: every load opens on Topics. */
-const VIEWS=['topics','blogs','analytics'];
+const VIEWS=['topics','blogs','analytics','archived'];
 const DEFAULT_VIEW='topics';
 let token=sessionStorage.getItem('cmo_token')||'';
 let email=sessionStorage.getItem('cmo_email')||'';
@@ -42,6 +42,7 @@ const UI_KEY='cmo_console_ui_v2';
 const UI_DEFAULTS={
  topics:{page:1,size:10,search:'',filter:'all'},
  blogs:{page:1,size:10,search:'',filter:'all'},
+ archived:{page:1,size:10,search:'',filter:'all'},
  trends:{page:1,size:10},
  opportunities:{page:1,size:10},
  queries:{page:1,size:25,sort:'impressions',dir:'desc'},
@@ -197,6 +198,7 @@ const STATUS={
  approved:{glyph:'✓',label:'approved',tone:''},
  carded:{glyph:'✓',label:'queued for writing',tone:''},
  rejected:{glyph:'✗',label:'rejected',tone:'tone-stop'},
+ archived:{glyph:'▤',label:'archived',tone:'tone-mute'},
  'awaiting decision':{glyph:'●',label:'awaiting you',tone:'tone-wait'},
  /* The blog chain, start to finish. Every content card carries one of these, so
     the minutes between approving a topic and reading the article are no longer
@@ -332,6 +334,7 @@ function showView(name){
  /* Arriving on a tab is how its badge clears: what he can now see is not news. */
  if(state&&name==='topics')renderProposals();
  if(state&&name==='blogs')renderBlogs();
+ if(state&&name==='archived')renderArchived();
  paintArrivals();
  if(name==='analytics')drawChart();
 }
@@ -380,6 +383,7 @@ ${sourceLine(proposal)}${busyNote}${history}</div></div>
 <div class="actions">
 <button data-approve="${esc(proposal.id)}" type="button">Approve</button>
 <button class="ghost" data-suggest-open="${esc(proposal.id)}" type="button">Suggest changes</button>
+<button class="ghost" data-archive="${esc(proposal.id)}" type="button">Archive</button>
 <button class="danger" data-reject-open="${esc(proposal.id)}" type="button">Reject</button>
 </div>
 <p class="row-error" data-card-error hidden></p>
@@ -435,6 +439,111 @@ function renderCredits(){
  if(budget.status==='ready'){node.innerHTML=`Firecrawl: <strong class="num">${esc(budget.remaining)}</strong> credits left · a proposal run reads up to ${esc(budget.page_cap)} pages · refuses at ${esc(budget.stop_threshold)} used`;return;}
  node.textContent=budget.message||'No proposal research has run yet, so no credit balance has been measured.';
 }
+function renderRadar(){
+ const radar=(state.topics||{}).radar;
+ const line=radar
+  ?`Last sweep ${esc(radar.started_at)} (${esc(radar.mode)}): ${esc(radar.message||radar.status)}`
+  :'The news radar has not run yet.';
+ const node=$('#radar-status');
+ if(node)node.textContent=line;
+ const shelf=$('#archived-radar');
+ if(shelf)shelf.textContent=line;
+}
+
+/* ----------------------------------------------------------------- archived */
+/* Set aside, not vetoed. The copy has to keep saying so, because the button
+   beside Restore is Reject and those two are not degrees of the same thing. */
+function archivedCard(proposal){
+ const keywords=(proposal.keywords||[]).map(word=>`<span class="pill">${esc(word)}</span>`).join(' ')||'<span class="meta">no keywords recorded</span>';
+ return `<article class="card" role="listitem" data-key="${esc(proposal.id)}" data-row="${esc(proposal.id)}" data-proposal="${esc(proposal.id)}">
+<div class="card-row"><div class="card-main">${pill('archived')}
+<h3>${esc(proposal.title)}</h3>
+<p class="meta">From your subject: ${esc(proposal.subject)} · set aside ${esc(proposal.updated_at||proposal.created_at||'')}</p>
+<div class="keywords">${keywords}</div>
+<p class="outline">${esc(proposal.outline)}</p>
+${sourceLine(proposal)}</div></div>
+<div class="actions">
+<button data-restore="${esc(proposal.id)}" type="button">Restore</button>
+<button class="danger ghost" data-reject-open="${esc(proposal.id)}" type="button">Reject permanently</button>
+</div>
+<p class="row-error" data-card-error hidden></p>
+<div class="inline-form" data-form="${esc(proposal.id)}" hidden>
+<label class="field"><span data-form-label></span><textarea data-form-input rows="2" maxlength="1000"></textarea></label>
+<div class="actions"><button data-form-submit="${esc(proposal.id)}" type="button">Send</button><button class="ghost" data-form-cancel="${esc(proposal.id)}" type="button">Cancel</button></div>
+<p class="form-error" data-form-error hidden></p>
+</div></article>`;
+}
+function renderArchived(){
+ const all=(state.topics||{}).archived||[];
+ const term=ui.archived.search.trim().toLocaleLowerCase();
+ const filtered=all.filter(item=>matchesProposal(item,term));
+ const view=page(filtered,'archived');
+ $('#archived-count').textContent=filtered.length===all.length
+  ?`${grouped.format(all.length)} archived topic${all.length===1?'':'s'}`
+  :`${grouped.format(filtered.length)} of ${grouped.format(all.length)}`;
+ /* Grouped by the subject they came from: six candidates from one subject are
+    one decision that was already made, not six unrelated leftovers. Each heading
+    is its own keyed entry — patchRows builds one element per entry and drops
+    everything after the first, so a heading glued onto a card would eat it. */
+ const entries=[];
+ let lastSubject=null;
+ view.items.forEach(item=>{
+  const key=item.subject_id??item.subject;
+  if(key!==lastSubject){
+   lastSubject=key;
+   entries.push({key:`subject-${key}`,html:`<h3 class="rule" data-key="subject-${esc(key)}">${esc(item.subject||'no subject recorded')}</h3>`});
+  }
+  entries.push({key:String(item.id),html:archivedCard(item)});
+ });
+ patchRows($('#archived-list'),entries,all.length
+  ?emptyState('Nothing matches','No archived topic matches this search.','Clear the search','data-clear="archived"')
+  :emptyState('Nothing is archived','When you approve one topic, the other candidates from the same subject move here. They are not rejected — research can surface one again.','Go to Topics & Research','data-view="topics"'));
+ renderPager('#archived-pager','archived',view,'archived topics');
+ renderRadar();
+}
+
+/* -------------------------------------------------------------- what needs you */
+/* Derived from the state the page already holds — no extra request, and no
+   second source of truth about what a blog's state means. */
+function needsRows(){
+ const blogs=state.blogs||[];
+ const topics=state.topics||{};
+ const count=name=>blogs.filter(task=>blogGroup(task)===name).length;
+ const rows=[];
+ const awaiting=count('awaiting you');
+ if(awaiting)rows.push({count:awaiting,warn:false,
+  text:`article${awaiting===1?'':'s'} waiting on your Gate 1 approval. Nothing reaches the preview until you decide.`,
+  label:'Review',jump:'blogs:awaiting you'});
+ const undecided=(topics.proposals||[]).filter(item=>item.status==='proposed').length;
+ if(undecided)rows.push({count:undecided,warn:false,
+  text:`candidate topic${undecided===1?'':'s'} awaiting a decision. Approving one archives the rest from its subject.`,
+  label:'Decide',jump:'topics:proposed'});
+ const failed=count('failed');
+ if(failed)rows.push({count:failed,warn:true,
+  text:`article${failed===1?'':'s'} could not be written. Each one can be retried.`,
+  label:'Open',jump:'blogs:failed'});
+ const approved=count('approved');
+ if(approved)rows.push({count:approved,warn:false,
+  text:`approved article${approved===1?'':'s'} waiting for a human to merge to main (Gate 2).`,
+  label:'Open',jump:'blogs:approved'});
+ const budget=topics.budget||{};
+ if(budget.status&&budget.status!=='ready'&&budget.status!=='unknown')rows.push({count:'!',warn:true,
+  text:budget.message||'Firecrawl is not available, so no new topic can be researched.',
+  label:'Topics',jump:'topics:all'});
+ return rows;
+}
+function renderNeedsYou(){
+ const node=$('#needs-you');
+ if(!node)return;
+ const rows=needsRows();
+ if(!rows.length){
+  setHtml(node,'<p class="needs-head">Needs you</p><p class="needs-clear">Nothing is waiting on you. Every article and topic is with the agent.</p>');
+  return;
+ }
+ setHtml(node,'<p class="needs-head">Needs you</p><ul>'+rows.map(row=>
+  `<li><span class="needs-count${row.warn?' warn':''}">${esc(row.count)}</span><span class="needs-text">${esc(row.text)}</span><button class="ghost" data-jump="${esc(row.jump)}" type="button">${esc(row.label)}</button></li>`
+ ).join('')+'</ul>');
+}
 async function researchSubject(subject){
  subject=(subject||$('#subject').value).trim();
  const result=$('#propose-result');
@@ -456,6 +565,7 @@ async function researchSubject(subject){
   else parts.push(`Cost ${run.credits_used} credits; ${run.credits_remaining} left.`);
   if(run.suppressed.length)parts.push(`${run.suppressed.length} suppressed as previously rejected.`);
   if(run.duplicates.length)parts.push(`${run.duplicates.length} already proposed.`);
+  if((run.resurfaced||[]).length)parts.push(`${run.resurfaced.length} brought back from Archived.`);
   if(run.dropped.length)parts.push(`${run.dropped.length} dropped without a source.`);
   (run.messages||[]).forEach(message=>parts.push(message));
   $('#subject').value='';
@@ -463,6 +573,32 @@ async function researchSubject(subject){
   /* The skeleton comes down only once the real candidates are in the DOM. */
   await refresh();
   result.classList.remove('error');
+  result.textContent=parts.join(' ');
+ }catch(error){
+  action.fail(error.message);
+  result.classList.add('error');
+  result.textContent=error.message;
+ }finally{action.done();}
+}
+async function scanNews(){
+ if(busy)return;
+ const result=$('#propose-result');
+ result.classList.remove('error');
+ result.textContent='Sweeping the EV beat… headlines first, then research on at most three subjects.';
+ /* As slow as a research run, and for the same reason: it ends in one. */
+ const action=runAction({
+  button:'#scan-news',label:'Scanning…',
+  slot:'#topics-pending',shape:'card-h',count:2,
+  failTitle:'The news sweep did not finish.'
+ });
+ try{
+  const sweep=await post('/ceo/api/radar/scan',{});
+  const parts=[sweep.message||'The sweep finished.'];
+  if((sweep.subjects||[]).length)parts.push(`Subjects: ${sweep.subjects.join('; ')}`);
+  (sweep.messages||[]).forEach(message=>parts.push(message));
+  setUi('topics',{filter:'all',page:1});
+  await refresh();
+  result.classList.toggle('error',sweep.status!=='completed');
   result.textContent=parts.join(' ');
  }catch(error){
   action.fail(error.message);
@@ -522,7 +658,44 @@ async function approveProposal(id){
  });
  try{
   const result=await post('/ceo/api/proposal/approve',{proposal_id:Number(id)});
-  toast(`Approved. Board card ${result.task_id} is queued for writing.`);
+  const swept=(result.archived||[]).length;
+  /* Say what else moved. A card that vanishes from this screen without being
+     named is indistinguishable from one that was lost. */
+  toast(swept
+   ?`Approved. Board card ${result.task_id} is queued for writing; ${swept} related topic${swept===1?'':'s'} moved to Archived.`
+   :`Approved. Board card ${result.task_id} is queued for writing.`);
+  await refresh();
+ }catch(error){card?.classList.remove('is-pending');action.fail(error.message);}
+ finally{action.done();}
+}
+async function archiveProposal(id){
+ if(busy)return;
+ const card=document.querySelector(`[data-proposal="${id}"]`);
+ card?.classList.add('is-pending');
+ const action=runAction({
+  button:document.querySelector(`[data-archive="${id}"]`),label:'Archiving…',
+  surface:card?.querySelector('[data-card-error]'),
+  failTitle:'The topic was not archived.'
+ });
+ try{
+  await post('/ceo/api/proposal/archive',{proposal_id:Number(id)});
+  toast('Moved to Archived. It is not rejected — Restore brings it back.');
+  await refresh();
+ }catch(error){card?.classList.remove('is-pending');action.fail(error.message);}
+ finally{action.done();}
+}
+async function restoreProposal(id){
+ if(busy)return;
+ const card=document.querySelector(`[data-proposal="${id}"]`);
+ card?.classList.add('is-pending');
+ const action=runAction({
+  button:document.querySelector(`[data-restore="${id}"]`),label:'Restoring…',
+  surface:card?.querySelector('[data-card-error]'),
+  failTitle:'The topic was not restored.'
+ });
+ try{
+  await post('/ceo/api/proposal/restore',{proposal_id:Number(id)});
+  toast('Back in Topics & Research, awaiting your decision.');
   await refresh();
  }catch(error){card?.classList.remove('is-pending');action.fail(error.message);}
  finally{action.done();}
@@ -961,9 +1134,10 @@ function renderSkeletons(){
  setHtml($('#chart'),skeleton(1,'chart-h'));
  setHtml($('#trend-list'),skeleton(3,'row-h'));
  setHtml($('#competitor-panel'),skeleton(2,'card-h'));
+ setHtml($('#archived-list'),skeleton(2,'card-h'));
 }
 function renderAll(){
- renderProposals();renderTrends();renderBlogs();renderSearchConsole();renderGa4();renderCompetitor();applyFocus();
+ renderNeedsYou();renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderGa4();renderCompetitor();applyFocus();
 }
 
 /* ------------------------------------------------------------- blog reading */
@@ -1534,6 +1708,15 @@ document.addEventListener('click',event=>{
  if(data.researchQueued!==undefined){showView('topics');researchSubject(data.researchQueued);}
  if(data.unwatch)updateWatch(data.unwatch,'remove');
  if(data.approve)approveProposal(data.approve);
+ if(data.archive)archiveProposal(data.archive);
+ if(data.restore)restoreProposal(data.restore);
+ /* One attribute for "take me to the thing that needs me", so the band never
+    grows its own idea of what a tab or a filter is called. */
+ if(data.jump){
+  const [view,filter]=data.jump.split(':');
+  if(filter!==undefined)setUi(view,{filter,page:1});
+  showView(view);
+ }
  if(data.suggestOpen)openInlineForm(data.suggestOpen,'suggest');
  if(data.rejectOpen)openInlineForm(data.rejectOpen,'reject');
  if(data.formSubmit)submitInlineForm(data.formSubmit);
@@ -1566,6 +1749,7 @@ document.addEventListener('input',event=>{
  const target=event.target;
  if(target.id==='topics-search'){setUi('topics',{search:target.value});renderProposals();}
  if(target.id==='blogs-search'){setUi('blogs',{search:target.value});renderBlogs();}
+ if(target.id==='archived-search'){setUi('archived',{search:target.value});renderArchived();}
  if(target.id==='trend-keyword'){setUi('trends',{page:1},false);renderTrends();}
  if(target.id==='editor-input'){editorText=target.value;schedulePreview();}
 });
@@ -1593,7 +1777,7 @@ document.addEventListener('keydown',event=>{
   if(box){event.preventDefault();box.focus();box.select();}
   return;
  }
- if(/^[1-3]$/.test(event.key)){showView(VIEWS[Number(event.key)-1]);return;}
+ if(/^[1-4]$/.test(event.key)){showView(VIEWS[Number(event.key)-1]);return;}
  if(openTask)return;
  if(event.key==='j'){event.preventDefault();moveFocus(1);}
  if(event.key==='k'){event.preventDefault();moveFocus(-1);}
@@ -1610,6 +1794,7 @@ window.addEventListener('resize',()=>{
  resizeTimer=setTimeout(()=>{if(currentView==='analytics')drawChart();},150);
 });
 $('#research-subject').addEventListener('click',()=>researchSubject());
+$('#scan-news').addEventListener('click',scanNews);
 $('#analyse-competitor').addEventListener('click',analyseCompetitor);
 $('#competitor').addEventListener('keydown',event=>{if(event.key==='Enter')analyseCompetitor();});
 $('#subject').addEventListener('keydown',event=>{if(event.key==='Enter')researchSubject();});
@@ -1629,6 +1814,7 @@ async function boot(){
  localStorage.removeItem('cmo_console_view');
  $('#topics-search').value=ui.topics.search;
  $('#blogs-search').value=ui.blogs.search;
+ $('#archived-search').value=ui.archived.search;
  showView(DEFAULT_VIEW);
  renderSkeletons();moveIndicator();
  try{

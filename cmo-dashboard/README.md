@@ -216,6 +216,82 @@ Cards that predate this flow are set aside with
 `Change status: pending human decision`, both selectors skip it, and it reappears as a
 proposal naming the card as its source.
 
+### Approving one candidate archives the rest
+
+One subject fans out to up to `MAX_CANDIDATES` candidates and exactly one of them
+becomes a card. Approving sweeps the others — same subject, still `proposed` or
+`revising` — to `status = 'archived'` and onto the **Archived** tab. Before this
+existed they stayed on Topics forever; 31 of 39 live proposals were leftovers of
+decisions already made, which is the pile-up the sweep ends.
+
+**Archiving is not rejecting, and the difference is load-bearing.** A rejection writes
+a `rejected_topics` row keyed by the reworded-proof fingerprint and suppresses the idea
+until it is explicitly undone. Archiving writes nothing there. An archived candidate
+can be restored by hand (`POST /ceo/api/proposal/restore`), and `add_candidates`
+**resurfaces** one on its own when research produces the same fingerprint again,
+reporting it as `resurfaced` rather than swallowing it as a duplicate. That last part
+is the reason the liveness probe excludes `archived` as well as `rejected`: without it
+the archive would be a silent veto with none of a rejection's deliberateness.
+
+The sweep runs only after the board card exists, so a failed mint archives nothing, and
+a second approval of the same proposal archives nothing either — it is not a second
+decision. `POST /ceo/api/proposal/archive` sets one aside by hand, with the same
+reversibility.
+
+### The news radar
+
+`cmo_runtime/news_radar.py` is what makes a topic arrive without anyone typing one.
+It does not add a second research path: it produces subject strings and hands each to
+`TopicProposalService.propose`, which keeps its cache, accounting, dedup and stage
+recording unchanged.
+
+One sweep:
+
+1. **Live budget check.** Refuses if Firecrawl is not ready, or if remaining credits
+   are below `RADAR_CREDIT_FLOOR` — an unattended daily job must never be why the CEO
+   cannot research a subject by hand. Refusals are recorded, because a sweep that left
+   no trace reads as one that never ran.
+2. **Free discovery** across every beat — `DEFAULT_BEATS` (EV industry, policy,
+   battery technology, market, charging and swapping), plus one beat per
+   `state/ceo-watchlist.json` entry and per row in `competitors`, so the beat is
+   steerable from surfaces the CEO already controls without a redeploy. `/v2/search`
+   without `scrapeOptions` bills nothing and returns titles, narrowed to
+   `RADAR_RECENCY` (`qdr:w`). One dead beat does not end the sweep.
+3. **One Hermes triage call** turns the pooled headlines into at most
+   `RADAR_MAX_SUBJECTS` rough subjects. The cap is enforced in `_subjects_from`, not in
+   the prompt: a model asked for three and returning nine must cost three subjects'
+   worth of credits, not nine. An empty answer is a correct answer.
+4. **`propose()` per subject.** The only paid step, at `PROPOSAL_PAGE_CAP` pages each —
+   worst case `RADAR_MAX_SUBJECTS × PROPOSAL_PAGE_CAP` credits a day. One refused
+   subject does not lose the others.
+
+Note the recency window applies to discovery only. The research behind a topic is
+deliberately unbounded: a 2023 gazette notification is exactly the source a policy
+piece needs.
+
+Every sweep, refusals included, lands in `radar_runs` and the latest is rendered on the
+console as `topics.radar`.
+
+Two ways to run it:
+
+```bash
+# what it would research, spending nothing
+python -m cmo_runtime.news_radar --profile "$CMO_DASHBOARD_PROFILE_DIR" --dry-run
+
+# the daily sweep: clock-driven, flock on state/news-radar.lock, stamp in
+# state/news-radar-last-run. A late cycle runs late rather than being skipped.
+python -m cmo_runtime.news_radar --profile "$CMO_DASHBOARD_PROFILE_DIR" --due
+```
+
+**The watchdog must be told to call it.** The `--due` line has to be added to the
+cmo-watchdog next to the `morning-seo-job.py --due` line; that file lives outside this
+repo. Until it is, the radar only fires from the console's **Scan EV news now** button,
+which posts to `/ceo/api/radar/scan` and runs exactly the same sweep.
+
+It lives in `cmo_runtime/` and not in `scripts/` on purpose: `deploy-dashboard` copies
+`cmo-dashboard/*.py`, `*.js` and `cmo_runtime/*.py`, and nothing under `scripts/`. A
+radar under `scripts/` would be committed and never shipped.
+
 ## Competitor analytics
 
 `cmo_runtime/competitors.py` answers "which website do you want to replicate" from what

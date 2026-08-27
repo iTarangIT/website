@@ -7,18 +7,25 @@ it, because none of these lists is short.
 
 BODY = '''<main id="app">
 <header class="topbar"><div class="mark" aria-hidden="true">iT</div><div class="topbar-title"><p class="eyebrow">iTarang CEO Console</p><h1>Content flow</h1></div><span id="account" class="meta"></span><button id="signout" class="ghost small" type="button">Sign out</button></header>
+<!-- Above the tabs on purpose: what is blocked on a human is the first thing on
+     the screen, not something found by opening the right tab. It is filled from the
+     state the page already fetched, so it costs no extra request. -->
+<section id="needs-you" class="needs-band" aria-label="What needs you"></section>
 <nav class="primary" aria-label="CEO workflow">
 <button class="active" data-view="topics" type="button"><kbd>1</kbd> Topics &amp; Research<span class="tab-badge" data-badge="topics" hidden></span></button>
 <button data-view="blogs" type="button"><kbd>2</kbd> Blogs<span class="tab-badge" data-badge="blogs" hidden></span></button>
 <button data-view="analytics" type="button"><kbd>3</kbd> Analytics</button>
+<button data-view="archived" type="button"><kbd>4</kbd> Archived<span class="tab-badge" data-badge="archived" hidden></span></button>
 <span class="tab-indicator" aria-hidden="true"></span>
 </nav>
 <p id="notice" class="notice" role="status"></p>
 
 <section id="panel-topics" class="screen paper">
 <div class="section-head"><div><h2>Topics &amp; Research</h2><p class="meta">Enter a rough subject. Hermes researches it and proposes candidate topics for you to decide on.</p></div><span id="credit-meter" class="meta"></span></div>
-<div class="subject-box"><label class="field">Rough subject<input id="subject" type="text" maxlength="180" placeholder="three wheeler battery data"></label><button id="research-subject" type="button">Research this subject</button></div>
+<div class="subject-box"><label class="field">Rough subject<input id="subject" type="text" maxlength="180" placeholder="three wheeler battery data"></label><button id="research-subject" type="button">Research this subject</button><button id="scan-news" class="ghost" type="button">Scan EV news now</button></div>
 <p class="meta">Researching costs Firecrawl credits and creates no board card. Only a topic you approve becomes one.</p>
+<p class="meta">The news radar sweeps EV industry, policy, battery technology, charging and market headlines from the past week, and researches at most three of them. It runs on its own each morning; this button runs it now.</p>
+<p id="radar-status" class="meta"></p>
 <p id="propose-result" class="notice"></p>
 
 <details id="queued-box"><summary>Queued from Analytics <span id="queued-count" class="meta"></span></summary>
@@ -123,7 +130,18 @@ BODY = '''<main id="app">
 <nav class="pager" id="competitor-pager" aria-label="Competitor finding pages"></nav>
 </section>
 
-<footer class="shortcuts"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> tabs</span><span><kbd>/</kbd> search</span><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></footer>
+<section id="panel-archived" class="screen paper" hidden>
+<div class="section-head"><div><h2>Archived</h2><p class="meta">Candidates set aside when you approved one from the same subject, and any you archived by hand. They are not remembered as rejected: research can surface one again on its own, and Restore brings one back now.</p></div><span id="archived-radar" class="meta"></span></div>
+<div class="toolbar">
+<label class="field search"><span class="visually-hidden">Search archived topics</span><input id="archived-search" type="search" placeholder="Search archived topics and keywords" autocomplete="off"></label>
+<span class="count" id="archived-count"></span>
+</div>
+<div id="archived-pending" class="rows" aria-live="polite" hidden></div>
+<div id="archived-list" class="rows" role="list"></div>
+<nav class="pager" id="archived-pager" aria-label="Archived topic pages"></nav>
+</section>
+
+<footer class="shortcuts"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> tabs</span><span><kbd>/</kbd> search</span><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></footer>
 <!-- Rendered server-side, never by the script: it identifies the bytes that were
      served. Visible at every width, including the phone. -->
 <p class="build" id="build-stamp">@@CMO_BUILD_STAMP@@</p>

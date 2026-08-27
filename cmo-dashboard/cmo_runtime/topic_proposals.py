@@ -279,23 +279,44 @@ class FirecrawlProposalResearcher:
             raise ProposalRefused("Firecrawl credit response is internally inconsistent")
         return plan - remaining, remaining
 
-    def discover(self, subject: str, limit: int) -> list[str]:
-        """URLs only — no scrapeOptions, so this does not pay per page."""
-        response = self._request_json(
-            "POST",
-            "/v2/search",
-            {"query": subject, "limit": limit, "sources": ["web"]},
-        )
+    def search(self, subject: str, limit: int, *, tbs: str = "") -> list[dict[str, str]]:
+        """Result rows — no scrapeOptions, so this does not pay per page.
+
+        `tbs` is Firecrawl's time window (`qdr:d`, `qdr:w`, `qdr:m`). It is omitted
+        from the payload unless asked for, so subject research keeps the unbounded
+        search it has always had and only the news radar narrows to recent pages.
+
+        The title and description come back from the same free call as the URL. The
+        radar reads headlines from them rather than paying to scrape a page just to
+        find out whether it was worth scraping.
+        """
+        payload: dict[str, object] = {"query": subject, "limit": limit, "sources": ["web"]}
+        if tbs:
+            payload["tbs"] = tbs
+        response = self._request_json("POST", "/v2/search", payload)
         data = response.get("data")
         rows = data.get("web", []) if isinstance(data, dict) else data if isinstance(data, list) else []
-        urls: list[str] = []
+        found: list[dict[str, str]] = []
+        seen: set[str] = set()
         for row in rows:
             if not isinstance(row, dict):
                 continue
             url = _single_line(row.get("url") or "", limit=2000)
-            if re.match(r"^https?://", url, re.I) and url not in urls:
-                urls.append(url)
-        return urls
+            if not re.match(r"^https?://", url, re.I) or url in seen:
+                continue
+            seen.add(url)
+            found.append(
+                {
+                    "url": url,
+                    "title": _single_line(row.get("title") or "", limit=300),
+                    "description": _single_line(row.get("description") or "", limit=400),
+                }
+            )
+        return found
+
+    def discover(self, subject: str, limit: int, *, tbs: str = "") -> list[str]:
+        """URLs only — no scrapeOptions, so this does not pay per page."""
+        return [row["url"] for row in self.search(subject, limit, tbs=tbs)]
 
     def retrieve(self, urls: Sequence[str]) -> list[SourcePage]:
         pages: list[SourcePage] = []
@@ -423,6 +444,7 @@ class ProposalRun:
     added: list[dict[str, Any]] = field(default_factory=list)
     suppressed: list[dict[str, Any]] = field(default_factory=list)
     duplicates: list[dict[str, Any]] = field(default_factory=list)
+    resurfaced: list[dict[str, Any]] = field(default_factory=list)
     dropped: list[dict[str, Any]] = field(default_factory=list)
     credits_used: int = 0
     credits_remaining: int | None = None
@@ -437,6 +459,7 @@ class ProposalRun:
             "added": self.added,
             "suppressed": self.suppressed,
             "duplicates": self.duplicates,
+            "resurfaced": self.resurfaced,
             "dropped": self.dropped,
             "credits_used": self.credits_used,
             "credits_remaining": self.credits_remaining,
@@ -840,7 +863,10 @@ class TopicProposalService:
         proposer_ms = int((time.monotonic() - proposer_clock) * 1000)
         candidates, dropped = self._candidates_from(research, rows)
         result = self.database.add_candidates(
-            subject_id=subject_id, research_run_id=run_id, candidates=candidates
+            subject_id=subject_id,
+            research_run_id=run_id,
+            candidates=candidates,
+            actor=actor,
         )
         whys, outlines, keywords = self._candidate_fields(rows)
         self._record_topic_stages(
@@ -862,6 +888,7 @@ class TopicProposalService:
             added=result["added"],
             suppressed=result["suppressed"],
             duplicates=result["duplicates"],
+            resurfaced=result.get("resurfaced", []),
             dropped=dropped,
             credits_used=research.credits_used,
             credits_remaining=research.credits_remaining,
@@ -877,10 +904,20 @@ class TopicProposalService:
         Idempotent: approving twice returns the same task id and mints nothing. If a
         crash lands between minting and recording, the board scan below adopts the
         orphaned card instead of minting a second one.
+
+        Approving is also the moment the rest of the subject's candidates are set
+        aside. The sweep runs only after the card exists, so a failed mint never
+        archives anything, and the already-carded returns above archive nothing at
+        all — a second approval is not a second decision.
         """
         record = self.database.proposal(proposal_id)
         if record["task_id"]:
-            return {"ok": True, "task_id": record["task_id"], "already_carded": True}
+            return {
+                "ok": True,
+                "task_id": record["task_id"],
+                "already_carded": True,
+                "archived": [],
+            }
         version = record["version"]
         if version is None:
             raise ProposalRefused("this proposal has no current version to approve")
@@ -889,11 +926,21 @@ class TopicProposalService:
         existing = self._card_for_proposal(proposal_id)
         if existing:
             self.database.attach_task(proposal_id, existing)
-            return {"ok": True, "task_id": existing, "already_carded": True}
+            return {
+                "ok": True,
+                "task_id": existing,
+                "already_carded": True,
+                "archived": self.database.archive_siblings(proposal_id, actor),
+            }
 
         task_id = self._mint_card(proposal_id, version, actor)
         self.database.attach_task(proposal_id, task_id)
-        return {"ok": True, "task_id": task_id, "already_carded": False}
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "already_carded": False,
+            "archived": self.database.archive_siblings(proposal_id, actor),
+        }
 
     def _board_text(self) -> str:
         path = self.profile_dir / "tasks.md"
@@ -991,13 +1038,26 @@ class TopicProposalService:
         revoked = self.database.undo_rejection(record["norm_key"], actor)
         return {"ok": revoked, "norm_key": record["norm_key"]}
 
+    def archive(self, proposal_id: int, actor: str) -> dict[str, Any]:
+        """Set one candidate aside without vetoing the idea. Reversible."""
+        record = self.database.archive_proposal(proposal_id, actor)
+        return {"ok": True, "status": record["status"]}
+
+    def restore(self, proposal_id: int, actor: str) -> dict[str, Any]:
+        """Bring an archived candidate back into the pool awaiting a decision."""
+        record = self.database.restore_proposal(proposal_id, actor)
+        return {"ok": True, "status": record["status"]}
+
     # -------------------------------------------------------------- read model
 
     def state(self) -> dict[str, Any]:
         """Everything the Topics & Research tab renders, from the database only."""
         proposals = self.database.proposals(statuses=["proposed", "revising", "approved"])
+        archived = self.database.proposals(statuses=["archived"])
         return {
             "proposals": [_proposal_payload(item) for item in proposals],
+            "archived": [_proposal_payload(item) for item in archived],
+            "radar": self.database.latest_radar_run(),
             "rejected": [
                 {
                     "id": item["id"],
@@ -1023,7 +1083,10 @@ def _proposal_payload(record: dict[str, Any]) -> dict[str, Any]:
         "id": record["id"],
         "status": record["status"],
         "task_id": record["task_id"],
+        "subject_id": record["subject_id"],
         "subject": (record["subject"] or {}).get("raw_text", ""),
+        "created_at": record.get("created_at", ""),
+        "updated_at": record.get("updated_at", ""),
         "round": version.get("round", 1),
         "title": version.get("title", ""),
         "keywords": version.get("keywords", []),

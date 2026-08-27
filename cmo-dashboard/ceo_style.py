@@ -183,6 +183,24 @@ border-radius:var(--radius-sm);background:var(--red-soft);color:var(--ink)}
 background:var(--red-soft);color:var(--red);font-size:var(--f-sm);overflow-wrap:anywhere}
 .row-error[hidden],.form-error[hidden]{display:none}
 
+/* ---- what is blocked on a human ------------------------------------------ */
+/* Above the tabs, so the first question the screen answers is "what needs me".
+   It never disappears: an empty band says so in a line, because a region that is
+   simply absent reads the same as one that failed to load. */
+.needs-band{margin:0 0 14px;padding:12px 14px;border:1px solid var(--line);
+border-left:3px solid var(--green);border-radius:var(--radius);background:var(--sheet)}
+.needs-band .needs-head{margin:0 0 8px;font-size:var(--f-xs);letter-spacing:.08em;
+text-transform:uppercase;color:var(--muted)}
+.needs-band ul{margin:0;padding:0;list-style:none;display:grid;gap:7px}
+.needs-band li{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.needs-band .needs-count{min-width:26px;padding:1px 8px;border-radius:999px;
+background:var(--green-soft);color:var(--green-deep);font-family:var(--mono);
+font-size:var(--f-xs);font-variant-numeric:tabular-nums;text-align:center}
+.needs-band .needs-count.warn{background:var(--red-soft);color:var(--red)}
+.needs-band .needs-text{flex:1 1 240px;color:var(--ink)}
+.needs-band .needs-clear{margin:0;color:var(--muted)}
+.needs-band button{padding:5px 12px;min-height:0;font-size:var(--f-xs)}
+
 /* ---- work that arrived while he was looking somewhere else ---------------- */
 /* Never jump him to it. Count it on the tab, or offer one line he can click. */
 .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;
