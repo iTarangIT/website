@@ -828,9 +828,15 @@ class TopicProposalService:
             ]
         return whys, outlines, keywords
 
-    def propose(self, raw_subject: str, actor: str) -> ProposalRun:
-        """Turn one rough subject into a list of candidate topics. Writes no board card."""
-        subject = self.database.subject_for(raw_subject, actor)
+    def propose(self, raw_subject: str, actor: str, beat: str = "") -> ProposalRun:
+        """Turn one rough subject into a list of candidate topics. Writes no board card.
+
+        `beat` is the radar beat this subject came off, and is empty for a subject
+        typed into the console. It travels no further than the subject row: what it
+        answers is "which part of the beat produced this candidate", which is a
+        question about where the subject came from, not about the candidate.
+        """
+        subject = self.database.subject_for(raw_subject, actor, beat)
         subject_id = int(subject["id"])
         research_started = utc_timestamp()
         research_clock = time.monotonic()
@@ -1085,6 +1091,7 @@ def _proposal_payload(record: dict[str, Any]) -> dict[str, Any]:
         "task_id": record["task_id"],
         "subject_id": record["subject_id"],
         "subject": (record["subject"] or {}).get("raw_text", ""),
+        "beat": (record["subject"] or {}).get("beat", ""),
         "created_at": record.get("created_at", ""),
         "updated_at": record.get("updated_at", ""),
         "round": version.get("round", 1),

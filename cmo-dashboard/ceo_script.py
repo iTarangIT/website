@@ -364,6 +364,24 @@ function openFocused(){
 }
 
 /* ---------------------------------------------------------------- proposals */
+/* The five beats the radar stands on, in the words the screen should use for
+   them. A slug the console has not been taught is shown as itself rather than
+   hidden: an unnamed beat is still a true answer to "where did this come from". */
+const BEAT_LABELS={
+ 'ev-industry':'EV industry',
+ policy:'Government policy',
+ 'battery-tech':'Battery technology',
+ market:'Market trends',
+ competitors:'Competitors',
+ watchlist:'Watchlist'
+};
+function beatLabel(slug){return BEAT_LABELS[slug]||slug;}
+function beatPill(proposal){
+ const beat=(proposal.beat||'').trim();
+ /* A subject typed into the box above has no beat, and saying "manual" would be
+    inventing one. It simply carries no tag. */
+ return beat?`<span class="pill beat">${esc(beatLabel(beat))}</span>`:'';
+}
 function sourceLine(proposal){
  const refs=(proposal.source_refs||[]).map(ref=>{
   if(/^https?:\/\//i.test(ref))return `<a href="${esc(ref)}" target="_blank" rel="noopener">${esc(ref.replace(/^https?:\/\//,'').slice(0,60))}</a>`;
@@ -381,9 +399,9 @@ function proposalCard(proposal){
  const busyNote=proposal.status==='revising'?'<p class="meta">Re-researching this candidate…</p>':'';
  const history=(proposal.history||[]).length>1?`<details><summary>Earlier rounds</summary>${proposal.history.slice(0,-1).map(item=>`<div class="history-row"><strong>Round ${esc(item.round)}: ${esc(item.title)}</strong><p class="meta">${esc(item.outline)}</p></div>`).join('')}</details>`:'';
  return `<article class="card" role="listitem" data-key="${esc(proposal.id)}" data-row="${esc(proposal.id)}" data-proposal="${esc(proposal.id)}">
-<div class="card-row"><div class="card-main">${pill(proposal.status)} ${round}
+<div class="card-row"><div class="card-main">${pill(proposal.status)} ${beatPill(proposal)} ${round}
 <h3>${esc(proposal.title)}</h3>
-<p class="meta">From your subject: ${esc(proposal.subject)}</p>
+<p class="meta">${proposal.beat?`From the ${esc(beatLabel(proposal.beat))} beat`:'From your subject'}: ${esc(proposal.subject)}</p>
 <div class="keywords">${keywords}</div>
 <p class="outline">${esc(proposal.outline)}</p>
 ${sourceLine(proposal)}${busyNote}${history}</div></div>
@@ -446,15 +464,34 @@ function renderCredits(){
  if(budget.status==='ready'){node.innerHTML=`Firecrawl: <strong class="num">${esc(budget.remaining)}</strong> credits left · a proposal run reads up to ${esc(budget.page_cap)} pages · refuses at ${esc(budget.stop_threshold)} used`;return;}
  node.textContent=budget.message||'No proposal research has run yet, so no credit balance has been measured.';
 }
-function renderRadar(){
+/* What the sweep actually covered, not merely that one happened.
+
+   A beat that returned nothing and a beat nobody searched produce the same thing
+   on this screen — no candidates — and only one of them is a reason to change the
+   query. So both lists are named. */
+function radarHtml(){
  const radar=(state.topics||{}).radar;
- const line=radar
-  ?`Last sweep ${esc(radar.started_at)} (${esc(radar.mode)}): ${esc(radar.message||radar.status)}`
+ if(!radar)return '<p class="meta">The news radar has not run yet. It sweeps each morning, and the button above runs it now.</p>';
+ const covered=(radar.beats||[]).map(beatLabel);
+ const dry=new Set(radar.empty_beats||[]);
+ const worked=covered.filter((_label,index)=>!dry.has((radar.beats||[])[index]));
+ const empty=(radar.beats||[]).filter(slug=>dry.has(slug)).map(beatLabel);
+ return `<p class="meta">Last sweep ${esc(radar.started_at)} (${esc(radar.mode)}): ${esc(radar.message||radar.status)}</p>`
+  +(covered.length?`<p class="meta">Beats swept: ${worked.map(name=>`<span class="pill beat">${esc(name)}</span>`).join(' ')||'<span class="num">none returned anything</span>'}`
+    +(empty.length?` · nothing new from ${empty.map(name=>esc(name)).join(', ')}`:'')+'</p>':'');
+}
+/* The Archived header is a span in a heading row, so it takes the one-line
+   summary it always took. The coverage belongs where the beat is run from. */
+function radarLine(){
+ const radar=(state.topics||{}).radar;
+ return radar
+  ?`Last sweep ${radar.started_at} (${radar.mode}): ${radar.message||radar.status}`
   :'The news radar has not run yet.';
- const node=$('#radar-status');
- if(node)node.textContent=line;
+}
+function renderRadar(){
+ setHtml($('#radar-status'),radarHtml());
  const shelf=$('#archived-radar');
- if(shelf)shelf.textContent=line;
+ if(shelf)shelf.textContent=radarLine();
 }
 
 /* ----------------------------------------------------------------- archived */

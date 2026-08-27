@@ -131,6 +131,11 @@ text-transform:uppercase;letter-spacing:.08em}
 background:var(--green-soft);color:var(--green-deep);font-size:var(--f-xs);font-weight:700;
 letter-spacing:.01em;vertical-align:middle}
 .pill::before{content:attr(data-glyph)}
+/* A beat is where a candidate came from, not how it is doing. Quieter than a
+   status pill on purpose: it labels, it does not signal. */
+.pill.beat{background:var(--line-soft);color:var(--muted);font-weight:600}
+.radar-status{margin:0 0 8px;display:grid;gap:4px}
+.radar-status p{margin:0;color:var(--muted);font-size:var(--f-sm)}
 .pill.tone-wait{background:var(--amber-soft);color:var(--amber)}
 .pill.tone-stop{background:var(--red-soft);color:var(--red)}
 .pill.tone-mute{background:#eceeec;color:var(--muted)}

@@ -422,6 +422,30 @@ class ConsoleRenders(unittest.TestCase):
         self.assertIn("2026-08-27T01:30:00Z", ran["radarStatus"])
         self.assertIn("9 credits used", ran["radarStatus"])
 
+    def test_the_sweep_names_the_beats_it_covered(self) -> None:
+        """"Nothing new today" and "that beat was never searched" look identical
+        in a candidate list, and only one is a reason to change a query."""
+        out = self.run_console(_fixture(radar={
+            "started_at": "2026-08-27T01:30:00Z", "mode": "due", "status": "completed",
+            "message": "4 candidate(s) proposed from 2 subject(s); 9 credits used.",
+            "beats": ["ev-industry", "policy", "battery-tech", "market", "competitors"],
+            "empty_beats": ["battery-tech"],
+        }))
+
+        for name in ("EV industry", "Government policy", "Market trends", "Competitors"):
+            self.assertIn(name, out["radarStatus"], f"the {name} beat is not named")
+        self.assertIn("nothing new from Battery technology", out["radarStatus"])
+
+    def test_a_sweep_with_no_recorded_beats_claims_nothing(self) -> None:
+        """Runs from before beats were recorded must not read as full coverage."""
+        out = self.run_console(_fixture(radar={
+            "started_at": "2026-08-27T01:30:00Z", "mode": "due", "status": "completed",
+            "message": "4 candidate(s) proposed.",
+        }))
+
+        self.assertIn("2026-08-27T01:30:00Z", out["radarStatus"])
+        self.assertNotIn("Beats swept", out["radarStatus"])
+
     def test_the_console_makes_no_request_to_another_host(self) -> None:
         for request in self.out["requests"]:
             self.assertTrue(request.startswith("/"), f"{request} leaves this host")

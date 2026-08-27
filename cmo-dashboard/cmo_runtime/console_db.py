@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DATABASE_NAME = "console.db"
 
 #: `archived` is not a soft rejection. A rejection is remembered by norm_key and
@@ -142,7 +142,11 @@ CREATE TABLE IF NOT EXISTS subjects (
     raw_text    TEXT NOT NULL,
     norm_key    TEXT NOT NULL UNIQUE,
     actor       TEXT NOT NULL,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    -- Which beat of the news radar produced this subject, empty for one typed in
+    -- by hand. Added in schema 4; `_add_column` backfills existing databases,
+    -- where every row predates the radar and correctly reads as hand-entered.
+    beat        TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS research_runs (
@@ -290,6 +294,10 @@ CREATE TABLE IF NOT EXISTS radar_runs (
     started_at      TEXT NOT NULL,
     mode            TEXT NOT NULL,          -- due|forced|manual|dry-run
     beats_json      TEXT NOT NULL DEFAULT '[]',
+    -- The beats searched that returned nothing new. Added in schema 4; rows from
+    -- before it read as an empty list, which is honestly "not recorded" rather
+    -- than a claim that every beat delivered.
+    empty_beats_json TEXT NOT NULL DEFAULT '[]',
     headlines_seen  INTEGER NOT NULL DEFAULT 0,
     subjects_json   TEXT NOT NULL DEFAULT '[]',
     proposals_added INTEGER NOT NULL DEFAULT 0,
@@ -319,11 +327,25 @@ class ConsoleDB:
         # `executescript` commits any pending transaction of its own, so it must not run
         # inside `write()` — the COMMIT there would find nothing active.
         self._connection.executescript(_SCHEMA)
+        # `CREATE TABLE IF NOT EXISTS` is a no-op on a database that already has the
+        # table, so a column added to the schema above never reaches one. Every such
+        # column needs a line here as well, and both must agree.
+        self._add_column("subjects", "beat", "TEXT NOT NULL DEFAULT ''")
+        self._add_column("radar_runs", "empty_beats_json", "TEXT NOT NULL DEFAULT '[]'")
         self._connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         try:
             self.path.chmod(0o600)
         except OSError:
             pass
+
+    def _add_column(self, table: str, column: str, declaration: str) -> None:
+        """Add a column to an existing table, once. Safe to run on every open."""
+        present = {
+            row["name"] for row in self._connection.execute(f"PRAGMA table_info({table})")
+        }
+        if column in present:
+            return
+        self._connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     def close(self) -> None:
         self._connection.close()
@@ -354,8 +376,15 @@ class ConsoleDB:
 
     # ---------------------------------------------------------------- subjects
 
-    def subject_for(self, raw_text: str, actor: str) -> dict[str, Any]:
-        """Get or create the subject row. The norm_key is what makes the cache work."""
+    def subject_for(self, raw_text: str, actor: str, beat: str = "") -> dict[str, Any]:
+        """Get or create the subject row. The norm_key is what makes the cache work.
+
+        `beat` names the radar beat that produced the subject, and is empty for one
+        a human typed in. A subject that already exists keeps everything about
+        itself except an empty beat: the radar finding a subject somebody had
+        already entered by hand is the one case where we learn something new about
+        a row that is otherwise unchanged.
+        """
         text = _single_line(raw_text, limit=180)
         if not 3 <= len(text) <= 180:
             raise ConsoleDBError("a subject must be one line between 3 and 180 characters")
@@ -366,15 +395,23 @@ class ConsoleDB:
         if not key:
             raise ConsoleDBError("a subject must contain at least one meaningful word")
         with self.write() as connection:
+            beat = _single_line(beat, limit=60)
             existing = connection.execute(
                 "SELECT * FROM subjects WHERE norm_key = ?", (key,)
             ).fetchone()
             if existing is not None:
+                if beat and not str(existing["beat"] or "").strip():
+                    connection.execute(
+                        "UPDATE subjects SET beat = ? WHERE id = ?", (beat, existing["id"])
+                    )
+                    existing = connection.execute(
+                        "SELECT * FROM subjects WHERE id = ?", (existing["id"],)
+                    ).fetchone()
                 return dict(existing)
             cursor = connection.execute(
-                "INSERT INTO subjects (raw_text, norm_key, actor, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (text, key, actor, utc_timestamp()),
+                "INSERT INTO subjects (raw_text, norm_key, actor, created_at, beat)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (text, key, actor, utc_timestamp(), beat),
             )
             return dict(
                 connection.execute(
@@ -462,6 +499,7 @@ class ConsoleDB:
         mode: str,
         beats: Sequence[str],
         headlines_seen: int,
+        empty_beats: Sequence[str] = (),
         subjects: Sequence[str],
         proposals_added: int,
         credits_used: int,
@@ -475,13 +513,14 @@ class ConsoleDB:
         """
         with self.write() as connection:
             cursor = connection.execute(
-                "INSERT INTO radar_runs (started_at, mode, beats_json, headlines_seen,"
-                " subjects_json, proposals_added, credits_used, status, message)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO radar_runs (started_at, mode, beats_json, empty_beats_json,"
+                " headlines_seen, subjects_json, proposals_added, credits_used, status, message)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     started_at,
                     _single_line(mode, limit=40),
                     json.dumps([str(beat) for beat in beats], ensure_ascii=False),
+                    json.dumps([str(beat) for beat in empty_beats], ensure_ascii=False),
                     int(headlines_seen),
                     json.dumps([str(subject) for subject in subjects], ensure_ascii=False),
                     int(proposals_added),
@@ -498,6 +537,7 @@ class ConsoleDB:
             return None
         record = dict(row)
         record["beats"] = json.loads(record.pop("beats_json"))
+        record["empty_beats"] = json.loads(record.pop("empty_beats_json", None) or "[]")
         record["subjects"] = json.loads(record.pop("subjects_json"))
         return record
 

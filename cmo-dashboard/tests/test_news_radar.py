@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cmo_runtime import news_radar  # noqa: E402
+from cmo_runtime import competitors, news_radar  # noqa: E402
 from cmo_runtime.news_radar import IST, NewsRadar, RadarRefused, _due  # noqa: E402
 from cmo_runtime.topic_proposals import ProposalRefused, SourcePage  # noqa: E402
 
@@ -211,7 +211,10 @@ class DiscoveryIsFreeAndRecent(RadarTestCase):
 
         radar.scan("news-radar")
 
-        beat_queries = {query for _slug, query in BEATS}
+        # Not BEATS: `competitors` is a standing beat whose query is built at
+        # runtime, so the only honest list of discovery queries is the one the
+        # radar itself will search.
+        beat_queries = {query for _slug, query in radar.beats()}
         beat_searches = [row for row in self.researcher.searches if row[0] in beat_queries]
         self.assertEqual({query for query, _limit, _tbs in beat_searches}, beat_queries)
         self.assertEqual({tbs for _query, _limit, tbs in beat_searches}, {news_radar.RADAR_RECENCY})
@@ -227,7 +230,10 @@ class DiscoveryIsFreeAndRecent(RadarTestCase):
 
         sweep = radar.scan("news-radar")
 
-        beat_queries = {query for _slug, query in BEATS}
+        # Not BEATS: `competitors` is a standing beat whose query is built at
+        # runtime, so the only honest list of discovery queries is the one the
+        # radar itself will search.
+        beat_queries = {query for _slug, query in radar.beats()}
         follow_ups = [row for row in self.researcher.searches if row[0] not in beat_queries]
         self.assertTrue(follow_ups, "the sweep researched nothing")
         self.assertEqual({tbs for _query, _limit, tbs in follow_ups}, {""})
@@ -345,7 +351,7 @@ class DiscoveryIsBilledAndSaysSo(RadarTestCase):
 
         sweep = radar.scan("news-radar")
 
-        expected = len(BEATS) * self.researcher.cost_per_search
+        expected = len(radar.beats()) * self.researcher.cost_per_search
         self.assertEqual(sweep.discovery_credits, expected)
         self.assertGreaterEqual(sweep.credits_used, expected)
 
@@ -405,11 +411,11 @@ class TheSweepHandsOnToTheExistingPipeline(RadarTestCase):
         original = radar.service.propose
         calls: list[str] = []
 
-        def flaky(subject, actor):
+        def flaky(subject, actor, beat=""):
             calls.append(subject)
             if len(calls) == 1:
                 raise ProposalRefused("research refused for this one")
-            return original(subject, actor)
+            return original(subject, actor, beat)
 
         radar.service.propose = flaky
         sweep = radar.scan("news-radar")
@@ -467,6 +473,110 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
         for slug, _query in news_radar.DEFAULT_BEATS:
             self.assertIn(slug, slugs, f"the {slug} beat was displaced by the watchlist")
 
+    def test_the_beat_a_candidate_came_from_reaches_the_console(self) -> None:
+        """The beat used to be dropped between the triager and the pipeline.
+
+        A candidate could not say which of the five kinds of development produced
+        it, so "did policy get covered this morning" had no answer on the screen.
+        """
+        radar, _root = self.make_radar(triager=FakeTriager([
+            {"subject": "CAQM bans new non-electric light goods vehicles", "beat": "policy"},
+            {"subject": "Sodium-ion cells enter Indian three-wheeler packs", "beat": "battery-tech"},
+        ]))
+
+        radar.scan("news-radar")
+
+        beats = {
+            item["title"]: item["beat"]
+            for item in radar.service.state()["proposals"]
+        }
+        self.assertTrue(beats, "the sweep proposed nothing")
+        self.assertEqual(set(beats.values()), {"policy", "battery-tech"})
+
+    def test_a_subject_typed_by_hand_carries_no_beat(self) -> None:
+        """Inventing one would be worse than leaving it blank: a manual subject
+        did not come off the beat, and saying it did is a false provenance."""
+        radar, _root = self.make_radar()
+
+        radar.service.propose("A subject somebody typed in", "ceo@itarang.test")
+
+        self.assertEqual(
+            {item["beat"] for item in radar.service.state()["proposals"]}, {""}
+        )
+
+    def test_a_beat_that_returned_nothing_is_recorded_as_dry(self) -> None:
+        """Searched and quiet is not the same as never searched, and a candidate
+        list cannot tell them apart."""
+        radar, _root = self.make_radar(
+            researcher=FakeResearcher(fail_beats=["India EV policy"])
+        )
+
+        sweep = radar.scan("news-radar")
+
+        self.assertIn("policy", sweep.empty_beats)
+        self.assertEqual(radar.database.latest_radar_run()["empty_beats"], sweep.empty_beats)
+
+    def test_competitors_is_a_standing_beat_even_behind_a_full_watchlist(self) -> None:
+        """The regression this exists to stop.
+
+        `competitors` used to be appended after the watchlist and kept only if a
+        slot survived, so one keyword added on the Analytics tab took the last slot
+        and competitor news silently stopped being swept, with nothing anywhere
+        saying so. Competitor updates are one of the five things the radar is for.
+        """
+        radar, root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+        (root / "state" / "ceo-watchlist.json").write_text(
+            json.dumps([f"keyword {index}" for index in range(20)]), encoding="utf-8"
+        )
+
+        slugs = [slug for slug, _query in radar.beats()]
+
+        self.assertIn("competitors", slugs, "the watchlist displaced the competitor beat")
+        self.assertLessEqual(len(slugs), news_radar.RADAR_MAX_BEATS)
+
+    def test_all_five_standing_beats_are_swept_on_a_normal_day(self) -> None:
+        """The five kinds of development the radar promises, in one assertion."""
+        radar, _root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+
+        slugs = [slug for slug, _query in radar.beats()]
+
+        self.assertEqual(
+            slugs, ["ev-industry", "policy", "battery-tech", "market", "competitors"]
+        )
+
+    def test_an_empty_competitor_list_asks_the_question_generally(self) -> None:
+        """Nobody analysed yet is a reason to ask broadly, not to stop watching."""
+        radar, _root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+
+        self.assertEqual(
+            dict(radar.beats())["competitors"], news_radar.COMPETITOR_FALLBACK_QUERY
+        )
+
+    def test_the_competitor_beat_rotates_so_one_slot_covers_them_all(self) -> None:
+        """One slot and several competitors is a choice about which to ask after.
+
+        Naming them all in one query is not that choice — this module already
+        measured a keyword-stuffed query returning an art-fair page. Rotating
+        covers every competitor over a few days at the same flat 2 credits.
+        """
+        radar, root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+        # The competitor tables are created lazily by the service that owns them.
+        competitors.CompetitorService(root, database=radar.database)
+        for domain in ("alpha.test", "beta.test", "gamma.test"):
+            with radar.database.write() as connection:
+                connection.execute(
+                    "INSERT INTO competitors (domain, added_by, created_at) VALUES (?,?,?)",
+                    (domain, "ceo@itarang.test", "2026-08-27T00:00:00Z"),
+                )
+
+        asked = {
+            dict(radar.beats(today=dt.date(2026, 8, day)))["competitors"]
+            for day in (24, 25, 26)
+        }
+
+        self.assertEqual(len(asked), 3, "three sweeps asked after fewer than three competitors")
+        self.assertTrue(all(query.endswith("news announcement") for query in asked))
+
     def test_three_typical_subjects_fit_under_the_ceiling(self) -> None:
         """The sizing this budget exists for: 4 default beats at 2 credits, then
         three subjects at a measured-typical 5 each, is 25 against a 28 ceiling.
@@ -489,7 +599,10 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
         radar, root = self.make_radar()
         (root / "state" / "ceo-watchlist.json").write_text("not json", encoding="utf-8")
 
-        self.assertEqual([slug for slug, _query in radar.beats()], [slug for slug, _ in BEATS])
+        self.assertEqual(
+            [slug for slug, _query in radar.beats()],
+            [slug for slug, _ in BEATS] + ["competitors"],
+        )
 
 
 class TheLockSaysWhatWentWrong(unittest.TestCase):

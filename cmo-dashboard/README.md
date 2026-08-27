@@ -300,6 +300,35 @@ recording unchanged.
 
 One sweep:
 
+**Five standing beats, one per kind of development it promises to watch:**
+
+```text
+ev-industry   India electric three-wheeler e-rickshaw battery swapping news
+policy        India EV policy news
+battery-tech  EV battery technology news sodium-ion solid-state
+market        India EV sales funding investment news
+competitors   built from the console's competitor list, or a general query
+```
+
+`competitors` used to be a leftover — appended after the watchlist and kept only if a
+slot survived under `RADAR_MAX_BEATS`. That made it silently conditional on the
+watchlist being empty: one keyword added on Analytics took the last slot and competitor
+news stopped being swept, with nothing saying so. It is standing now, and the watchlist
+takes whatever is left instead. Its query rotates one competitor per sweep rather than
+naming them all in one — the measured comparison above is why — so several competitors
+are covered over a few days at the same flat 2 credits.
+
+**A candidate says which beat found it.** The triager returns a beat with each subject;
+that used to be dropped between the triager and the pipeline, so a candidate could not
+say which of the five produced it. It is recorded on the `subjects` row (schema 4) and
+shown as a pill on the card. A subject typed into the box carries no beat rather than
+an invented one.
+
+**A beat that returned nothing is recorded as dry.** `empty_beats` holds the beats that
+were searched and contributed no new headline, and the Topics tab names them beside the
+ones that worked. Searched-and-quiet and never-searched look identical in a list of
+candidates, and only one of them is a reason to change a query.
+
 1. **Live budget check.** Refuses if Firecrawl is not ready, or if remaining credits
    are below `RADAR_CREDIT_FLOOR` — an unattended daily job must never be why the CEO
    cannot research a subject by hand. Refusals are recorded, because a sweep that left

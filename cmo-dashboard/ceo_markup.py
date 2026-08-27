@@ -21,7 +21,7 @@ BODY = '''<main id="app">
 <div class="subject-box"><label class="field">Rough subject<input id="subject" type="text" maxlength="180" placeholder="three wheeler battery data"></label><button id="research-subject" type="button">Research this subject</button><button id="scan-news" class="ghost" type="button">Scan EV news now</button></div>
 <p class="meta">Researching costs Firecrawl credits and creates no board card. Only a topic you approve becomes one.</p>
 <p class="meta">The news radar sweeps EV industry, policy, battery technology, charging and market headlines from the past week, and researches at most three of them. It runs on its own each morning; this button runs it now.</p>
-<p id="radar-status" class="meta"></p>
+<div id="radar-status" class="radar-status"></div>
 <p id="propose-result" class="notice"></p>
 
 <details id="queued-box"><summary>Queued from Analytics <span id="queued-count" class="meta"></span></summary>

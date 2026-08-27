@@ -45,7 +45,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 from zoneinfo import ZoneInfo
@@ -72,12 +72,15 @@ IST = ZoneInfo("Asia/Kolkata")
 #: PM E-DRIVE FAME state EV policy" returned a European Parliament paper on fine
 #: particles, an ethanol story and a J.P. Morgan art-fair page. Naming every
 #: sub-topic dilutes the query rather than covering more ground.
-#: Four, not five: at a flat 2 credits a beat, every one spent on discovery is
-#: one not spent researching a subject, and three researched subjects a day is
-#: worth more than a fifth angle on the same week's news. `charging-infra` was
-#: folded into `ev-industry` rather than dropped — query text is free, and
+#: Four fixed queries, not five: at a flat 2 credits a beat, every one spent on
+#: discovery is one not spent researching a subject, and three researched subjects
+#: a day is worth more than a fifth angle on the same week's news. `charging-infra`
+#: was folded into `ev-industry` rather than dropped — query text is free, and
 #: swapping is where a battery company's news actually lands. `market` earns its
 #: own beat because funding and sales stories surface nowhere else.
+#:
+#: The fifth beat, `competitors`, is standing too but is not written here: its
+#: query is built from the console's competitor list, so it lives in `beats()`.
 DEFAULT_BEATS: tuple[tuple[str, str], ...] = (
     ("ev-industry", "India electric three-wheeler e-rickshaw battery swapping news"),
     ("policy", "India EV policy news"),
@@ -91,11 +94,16 @@ DEFAULT_BEATS: tuple[tuple[str, str], ...] = (
 #: cutting this does not.
 RADAR_DISCOVERY_LIMIT = 8
 
-#: The hard cap on how many beats one sweep searches, defaults and dynamic
+#: The hard cap on how many beats one sweep searches, standing and dynamic
 #: additions together. This is the only lever on discovery spend, at a flat 2
 #: credits a beat, and without it the watchlist and competitor list could push a
 #: sweep to fifteen searches — 30 credits before researching anything.
 RADAR_MAX_BEATS = 5
+
+#: What the competitor beat asks when no competitor has been analysed yet. The
+#: beat is standing either way: "nobody is in the competitor list" is a reason to
+#: ask the question generally, not a reason to stop watching competitors.
+COMPETITOR_FALLBACK_QUERY = "India EV battery maker competitor launch announcement news"
 
 #: The most subjects one sweep will research. This is the only number that
 #: multiplies into credits, so it is small and it is a hard cap, not a target.
@@ -173,6 +181,14 @@ class RadarSweep:
     beats: list[str] = field(default_factory=list)
     headlines: list[Headline] = field(default_factory=list)
     subjects: list[str] = field(default_factory=list)
+    #: subject -> the beat that produced it. Kept beside `subjects` rather than
+    #: replacing it, because `subjects` is what the console prints and what the
+    #: run record stores, and both want plain strings.
+    subject_beats: dict[str, str] = field(default_factory=dict)
+    #: Beats that were searched and came back with nothing. A beat returning no
+    #: headlines and a beat nobody searched look identical in a candidate list,
+    #: and only one of them is a reason to change the query.
+    empty_beats: list[str] = field(default_factory=list)
     added: list[dict[str, Any]] = field(default_factory=list)
     resurfaced: list[dict[str, Any]] = field(default_factory=list)
     #: Split out because it is the half nobody expects to be billed, and it is
@@ -194,6 +210,8 @@ class RadarSweep:
                 for item in self.headlines
             ],
             "subjects": self.subjects,
+            "subject_beats": self.subject_beats,
+            "empty_beats": self.empty_beats,
             "added": self.added,
             "resurfaced": self.resurfaced,
             "discovery_credits": self.discovery_credits,
@@ -344,32 +362,55 @@ class NewsRadar:
 
     # ------------------------------------------------------------------ beats
 
-    def beats(self) -> list[tuple[str, str]]:
-        """The standing beat, plus whatever the console's watchlist and the
-        competitor list have added. Both are surfaces the CEO already controls, so
-        the beat stays editable without a redeploy.
+    def beats(self, *, today: date | None = None) -> list[tuple[str, str]]:
+        """The five standing beats, plus the watchlist if anything is left over.
 
         Capped at `RADAR_MAX_BEATS` in total. The dynamic additions used to take
         up to five slots each, so a filled watchlist and a handful of competitors
         could put fifteen searches — 30 credits — in front of a sweep that had not
-        researched anything yet. The defaults come first because they are the beat
-        this company is actually in; the additions fill whatever is left.
+        researched anything yet.
+
+        `competitors` used to be one of those leftovers, appended after the
+        watchlist and kept only if a slot survived. That made it silently
+        conditional on the watchlist being empty: one keyword added on the
+        Analytics tab and competitor news stopped being swept, with nothing
+        anywhere saying so. It is a standing beat now, in the four defaults'
+        company, and the watchlist takes whatever is left instead.
         """
         beats = list(self._beats)[:RADAR_MAX_BEATS]
+        if len(beats) < RADAR_MAX_BEATS:
+            beats.append(("competitors", self._competitor_query(today=today)))
         room = RADAR_MAX_BEATS - len(beats)
         if room <= 0:
             return beats
 
-        extra: list[tuple[str, str]] = []
-        for keyword in _read_watchlist(self.profile_dir):
-            extra.append(("watchlist", f"{keyword} India EV news"))
-        try:
-            rows = self.database._query("SELECT domain FROM competitors ORDER BY domain")
-        except Exception:  # the table is created lazily by the competitor service
-            rows = []
-        for row in rows:
-            extra.append(("competitors", f"{row['domain']} news announcement"))
+        extra = [
+            ("watchlist", f"{keyword} India EV news")
+            for keyword in _read_watchlist(self.profile_dir)
+        ]
         return beats + extra[:room]
+
+    def _competitor_query(self, *, today: date | None = None) -> str:
+        """One competitor per sweep, rotating by date, or the general question.
+
+        One slot and several competitors is a choice about which to ask after, and
+        naming all of them in one query is not that choice — a measured comparison
+        in this file already showed a keyword-stuffed query returning an art-fair
+        page. Rotating covers every competitor over a few days at the same flat 2
+        credits, and the sweep says which one it asked about.
+        """
+        try:
+            domains = [
+                str(row["domain"])
+                for row in self.database._query("SELECT domain FROM competitors ORDER BY domain")
+                if str(row["domain"]).strip()
+            ]
+        except Exception:  # the table is created lazily by the competitor service
+            domains = []
+        if not domains:
+            return COMPETITOR_FALLBACK_QUERY
+        day = (today or datetime.now(IST).date()).toordinal()
+        return f"{domains[day % len(domains)]} news announcement"
 
     # ------------------------------------------------------------------ sweep
 
@@ -415,7 +456,9 @@ class NewsRadar:
         except (RadarRefused, subprocess.SubprocessError) as error:
             return self._refuse(sweep, f"Triage failed: {_single_line(error)}")
 
-        sweep.subjects = self._subjects_from(rows, known)
+        chosen = self._subjects_from(rows, known)
+        sweep.subjects = [subject for subject, _beat in chosen]
+        sweep.subject_beats = {subject: beat for subject, beat in chosen if beat}
         if not sweep.subjects:
             return self._finish(sweep, "Nothing in this sweep was worth researching.")
         if dry_run:
@@ -440,7 +483,7 @@ class NewsRadar:
                 sweep.subjects = sweep.subjects[:index]
                 break
             try:
-                run = self.service.propose(subject, actor)
+                run = self.service.propose(subject, actor, sweep.subject_beats.get(subject, ""))
             except ProposalRefused as error:
                 # One refused subject is not a failed sweep; the next may be fine.
                 sweep.messages.append(f"{subject!r}: {_single_line(error)}")
@@ -479,12 +522,15 @@ class NewsRadar:
                 )
             except ProposalRefused as error:
                 sweep.messages.append(f"beat {slug}: {_single_line(error)}")
+                sweep.empty_beats.append(slug)
                 continue
+            kept = 0
             for row in rows:
                 url = row["url"]
                 if url in picked or url in seen_urls or _host(url) in BLOCKED_HOSTS:
                     continue
                 picked.add(url)
+                kept += 1
                 found.append(
                     Headline(
                         beat=slug,
@@ -493,14 +539,26 @@ class NewsRadar:
                         description=row.get("description", ""),
                     )
                 )
+            # Searched and worth nothing new is not the same as never searched, and
+            # in a list of candidates the two are indistinguishable. A beat whose
+            # every result was already seen counts as dry: it contributed nothing
+            # this sweep, which is the thing worth knowing about the query.
+            if not kept:
+                sweep.empty_beats.append(slug)
         return found
 
     @staticmethod
-    def _subjects_from(rows: Sequence[dict[str, Any]], known: Sequence[str]) -> list[str]:
+    def _subjects_from(
+        rows: Sequence[dict[str, Any]], known: Sequence[str]
+    ) -> list[tuple[str, str]]:
         """Enforce the caps here, not in the prompt. A model asked for three and
-        returning nine must cost three subjects' worth of credits, not nine."""
+        returning nine must cost three subjects' worth of credits, not nine.
+
+        Returns each subject with the beat it came off. The beat used to be dropped
+        here, so a candidate on the console could not say which part of the beat
+        found it, and a beat that had gone quiet was invisible."""
         known_keys = {norm_key(item) for item in known}
-        subjects: list[str] = []
+        subjects: list[tuple[str, str]] = []
         seen: set[str] = set()
         for row in rows:
             subject = _single_line(row.get("subject") or "", limit=180)
@@ -510,7 +568,7 @@ class NewsRadar:
             if not key or key in seen or key in known_keys:
                 continue
             seen.add(key)
-            subjects.append(subject)
+            subjects.append((subject, _single_line(row.get("beat") or "", limit=60)))
             if len(subjects) >= RADAR_MAX_SUBJECTS:
                 break
         return subjects
@@ -532,6 +590,7 @@ class NewsRadar:
             started_at=sweep.started_at,
             mode=sweep.mode,
             beats=sweep.beats,
+            empty_beats=sweep.empty_beats,
             headlines_seen=len(sweep.headlines),
             subjects=sweep.subjects,
             proposals_added=len(sweep.added),
