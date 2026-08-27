@@ -54,11 +54,25 @@ class FakeSearchConsole:
 
 
 class FakeResearcher:
-    """Counts what it was asked for, so the sweep's spend stays measurable."""
+    """Counts what it was asked for, so the sweep's spend stays measurable.
 
-    def __init__(self, *, remaining=900, used=100, fail_beats=()) -> None:
+    `cost_per_page` exists because a page is not a credit: a measured run billed
+    17 credits for one page. The default of 1 keeps the cheap tests readable; the
+    ceiling tests raise it to reproduce what actually happened.
+
+    `cost_per_search` defaults to 4 because that is what a beat search measured
+    at — roughly 3.7 credits. It is deliberately not 0: the first version of this
+    fixture billed nothing for search, which is exactly the assumption that put
+    "discovery is free" into the docs and the dry-run message.
+    """
+
+    def __init__(
+        self, *, remaining=900, used=100, fail_beats=(), cost_per_page=1, cost_per_search=4
+    ) -> None:
         self.remaining = remaining
         self.used = used
+        self.cost_per_page = cost_per_page
+        self.cost_per_search = cost_per_search
         self.connected = True
         self.fail_beats = set(fail_beats)
         self.searches: list[tuple[str, int, str]] = []
@@ -71,6 +85,8 @@ class FakeResearcher:
         self.searches.append((query, limit, tbs))
         if query in self.fail_beats:
             raise ProposalRefused(f"Firecrawl /v2/search failed for {query}")
+        self.used += self.cost_per_search
+        self.remaining -= self.cost_per_search
         return [
             {
                 "url": f"https://news.test/{abs(hash(query)) % 1000}/{index}",
@@ -88,8 +104,9 @@ class FakeResearcher:
         for url in list(urls)[:2]:
             self.retrieved.append(url)
             pages.append(SourcePage(title=f"Page {url}", url=url, markdown="evidence body"))
-        self.used += len(pages)
-        self.remaining -= len(pages)
+        spend = len(pages) * self.cost_per_page
+        self.used += spend
+        self.remaining -= spend
         return pages
 
 
@@ -266,7 +283,85 @@ class TheCapIsEnforcedHereNotInThePrompt(RadarTestCase):
         self.assertIn("worth researching", sweep.message)
 
 
-class DryRunSpendsNothing(RadarTestCase):
+class TheSweepIsBoundedByMeasuredSpend(RadarTestCase):
+    """A page cap is not a credit cap.
+
+    Measured 2026-08-27: one subject billed 85 credits for 5 pages while its two
+    siblings billed 5 and 4. `PROPOSAL_PAGE_CAP` bounded the pages exactly as
+    designed and bounded the money not at all, so an unattended daily job needs a
+    ceiling it measures rather than one it assumes.
+    """
+
+    def test_an_expensive_subject_stops_the_sweep_before_the_next_one(self) -> None:
+        rows = [{"subject": f"Distinct EV development number {index}"} for index in range(3)]
+        radar, _root = self.make_radar(
+            researcher=FakeResearcher(cost_per_page=30), triager=FakeTriager(rows)
+        )
+
+        sweep = radar.scan("news-radar")
+
+        self.assertEqual(len(self.proposer.calls), 1, "a second subject was researched anyway")
+        self.assertEqual(sweep.subjects, sweep.subjects[:1])
+        self.assertTrue(any("not researched" in message for message in sweep.messages))
+        self.assertTrue(any("ceiling" in message for message in sweep.messages))
+
+    def test_what_was_dropped_is_named_not_silently_skipped(self) -> None:
+        """A sweep that researched one of three and said nothing reads as a beat
+        with nothing else worth having."""
+        rows = [{"subject": f"Distinct EV development number {index}"} for index in range(3)]
+        radar, _root = self.make_radar(
+            researcher=FakeResearcher(cost_per_page=30), triager=FakeTriager(rows)
+        )
+
+        sweep = radar.scan("news-radar")
+
+        self.assertTrue(any("2 subject(s) not researched" in m for m in sweep.messages))
+        self.assertEqual(radar.database.latest_radar_run()["status"], "completed")
+
+    def test_cheap_subjects_all_get_researched(self) -> None:
+        # Cheap on both axes. `propose()` pays for its own discovery search as
+        # well as its pages, so a sweep's bill is beats + subjects + pages, not
+        # pages alone — which is why the realistic default overshoots the ceiling.
+        rows = [{"subject": f"Distinct EV development number {index}"} for index in range(3)]
+        radar, _root = self.make_radar(
+            researcher=FakeResearcher(cost_per_page=1, cost_per_search=1),
+            triager=FakeTriager(rows),
+        )
+
+        sweep = radar.scan("news-radar")
+
+        self.assertEqual(len(self.proposer.calls), 3)
+        self.assertLess(sweep.credits_used, news_radar.RADAR_SWEEP_CREDIT_CEILING)
+        self.assertFalse(any("not researched" in m for m in sweep.messages))
+
+
+class DiscoveryIsBilledAndSaysSo(RadarTestCase):
+    """Searching is metered too. Measured: ~3.7 credits a beat search, which is a
+    fifth of the daily budget for a sweep that has not researched anything yet."""
+
+    def test_the_sweep_counts_what_discovery_cost(self) -> None:
+        radar, _root = self.make_radar()
+
+        sweep = radar.scan("news-radar")
+
+        expected = len(BEATS) * self.researcher.cost_per_search
+        self.assertEqual(sweep.discovery_credits, expected)
+        self.assertGreaterEqual(sweep.credits_used, expected)
+
+    def test_discovery_alone_can_reach_the_ceiling(self) -> None:
+        """If it does, nothing is researched — and that has to be visible rather
+        than looking like a beat with no news."""
+        radar, _root = self.make_radar(
+            researcher=FakeResearcher(cost_per_search=news_radar.RADAR_SWEEP_CREDIT_CEILING)
+        )
+
+        sweep = radar.scan("news-radar")
+
+        self.assertEqual(self.proposer.calls, [])
+        self.assertTrue(any("not researched" in message for message in sweep.messages))
+
+
+class DryRunRetrievesNothingButStillPays(RadarTestCase):
     def test_a_dry_run_names_the_subjects_and_retrieves_no_page(self) -> None:
         radar, _root = self.make_radar()
 
@@ -276,8 +371,17 @@ class DryRunSpendsNothing(RadarTestCase):
         self.assertTrue(sweep.subjects)
         self.assertEqual(self.researcher.retrieved, [])
         self.assertEqual(self.proposer.calls, [])
-        self.assertEqual(sweep.credits_used, 0)
         self.assertEqual(radar.database.latest_radar_run()["mode"], "dry-run")
+
+    def test_a_dry_run_does_not_claim_to_be_free(self) -> None:
+        """It is the thing people run in a loop while tuning the beats."""
+        radar, _root = self.make_radar()
+
+        sweep = radar.scan("news-radar", dry_run=True)
+
+        self.assertGreater(sweep.discovery_credits, 0)
+        self.assertNotIn("0 credits", sweep.message)
+        self.assertIn(f"{sweep.discovery_credits} credits", sweep.message)
 
 
 class TheSweepHandsOnToTheExistingPipeline(RadarTestCase):

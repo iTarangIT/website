@@ -7,11 +7,21 @@ the *only* thing it is: it produces subject strings and hands them to
 `TopicProposalService.propose`, which keeps its cache, its credit accounting, its
 duplicate suppression and its stage recording untouched.
 
-The cost shape is what makes a daily sweep affordable. Firecrawl's `/v2/search`
-without `scrapeOptions` bills nothing and returns titles, so the whole discovery
-pass across every beat is free; only the handful of subjects the sweep commits to
-pay for retrieval, at the same `PROPOSAL_PAGE_CAP` a human subject pays. Worst case
-is `RADAR_MAX_SUBJECTS` x `PROPOSAL_PAGE_CAP` credits a day.
+Everything here is metered, and the meter does not behave the way the page caps
+suggest. Measured on this account, 2026-08-27:
+
+  - a beat search — `/v2/search`, no `scrapeOptions` — cost about **3.7 credits**,
+    not zero. Twelve searches moved the balance 44 credits with no retrieval at
+    all in between.
+  - retrieval cost between **1.5 and 17 credits a page**. Two subjects billed 5
+    and 4 credits for 3 and 2 pages; a third billed **85 for 5 pages**.
+
+So `PROPOSAL_PAGE_CAP` caps pages and does not cap money, and the plan is 1000
+credits a month — about 33 a day with manual research still to pay for. The only
+honest bound is a measured one, which is what `RADAR_SWEEP_CREDIT_CEILING` is:
+the sweep reads the balance after discovery and again after each subject, and
+stops when it has spent enough. How many subjects a sweep researches is therefore
+decided by what they cost, not by a constant.
 
 Entry point for the watchdog:
 
@@ -63,8 +73,9 @@ DEFAULT_BEATS: tuple[tuple[str, str], ...] = (
     ("charging-infra", "India EV charging battery swapping news"),
 )
 
-#: Results kept per beat. Discovery is free, but the triage prompt is not
-#: unbounded, and a headline that ranks tenth for a beat query is rarely news.
+#: Results kept per beat. The bill is per search rather than per result, so this
+#: is sized for the triage prompt rather than for cost: a headline ranking tenth
+#: for a beat query is rarely news. Cutting *beats* is what saves credits.
 RADAR_DISCOVERY_LIMIT = 8
 
 #: The most subjects one sweep will research. This is the only number that
@@ -74,6 +85,19 @@ RADAR_MAX_SUBJECTS = 3
 #: Refuse the whole sweep below this many remaining credits. An unattended daily
 #: job must never be the reason the CEO cannot research a subject by hand.
 RADAR_CREDIT_FLOOR = 120
+
+#: Stop researching further subjects once a single sweep has spent this much,
+#: discovery included.
+#:
+#: Sized against the plan rather than against taste: 1000 credits a month is
+#: about 33 a day, and manual research has to come out of the same pocket. The
+#: first unbounded sweep cost 114 — roughly 20 on discovery and 94 on research —
+#: which annualises to 3.4x the plan.
+#:
+#: This bounds the sweep, not a single run: the check happens between subjects,
+#: so the worst case is this ceiling plus one expensive run. Bounding one run
+#: would need a per-page cost limit Firecrawl does not offer.
+RADAR_SWEEP_CREDIT_CEILING = 25
 
 #: Firecrawl's time window. The radar only wants what is new.
 RADAR_RECENCY = "qdr:w"
@@ -132,6 +156,9 @@ class RadarSweep:
     subjects: list[str] = field(default_factory=list)
     added: list[dict[str, Any]] = field(default_factory=list)
     resurfaced: list[dict[str, Any]] = field(default_factory=list)
+    #: Split out because it is the half nobody expects to be billed, and it is
+    #: paid even by a dry run.
+    discovery_credits: int = 0
     credits_used: int = 0
     credits_remaining: int | None = None
     messages: list[str] = field(default_factory=list)
@@ -150,6 +177,7 @@ class RadarSweep:
             "subjects": self.subjects,
             "added": self.added,
             "resurfaced": self.resurfaced,
+            "discovery_credits": self.discovery_credits,
             "credits_used": self.credits_used,
             "credits_remaining": self.credits_remaining,
             "messages": self.messages,
@@ -333,6 +361,14 @@ class NewsRadar:
         beats = self.beats()
         sweep.beats = [slug for slug, _query in beats]
         sweep.headlines = self._discover(beats, sweep)
+        # Discovery is billed, so it is measured. Reading the balance is itself
+        # free, and this is the only way the ceiling below can be honest about
+        # what the sweep has already spent before it researches anything.
+        after_discovery = self._remaining()
+        if sweep.credits_remaining is not None and after_discovery is not None:
+            sweep.discovery_credits = max(0, sweep.credits_remaining - after_discovery)
+            sweep.credits_used += sweep.discovery_credits
+            sweep.credits_remaining = after_discovery
         if not sweep.headlines:
             return self._refuse(sweep, "No beat returned a headline this sweep.")
 
@@ -352,12 +388,26 @@ class NewsRadar:
         if not sweep.subjects:
             return self._finish(sweep, "Nothing in this sweep was worth researching.")
         if dry_run:
+            # Not free, and saying so matters: a "dry run" that quietly costs a
+            # fifth of the daily budget is the kind of thing people run in a loop.
             return self._finish(
                 sweep,
-                f"Dry run: would research {len(sweep.subjects)} subject(s); 0 credits spent.",
+                f"Dry run: would research {len(sweep.subjects)} subject(s). "
+                f"No retrieval, but discovery still cost {sweep.discovery_credits} credits.",
             )
 
-        for subject in sweep.subjects:
+        for index, subject in enumerate(sweep.subjects):
+            if sweep.credits_used >= RADAR_SWEEP_CREDIT_CEILING:
+                skipped = len(sweep.subjects) - index
+                # Say what was dropped. A sweep that quietly researched one of
+                # three subjects reads as a beat with nothing else worth having.
+                sweep.messages.append(
+                    f"Stopped after {sweep.credits_used} credits, at or above the "
+                    f"{RADAR_SWEEP_CREDIT_CEILING}-credit sweep ceiling; "
+                    f"{skipped} subject(s) not researched."
+                )
+                sweep.subjects = sweep.subjects[:index]
+                break
             try:
                 run = self.service.propose(subject, actor)
             except ProposalRefused as error:
@@ -377,6 +427,14 @@ class NewsRadar:
         )
 
     # ------------------------------------------------------------- internals
+
+    def _remaining(self) -> int | None:
+        """The live balance, or None if it cannot be read. Reading costs nothing."""
+        try:
+            _used, remaining = self.service.researcher.credit_state()
+        except ProposalRefused:
+            return None
+        return int(remaining)
 
     def _discover(self, beats: Sequence[tuple[str, str]], sweep: RadarSweep) -> list[Headline]:
         """Free discovery across every beat. One dead beat must not end the sweep."""

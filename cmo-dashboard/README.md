@@ -206,10 +206,17 @@ re-proposals until explicitly undone.
 
 Firecrawl is **discovery then retrieval**, never search-with-scrape: `/v2/search`
 without `scrapeOptions` returns URLs, then `/v2/scrape` reads at most
-`PROPOSAL_PAGE_CAP` of them at roughly one credit each. Search Console answers demand
-questions first because it is free. A repeat subject replays cached research for
-nothing. Runs refuse above `FIRECRAWL_PROPOSAL_STOP` measured credits rather than
-degrading quietly.
+`PROPOSAL_PAGE_CAP` of them. Search Console answers demand questions first because
+it is free. A repeat subject replays cached research for nothing. Runs refuse above
+`FIRECRAWL_PROPOSAL_STOP` measured credits rather than degrading quietly.
+
+**A page is not a credit, and neither is a search.** This section used to say the
+scrape cost "roughly one credit each"; measured on 2026-08-27 a page cost between
+1.5 and **17** credits, and a discovery search — the step described here as
+returning URLs only — cost about **3.7**. `PROPOSAL_PAGE_CAP` bounds pages and
+does not bound spend, which is why the accounting in `research_runs` is a measured
+before/after delta rather than a count, and why the news radar below carries a
+credit ceiling instead of trusting the page cap.
 
 Cards that predate this flow are set aside with
 `cmo_runtime.topic_proposals.hold_legacy_cards()`: the card stays on the board at
@@ -251,23 +258,53 @@ One sweep:
    are below `RADAR_CREDIT_FLOOR` — an unattended daily job must never be why the CEO
    cannot research a subject by hand. Refusals are recorded, because a sweep that left
    no trace reads as one that never ran.
-2. **Free discovery** across every beat — `DEFAULT_BEATS` (EV industry, policy,
+2. **Discovery** across every beat — `DEFAULT_BEATS` (EV industry, policy,
    battery technology, market, charging and swapping), plus one beat per
    `state/ceo-watchlist.json` entry and per row in `competitors`, so the beat is
-   steerable from surfaces the CEO already controls without a redeploy. `/v2/search`
-   without `scrapeOptions` bills nothing and returns titles, narrowed to
-   `RADAR_RECENCY` (`qdr:w`). One dead beat does not end the sweep.
+   steerable from surfaces the CEO already controls without a redeploy.
+   `/v2/search` without `scrapeOptions` returns titles, narrowed to
+   `RADAR_RECENCY` (`qdr:w`). One dead beat does not end the sweep. **This is
+   billed** — see the costs below — so the balance is read after it and the spend
+   counts against the ceiling.
 3. **One Hermes triage call** turns the pooled headlines into at most
    `RADAR_MAX_SUBJECTS` rough subjects. The cap is enforced in `_subjects_from`, not in
    the prompt: a model asked for three and returning nine must cost three subjects'
    worth of credits, not nine. An empty answer is a correct answer.
-4. **`propose()` per subject.** The only paid step, at `PROPOSAL_PAGE_CAP` pages each —
-   worst case `RADAR_MAX_SUBJECTS × PROPOSAL_PAGE_CAP` credits a day. One refused
-   subject does not lose the others.
+4. **`propose()` per subject**, at `PROPOSAL_PAGE_CAP` pages each, until the
+   ceiling is reached. One refused subject does not lose the others, and whatever
+   the ceiling drops is named in the sweep's messages rather than skipped
+   silently.
 
 Note the recency window applies to discovery only. The research behind a topic is
 deliberately unbounded: a 2023 gazette notification is exactly the source a policy
 piece needs.
+
+#### What it costs, measured
+
+The page caps bound pages and do not bound money. Measured on this account on
+2026-08-27, from `research_runs` and the Firecrawl balance:
+
+| | measured |
+|---|---|
+| one beat search (`/v2/search`, no `scrapeOptions`) | **~3.7 credits** — twelve searches moved the balance 44 with no retrieval in between |
+| retrieval, typical | 5 credits for 3 pages; 4 for 2 |
+| retrieval, worst seen | **85 credits for 5 pages** — 17 a page |
+| the first unbounded sweep, end to end | **114 credits** (~20 discovery, 94 research) |
+
+The plan is 1000 credits a month — about 33 a day, with manual research coming out
+of the same pocket. A daily sweep at 114 is 3.4x the plan, so
+`RADAR_SWEEP_CREDIT_CEILING` (25) bounds it: the balance is read after discovery
+and again after each subject, and the sweep stops when it has spent enough. **How
+many subjects a sweep researches is decided by what they cost, not by a
+constant** — `RADAR_MAX_SUBJECTS` is only the cap on how many it may consider.
+
+The ceiling bounds the sweep, not a single run, because the check happens between
+subjects: worst case is the ceiling plus one expensive run. Bounding one run would
+need a per-page cost limit Firecrawl does not offer.
+
+A `--dry-run` skips retrieval but still pays for discovery. It reports that
+figure rather than claiming to be free, because it is the thing you run in a loop
+while tuning the beats.
 
 Every sweep, refusals included, lands in `radar_runs` and the latest is rendered on the
 console as `topics.radar`.
