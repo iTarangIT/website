@@ -7,10 +7,6 @@ it, because none of these lists is short.
 
 BODY = '''<main id="app">
 <header class="topbar"><div class="mark" aria-hidden="true">iT</div><div class="topbar-title"><p class="eyebrow">iTarang CEO Console</p><h1>Content flow</h1></div><span id="account" class="meta"></span><button id="signout" class="ghost small" type="button">Sign out</button></header>
-<!-- Above the tabs on purpose: what is blocked on a human is the first thing on
-     the screen, not something found by opening the right tab. It is filled from the
-     state the page already fetched, so it costs no extra request. -->
-<section id="needs-you" class="needs-band" aria-label="What needs you"></section>
 <nav class="primary" aria-label="CEO workflow">
 <button class="active" data-view="topics" type="button"><kbd>1</kbd> Topics &amp; Research<span class="tab-badge" data-badge="topics" hidden></span></button>
 <button data-view="blogs" type="button"><kbd>2</kbd> Blogs<span class="tab-badge" data-badge="blogs" hidden></span></button>

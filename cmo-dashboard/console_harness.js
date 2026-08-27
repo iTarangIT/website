@@ -177,7 +177,6 @@ setTimeout(() => {
     proposals: html('proposal-list'),
     archived: html('archived-list'),
     archivedCount: byId('archived-count').textContent,
-    needsYou: html('needs-you'),
     radarStatus: byId('radar-status').textContent,
     topicsPager: html('topics-pager'),
     topicsCount: byId('topics-count').textContent,

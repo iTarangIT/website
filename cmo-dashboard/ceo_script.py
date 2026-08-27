@@ -501,48 +501,6 @@ function renderArchived(){
  renderRadar();
 }
 
-/* -------------------------------------------------------------- what needs you */
-/* Derived from the state the page already holds — no extra request, and no
-   second source of truth about what a blog's state means. */
-function needsRows(){
- const blogs=state.blogs||[];
- const topics=state.topics||{};
- const count=name=>blogs.filter(task=>blogGroup(task)===name).length;
- const rows=[];
- const awaiting=count('awaiting you');
- if(awaiting)rows.push({count:awaiting,warn:false,
-  text:`article${awaiting===1?'':'s'} waiting on you. Nothing reaches the preview until you publish one.`,
-  label:'Review',jump:'blogs:awaiting you'});
- const undecided=(topics.proposals||[]).filter(item=>item.status==='proposed').length;
- if(undecided)rows.push({count:undecided,warn:false,
-  text:`candidate topic${undecided===1?'':'s'} awaiting a decision. Approving one archives the rest from its subject.`,
-  label:'Decide',jump:'topics:proposed'});
- const failed=count('failed');
- if(failed)rows.push({count:failed,warn:true,
-  text:`article${failed===1?'':'s'} could not be written. Each one can be retried.`,
-  label:'Open',jump:'blogs:failed'});
- const approved=count('approved');
- if(approved)rows.push({count:approved,warn:false,
-  text:`published article${approved===1?'':'s'} waiting for a human to merge the pull request on GitHub.`,
-  label:'Open',jump:'blogs:approved'});
- const budget=topics.budget||{};
- if(budget.status&&budget.status!=='ready'&&budget.status!=='unknown')rows.push({count:'!',warn:true,
-  text:budget.message||'Firecrawl is not available, so no new topic can be researched.',
-  label:'Topics',jump:'topics:all'});
- return rows;
-}
-function renderNeedsYou(){
- const node=$('#needs-you');
- if(!node)return;
- const rows=needsRows();
- if(!rows.length){
-  setHtml(node,'<p class="needs-head">Needs you</p><p class="needs-clear">Nothing is waiting on you. Every article and topic is with the agent.</p>');
-  return;
- }
- setHtml(node,'<p class="needs-head">Needs you</p><ul>'+rows.map(row=>
-  `<li><span class="needs-count${row.warn?' warn':''}">${esc(row.count)}</span><span class="needs-text">${esc(row.text)}</span><button class="ghost" data-jump="${esc(row.jump)}" type="button">${esc(row.label)}</button></li>`
- ).join('')+'</ul>');
-}
 async function researchSubject(subject){
  subject=(subject||$('#subject').value).trim();
  const result=$('#propose-result');
@@ -1136,7 +1094,7 @@ function renderSkeletons(){
  setHtml($('#archived-list'),skeleton(2,'card-h'));
 }
 function renderAll(){
- renderNeedsYou();renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderGa4();renderCompetitor();applyFocus();
+ renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderGa4();renderCompetitor();applyFocus();
 }
 
 /* ------------------------------------------------------------- blog reading */
@@ -1594,13 +1552,6 @@ document.addEventListener('click',event=>{
  if(data.approve)approveProposal(data.approve);
  if(data.archive)archiveProposal(data.archive);
  if(data.restore)restoreProposal(data.restore);
- /* One attribute for "take me to the thing that needs me", so the band never
-    grows its own idea of what a tab or a filter is called. */
- if(data.jump){
-  const [view,filter]=data.jump.split(':');
-  if(filter!==undefined)setUi(view,{filter,page:1});
-  showView(view);
- }
  if(data.suggestOpen)openInlineForm(data.suggestOpen,'suggest');
  if(data.rejectOpen)openInlineForm(data.rejectOpen,'reject');
  if(data.formSubmit)submitInlineForm(data.formSubmit);

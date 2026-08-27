@@ -422,37 +422,6 @@ class ConsoleRenders(unittest.TestCase):
         self.assertIn("2026-08-27T01:30:00Z", ran["radarStatus"])
         self.assertIn("9 credits used", ran["radarStatus"])
 
-    # ---- what needs you ---------------------------------------------------
-
-    def test_the_band_counts_only_what_is_blocked_on_a_human(self) -> None:
-        out = self.run_console(_fixture(blogs=0))
-
-        # 28 candidates, of which the fixture leaves every third one `revising`.
-        # A candidate being re-researched is with the agent, not with him, so the
-        # band must count 19 and not 28.
-        self.assertIn('<span class="needs-count">19</span>', out["needsYou"])
-        self.assertIn("candidate topics awaiting a decision", out["needsYou"])
-        self.assertIn('data-jump="topics:proposed"', out["needsYou"])
-
-    def test_a_disconnected_firecrawl_is_something_that_needs_him(self) -> None:
-        """No credentials means no topic can be researched at all. That is not a
-        quiet background state; it stops the content engine."""
-        out = self.run_console(_fixture(proposals=0, blogs=0, queries=0))
-
-        self.assertIn("Firecrawl is not available", out["needsYou"])
-        self.assertIn('data-jump="topics:all"', out["needsYou"])
-
-    def test_an_idle_band_says_so_rather_than_vanishing(self) -> None:
-        """An absent region and a region that failed to load look identical."""
-        fixture = _fixture(proposals=0, blogs=0, queries=0)
-        fixture["state"]["topics"]["budget"] = {"status": "ready", "message": "",
-                                                "remaining": 800, "page_cap": 5,
-                                                "stop_threshold": 850}
-        out = self.run_console(fixture)
-
-        self.assertIn("Nothing is waiting on you", out["needsYou"])
-        self.assertNotIn("data-jump=", out["needsYou"])
-
     def test_the_console_makes_no_request_to_another_host(self) -> None:
         for request in self.out["requests"]:
             self.assertTrue(request.startswith("/"), f"{request} leaves this host")

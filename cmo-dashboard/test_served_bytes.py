@@ -527,22 +527,19 @@ class ServedPageTests(unittest.TestCase):
         self.assertIn('<section id="panel-analytics" class="screen paper" hidden>', page)
         self.assertIn('<section id="panel-archived" class="screen paper" hidden>', page)
 
-    def test_the_served_page_carries_the_needs_you_band_above_the_tabs(self) -> None:
-        """The band has to arrive with the shell, not with the first render.
+    def test_the_served_page_opens_on_the_tabs_with_no_band_above_them(self) -> None:
+        """The Needs-you band is removed, markup and renderer both.
 
-        It is the answer to "what needs me", so a page that paints the tabs first
-        and the band a second later has answered a different question first.
+        A region left in the shell but never filled is worse than no region: it
+        reads as one that failed to load. So the section, the styles that drew it
+        and the jump control it emitted all go together.
         """
         page = self.text("/ceo")
 
-        self.assertIn('<section id="needs-you" class="needs-band"', page)
-        self.assertLess(
-            page.index('id="needs-you"'),
-            page.index('<nav class="primary"'),
-            "the band must be served above the tabs, not below them",
-        )
-        # And it must be reachable: the jump control the band emits is handled.
-        self.assertIn("if(data.jump){", page)
+        self.assertNotIn('id="needs-you"', page)
+        self.assertNotIn("needs-band", page)
+        self.assertNotIn("data-jump=", page, "the band's jump control outlived the band")
+        self.assertNotIn("if(data.jump){", page, "a handler with nothing left to handle")
 
     def test_the_served_page_offers_the_news_radar(self) -> None:
         page = self.text("/ceo")
