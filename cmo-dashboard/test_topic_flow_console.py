@@ -81,6 +81,15 @@ class TopicSubmissionIsNoLongerAWritingInstruction(unittest.TestCase):
         for control in ("data-approve=", "data-suggest-open=", "data-reject-open="):
             self.assertIn(control, SCRIPT)
 
+    def test_approving_a_candidate_says_what_it_produces(self) -> None:
+        """A bare "Approve" beside Reject and Archive reads as a verdict on the idea.
+
+        It is not: it is the one control that mints a board card and sends the
+        topic to be written, and the label has to say which of the four it is.
+        """
+        self.assertIn(">Approve for blog<", SCRIPT)
+        self.assertNotIn(">Approve<", SCRIPT)
+
     def test_the_direct_topic_route_is_gone(self) -> None:
         self.assertNotIn("/ceo/api/topics", SCRIPT)
         self.assertNotIn('"/ceo/api/topics"', Path("ceo_console.py").read_text(encoding="utf-8"))

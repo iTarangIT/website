@@ -328,6 +328,84 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertIn("Being rewritten", step["blogsHtml"])
         self.assertEqual(step["editorText"], "My unsaved sentence.")
 
+    # ---- a sweep is watched, not waited on ---------------------------------
+    # The triager alone may take ten minutes and the radar commits each subject's
+    # candidates before starting the next, so a page that stands still until the
+    # request comes back is a page that looks broken while it is working.
+
+    def test_candidates_land_while_the_sweep_is_still_running(self) -> None:
+        """The complaint, exactly: results needed a manual reload to appear."""
+        swept = _state([_proposal(n) for n in range(1, 6)], [_blog("TASK-1", "First article")])
+        step = self.steps({
+            "steps": [
+                # The sweep never answers. Everything below is what is on screen
+                # while its request is still out.
+                {"do": "scan", "hang": "/ceo/api/radar/scan"},
+                {"name": "mid-sweep", "do": "poll", "version": "v2", "state": swept},
+            ],
+        })[1]
+
+        self.assertEqual(
+            [row["key"] for row in step["rowsAfter"]["proposals"]],
+            ["1", "2", "3", "4", "5"],
+            "the new candidates were not on screen until the sweep answered",
+        )
+        self.assertTrue(step["busy"], "the sweep is no longer running")
+        self.assertTrue(step["liveWhileBusy"], "the sweep did not ask to be watched")
+
+    def test_the_poller_fetches_state_while_the_sweep_runs(self) -> None:
+        """Every other action stands the poller down; this one must not.
+
+        `pollTimer` being set is not enough — the old code scheduled the next tick
+        and then returned without asking for anything, which is precisely how the
+        page stayed still for the length of a sweep.
+        """
+        swept = _state([_proposal(n) for n in range(1, 6)], [_blog("TASK-1", "First article")])
+        step = self.steps({
+            "steps": [
+                {"do": "scan", "hang": "/ceo/api/radar/scan"},
+                {"name": "mid-sweep", "do": "poll", "version": "v2", "state": swept},
+            ],
+        })[1]
+
+        self.assertIn("/ceo/api/state", " ".join(step["requests"]),
+                      "the poller ticked but never asked for the new state")
+        self.assertTrue(step["pollActive"], "the poller was stood down for the sweep")
+
+    def test_a_sweep_that_fails_still_shows_what_it_recorded(self) -> None:
+        """A sweep writes as it goes, so a dead connection is not an empty result.
+
+        This is the half that needed a reload even when the request did come back:
+        the failure path never refreshed at all.
+        """
+        step = self.steps({
+            "state": _state([], [_blog("TASK-1", "First article")]),
+            "steps": [{
+                "do": "scan",
+                "state": _state([_proposal(n) for n in range(1, 4)],
+                                [_blog("TASK-1", "First article")]),
+                "fail": {"path": "/ceo/api/radar/scan", "status": 504,
+                         "error": "the sweep did not answer in time"},
+            }],
+        })[0]
+
+        self.assertIn("/ceo/api/state", " ".join(step["requests"]),
+                      "a failed sweep never asked for the state it had written")
+        self.assertEqual(
+            [row["key"] for row in step["rowsAfter"]["proposals"]], ["1", "2", "3"],
+            "candidates the sweep recorded before it died were not shown",
+        )
+        self.assertIn("the sweep did not answer in time", step["proposeResult"])
+        self.assertFalse(step["liveWhileBusy"], "the sweep is still claiming to be watched")
+
+    def test_a_finished_sweep_hands_the_screen_back(self) -> None:
+        """The exception is for the length of the sweep and no longer."""
+        step = self.steps({"steps": [{"do": "scan"}]})[0]
+
+        self.assertFalse(step["busy"])
+        self.assertFalse(step["liveWhileBusy"])
+        self.assertTrue(step["pollActive"], "the poller was not restarted afterwards")
+
     # The Process tab and its renderer are gone. What the pipeline records is
     # unchanged and still reaches the page — `tests/test_pipeline_stages.py` and
     # `test_served_bytes.py` prove the rows over a real socket. There is simply no

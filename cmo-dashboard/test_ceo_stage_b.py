@@ -299,7 +299,11 @@ class CeoStageBTests(unittest.TestCase):
         # There is no blind reload left to hold. A background update is driven by
         # the version token, it stands down only for an action still in flight,
         # and what it must not disturb is proved in test_console_live.py.
-        self.assertIn("if(quiet&&busy)return", page)
+        # A background update still stands down for an action in flight — with one
+        # named exception, the news sweep, which asks to be watched rather than
+        # waited on because it commits results for minutes before it answers.
+        self.assertIn("if(quiet&&busy&&!liveWhileBusy)return", page)
+        self.assertIn("if(busy&&!liveWhileBusy){schedulePoll(POLL_LADDER[0]);return;}", page)
         self.assertIn("/ceo/api/version", page)
         self.assertNotIn("setInterval(()=>refresh(true),60000)", page)
 

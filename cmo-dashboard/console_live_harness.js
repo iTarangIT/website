@@ -280,10 +280,11 @@ Object.assign(globalThis, {
 });
 
 const source = fs.readFileSync(scriptPath, 'utf8')
-  + '\n;globalThis.__console={renderAll,renderDetail,researchSubject,saveEdit,pollVersion,'
+  + '\n;globalThis.__console={renderAll,renderDetail,researchSubject,scanNews,saveEdit,pollVersion,'
   + 'schedulePoll,resumePolling,refresh,showView,patchRows,fresh,'
   + 'get state(){return state},set state(value){state=value},get ui(){return ui},'
-  + 'get busy(){return busy},get editing(){return editing},set editing(value){editing=value},'
+  + 'get busy(){return busy},get liveWhileBusy(){return liveWhileBusy},'
+  + 'get editing(){return editing},set editing(value){editing=value},'
   + 'get editorText(){return editorText},set editorText(value){editorText=value},'
   + 'get editorBase(){return editorBase},set editorBase(value){editorBase=value},'
   + 'set openTask(value){openTask=value},get openTask(){return openTask},'
@@ -301,6 +302,7 @@ const settle = () => new Promise(resolve => later(resolve, 5));
 
 async function main() {
   await settle();
+  let scanning = null;
   for (const step of plan.steps || []) {
     if (step.state) currentState = step.state;
     if (step.version) currentVersion = step.version;
@@ -330,10 +332,17 @@ async function main() {
     if (step.checkTimeout) globalThis.__console.checkTimeout = step.checkTimeout;
     if (step.do === 'detail') {
       globalThis.__console.openTask = step.task;
-      globalThis.__console.detailTab = step.tab || 'discussion';
+      globalThis.__console.detailTab = step.tab || 'read';
       await globalThis.__console.renderDetail(true);
     }
     if (step.do === 'fire') fire(step.event);
+    // The news sweep, which may be left hanging on purpose: its whole point is
+    // that the page keeps moving while the request is still out.
+    if (step.do === 'scan') {
+      scanning = globalThis.__console.scanNews();
+      if (!step.hang) await scanning;
+    }
+    if (step.do === 'awaitScan' && scanning) { await scanning; scanning = null; }
     if (step.do === 'research') {
       const running = globalThis.__console.researchSubject(step.subject);
       // Read the button in the same turn the click happened: the busy state has
@@ -373,6 +382,8 @@ async function main() {
       editorInput: byId('editor-input').value,
       editorConflict: byId('editor-conflict').textContent,
       editorConflictHidden: byId('editor-conflict').hidden,
+      busy: globalThis.__console.busy,
+      liveWhileBusy: globalThis.__console.liveWhileBusy,
       pollActive: globalThis.__console.pollTimer,
       pollDelay: globalThis.__console.pollDelay,
       pollStep: globalThis.__console.pollStep,

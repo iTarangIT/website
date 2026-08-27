@@ -13,6 +13,14 @@ let currentView=DEFAULT_VIEW;
 let openTask=null;
 let detailTab='read';
 let blogPublishRequest='';
+/* An action he started normally owns the screen until it finishes, and the
+   poller stands down for the whole of it. The news sweep has to be the
+   exception. Its triager alone is allowed ten minutes, it researches up to
+   three subjects after that, and it commits each subject's candidates before
+   starting the next — so standing down for the duration is what made a sweep
+   that was working look like a page that had frozen, and a request that died
+   on the way back took the whole result with it. */
+let liveWhileBusy=false;
 let busy=false;
 let focusIndex=-1;
 let editing=false;
@@ -380,7 +388,7 @@ function proposalCard(proposal){
 <p class="outline">${esc(proposal.outline)}</p>
 ${sourceLine(proposal)}${busyNote}${history}</div></div>
 <div class="actions">
-<button data-approve="${esc(proposal.id)}" type="button">Approve</button>
+<button data-approve="${esc(proposal.id)}" type="button">Approve for blog</button>
 <button class="ghost" data-suggest-open="${esc(proposal.id)}" type="button">Suggest changes</button>
 <button class="ghost" data-archive="${esc(proposal.id)}" type="button">Archive</button>
 <button class="danger" data-reject-open="${esc(proposal.id)}" type="button">Reject</button>
@@ -527,15 +535,19 @@ async function researchSubject(subject){
   (run.messages||[]).forEach(message=>parts.push(message));
   $('#subject').value='';
   setUi('topics',{filter:'all',page:1});
-  /* The skeleton comes down only once the real candidates are in the DOM. */
-  await refresh();
   result.classList.remove('error');
   result.textContent=parts.join(' ');
  }catch(error){
   action.fail(error.message);
   result.classList.add('error');
-  result.textContent=error.message;
- }finally{action.done();}
+  result.textContent=error.message+' Anything the run recorded before it ended is below.';
+ }finally{
+  action.done();
+  /* Either way, for the same reason the sweep does it: a run that committed
+     candidates and then lost its connection must not need a page reload.
+     The skeleton comes down only once the real candidates are in the DOM. */
+  await refresh();
+ }
 }
 async function scanNews(){
  if(busy)return;
@@ -548,20 +560,32 @@ async function scanNews(){
   slot:'#topics-pending',shape:'card-h',count:2,
   failTitle:'The news sweep did not finish.'
  });
+ /* Cleared before the sweep starts, so candidates land where he is looking
+    rather than behind a filter he set earlier. */
+ setUi('topics',{filter:'all',page:1});
+ /* Watch it, do not wait on it: each subject's candidates are committed before
+    the next one starts, so they can be on screen minutes before the request that
+    started them comes back. */
+ liveWhileBusy=true;schedulePoll(0);
  try{
   const sweep=await post('/ceo/api/radar/scan',{});
   const parts=[sweep.message||'The sweep finished.'];
   if((sweep.subjects||[]).length)parts.push(`Subjects: ${sweep.subjects.join('; ')}`);
   (sweep.messages||[]).forEach(message=>parts.push(message));
-  setUi('topics',{filter:'all',page:1});
-  await refresh();
   result.classList.toggle('error',sweep.status!=='completed');
   result.textContent=parts.join(' ');
  }catch(error){
   action.fail(error.message);
   result.classList.add('error');
-  result.textContent=error.message;
- }finally{action.done();}
+  result.textContent=error.message+' Anything the sweep recorded before it ended is below.';
+ }finally{
+  liveWhileBusy=false;
+  action.done();
+  /* Either way. A sweep that timed out on the way back still wrote what it had,
+     and this is the refresh that puts it on screen without him reloading. */
+  await refresh();
+  schedulePoll();
+ }
 }
 function openInlineForm(id,kind){
  const form=document.querySelector(`[data-form="${id}"]`);if(!form)return;
@@ -1438,7 +1462,7 @@ function stateQuery(){
    than repainted. Pagination, sort, filter and search all live in `ui`, which
    this never writes. */
 async function refresh(quiet=false){
- if(quiet&&busy)return;
+ if(quiet&&busy&&!liveWhileBusy)return;
  let next;
  try{next=await api('/ceo/api/state?'+stateQuery());}
  catch(error){if(!quiet)notice(error.message,true);return;}
@@ -1464,8 +1488,9 @@ function schedulePoll(delay){
 async function pollVersion(){
  pollTimer=0;
  if(document.hidden)return;
- /* An action he started owns the screen until it finishes. */
- if(busy){schedulePoll(POLL_LADDER[0]);return;}
+ /* An action he started owns the screen until it finishes, unless it asked to
+    be watched instead of waited on. */
+ if(busy&&!liveWhileBusy){schedulePoll(POLL_LADDER[0]);return;}
  try{
   const result=await api('/ceo/api/version');
   pollStep=0;
