@@ -21,6 +21,7 @@ from cmo_runtime.topic_proposals import ProposalRefused, SourcePage  # noqa: E40
 import contextlib  # noqa: E402
 import datetime as dt  # noqa: E402
 import io  # noqa: E402
+import json  # noqa: E402
 
 EMPTY_BOARD = """# CMO Task Board
 
@@ -441,6 +442,48 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
 
         self.assertIn("watchlist", [slug for slug, _query in beats])
         self.assertTrue(any("battery passport" in query for _slug, query in beats))
+
+    def test_a_long_watchlist_cannot_outgrow_the_beat_budget(self) -> None:
+        """A beat is a flat 2 credits, so the beat count *is* the discovery bill.
+        Unbounded, a filled watchlist plus a competitor list put fifteen searches
+        in front of a sweep that had not researched anything yet."""
+        radar, root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+        (root / "state" / "ceo-watchlist.json").write_text(
+            json.dumps([f"keyword {index}" for index in range(20)]), encoding="utf-8"
+        )
+
+        beats = radar.beats()
+
+        self.assertLessEqual(len(beats), news_radar.RADAR_MAX_BEATS)
+
+    def test_the_standing_beat_is_never_crowded_out_by_the_watchlist(self) -> None:
+        radar, root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+        (root / "state" / "ceo-watchlist.json").write_text(
+            json.dumps([f"keyword {index}" for index in range(20)]), encoding="utf-8"
+        )
+
+        slugs = [slug for slug, _query in radar.beats()]
+
+        for slug, _query in news_radar.DEFAULT_BEATS:
+            self.assertIn(slug, slugs, f"the {slug} beat was displaced by the watchlist")
+
+    def test_three_typical_subjects_fit_under_the_ceiling(self) -> None:
+        """The sizing this budget exists for: 4 default beats at 2 credits, then
+        three subjects at a measured-typical 5 each, is 25 against a 28 ceiling.
+        If this fails the radar silently starts researching two a day."""
+        rows = [{"subject": f"Distinct EV development number {index}"} for index in range(3)]
+        radar, _root = self.make_radar(
+            beats=news_radar.DEFAULT_BEATS,
+            # 2 a search and 3 pages a subject at ~1 a page reproduces the two
+            # cheap runs measured on 2026-08-27 (5 and 4 credits).
+            researcher=FakeResearcher(cost_per_search=2, cost_per_page=1),
+            triager=FakeTriager(rows),
+        )
+
+        sweep = radar.scan("news-radar")
+
+        self.assertEqual(len(sweep.added), 3, "a typical day must research three subjects")
+        self.assertLessEqual(sweep.credits_used, news_radar.RADAR_SWEEP_CREDIT_CEILING)
 
     def test_an_unreadable_watchlist_is_not_a_broken_beat(self) -> None:
         radar, root = self.make_radar()

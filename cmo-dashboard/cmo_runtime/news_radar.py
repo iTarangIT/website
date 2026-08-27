@@ -10,11 +10,14 @@ duplicate suppression and its stage recording untouched.
 Everything here is metered, and the meter does not behave the way the page caps
 suggest. Measured on this account, 2026-08-27:
 
-  - a beat search — `/v2/search`, no `scrapeOptions` — cost about **3.7 credits**,
-    not zero. Twelve searches moved the balance 44 credits with no retrieval at
-    all in between.
-  - retrieval cost between **1.5 and 17 credits a page**. Two subjects billed 5
-    and 4 credits for 3 and 2 pages; a third billed **85 for 5 pages**.
+  - a beat search — `/v2/search`, no `scrapeOptions` — costs a **flat 2 credits**,
+    not zero and not per result. Measured across fresh uncached queries at
+    limits 3, 5 and 8: every one cost exactly 2. So `RADAR_DISCOVERY_LIMIT` is
+    free to raise, and the only lever on discovery spend is the **number of
+    beats**.
+  - retrieval cost between **1.2 and 40 credits a page**, and the spread is not
+    predictable from the subject. Four measured runs: 5 credits for 3 pages, 4
+    for 2, **85 for 5**, and **79 for 2**.
 
 So `PROPOSAL_PAGE_CAP` caps pages and does not cap money, and the plan is 1000
 credits a month — about 33 a day with manual research still to pay for. The only
@@ -22,6 +25,10 @@ honest bound is a measured one, which is what `RADAR_SWEEP_CREDIT_CEILING` is:
 the sweep reads the balance after discovery and again after each subject, and
 stops when it has spent enough. How many subjects a sweep researches is therefore
 decided by what they cost, not by a constant.
+
+The budget is sized so three subjects fit a normal day: 5 beats at 2 credits is
+10, three typical subjects are about 5 each, and 25 is comfortably under the
+28-credit ceiling.
 
 Entry point for the watchdog:
 
@@ -65,18 +72,30 @@ IST = ZoneInfo("Asia/Kolkata")
 #: PM E-DRIVE FAME state EV policy" returned a European Parliament paper on fine
 #: particles, an ethanol story and a J.P. Morgan art-fair page. Naming every
 #: sub-topic dilutes the query rather than covering more ground.
+#: Four, not five: at a flat 2 credits a beat, every one spent on discovery is
+#: one not spent researching a subject, and three researched subjects a day is
+#: worth more than a fifth angle on the same week's news. `charging-infra` was
+#: folded into `ev-industry` rather than dropped — query text is free, and
+#: swapping is where a battery company's news actually lands. `market` earns its
+#: own beat because funding and sales stories surface nowhere else.
 DEFAULT_BEATS: tuple[tuple[str, str], ...] = (
-    ("ev-industry", "India electric three-wheeler e-rickshaw news"),
+    ("ev-industry", "India electric three-wheeler e-rickshaw battery swapping news"),
     ("policy", "India EV policy news"),
     ("battery-tech", "EV battery technology news sodium-ion solid-state"),
     ("market", "India EV sales funding investment news"),
-    ("charging-infra", "India EV charging battery swapping news"),
 )
 
-#: Results kept per beat. The bill is per search rather than per result, so this
-#: is sized for the triage prompt rather than for cost: a headline ranking tenth
-#: for a beat query is rarely news. Cutting *beats* is what saves credits.
+#: Results kept per beat. Measured flat at 2 credits for limits 3, 5 and 8, so
+#: this costs nothing to raise and is sized for the triage prompt: a headline
+#: ranking tenth for a beat query is rarely news. Cutting *beats* saves credits;
+#: cutting this does not.
 RADAR_DISCOVERY_LIMIT = 8
+
+#: The hard cap on how many beats one sweep searches, defaults and dynamic
+#: additions together. This is the only lever on discovery spend, at a flat 2
+#: credits a beat, and without it the watchlist and competitor list could push a
+#: sweep to fifteen searches — 30 credits before researching anything.
+RADAR_MAX_BEATS = 5
 
 #: The most subjects one sweep will research. This is the only number that
 #: multiplies into credits, so it is small and it is a hard cap, not a target.
@@ -89,15 +108,15 @@ RADAR_CREDIT_FLOOR = 120
 #: Stop researching further subjects once a single sweep has spent this much,
 #: discovery included.
 #:
-#: Sized against the plan rather than against taste: 1000 credits a month is
-#: about 33 a day, and manual research has to come out of the same pocket. The
-#: first unbounded sweep cost 114 — roughly 20 on discovery and 94 on research —
-#: which annualises to 3.4x the plan.
+#: Sized so three subjects fit a normal day and still leave room in the plan:
+#: 5 beats x 2 credits = 10, plus three typical subjects at about 5 each = 25.
+#: The first unbounded sweep cost 114, which annualises to 3.4x a 1000-credit
+#: month.
 #:
 #: This bounds the sweep, not a single run: the check happens between subjects,
 #: so the worst case is this ceiling plus one expensive run. Bounding one run
 #: would need a per-page cost limit Firecrawl does not offer.
-RADAR_SWEEP_CREDIT_CEILING = 25
+RADAR_SWEEP_CREDIT_CEILING = 28
 
 #: Firecrawl's time window. The radar only wants what is new.
 RADAR_RECENCY = "qdr:w"
@@ -328,17 +347,29 @@ class NewsRadar:
     def beats(self) -> list[tuple[str, str]]:
         """The standing beat, plus whatever the console's watchlist and the
         competitor list have added. Both are surfaces the CEO already controls, so
-        the beat stays editable without a redeploy."""
-        beats = list(self._beats)
-        for keyword in _read_watchlist(self.profile_dir)[:5]:
-            beats.append(("watchlist", f"{keyword} India EV news"))
+        the beat stays editable without a redeploy.
+
+        Capped at `RADAR_MAX_BEATS` in total. The dynamic additions used to take
+        up to five slots each, so a filled watchlist and a handful of competitors
+        could put fifteen searches — 30 credits — in front of a sweep that had not
+        researched anything yet. The defaults come first because they are the beat
+        this company is actually in; the additions fill whatever is left.
+        """
+        beats = list(self._beats)[:RADAR_MAX_BEATS]
+        room = RADAR_MAX_BEATS - len(beats)
+        if room <= 0:
+            return beats
+
+        extra: list[tuple[str, str]] = []
+        for keyword in _read_watchlist(self.profile_dir):
+            extra.append(("watchlist", f"{keyword} India EV news"))
         try:
-            rows = self.database._query("SELECT domain FROM competitors ORDER BY domain LIMIT 5")
+            rows = self.database._query("SELECT domain FROM competitors ORDER BY domain")
         except Exception:  # the table is created lazily by the competitor service
             rows = []
         for row in rows:
-            beats.append(("competitors", f"{row['domain']} news announcement"))
-        return beats
+            extra.append(("competitors", f"{row['domain']} news announcement"))
+        return beats + extra[:room]
 
     # ------------------------------------------------------------------ sweep
 
