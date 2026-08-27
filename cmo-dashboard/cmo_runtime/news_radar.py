@@ -497,9 +497,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
     lock_path = profile_dir / "state" / "news-radar.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.touch(exist_ok=True)
-    with lock_path.open("r+", encoding="utf-8") as handle:
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.touch(exist_ok=True)
+        handle = lock_path.open("r+", encoding="utf-8")
+    except OSError as error:
+        # Almost always the wrong user: everything under the profile is owned by
+        # hermes, and a run as anyone else leaves a lock nobody else can take.
+        # The bare traceback for this says `touch`, which reads as a missing file.
+        print(
+            f"cannot take the radar lock at {lock_path}: {error}. "
+            f"The profile is owned by hermes; run this as hermes.",
+            file=sys.stderr,
+        )
+        return 1
+    with handle:
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:

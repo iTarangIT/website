@@ -272,25 +272,63 @@ piece needs.
 Every sweep, refusals included, lands in `radar_runs` and the latest is rendered on the
 console as `topics.radar`.
 
-Two ways to run it:
+Two ways to run it by hand:
 
 ```bash
 # what it would research, spending nothing
 python -m cmo_runtime.news_radar --profile "$CMO_DASHBOARD_PROFILE_DIR" --dry-run
 
-# the daily sweep: clock-driven, flock on state/news-radar.lock, stamp in
-# state/news-radar-last-run. A late cycle runs late rather than being skipped.
+# one sweep, subject to the daily clock
 python -m cmo_runtime.news_radar --profile "$CMO_DASHBOARD_PROFILE_DIR" --due
 ```
-
-**The watchdog must be told to call it.** The `--due` line has to be added to the
-cmo-watchdog next to the `morning-seo-job.py --due` line; that file lives outside this
-repo. Until it is, the radar only fires from the console's **Scan EV news now** button,
-which posts to `/ceo/api/radar/scan` and runs exactly the same sweep.
 
 It lives in `cmo_runtime/` and not in `scripts/` on purpose: `deploy-dashboard` copies
 `cmo-dashboard/*.py`, `*.js` and `cmo_runtime/*.py`, and nothing under `scripts/`. A
 radar under `scripts/` would be committed and never shipped.
+
+### What actually schedules the sweep
+
+**There is no cron on this box.** No `crontab` binary, no `/etc/cron.d`;
+`cron/cmo-agents.crontab` was never installed and its own header tells you to install it
+with a command that does not exist. The hermes cron ticker holds zero jobs and last beat
+2026-08-10.
+
+**And the watchdog that used to be the scheduler is gone.** `start-cmo-agents:31` ran
+`hourly-cycle.py --once` then `morning-seo-job.py --due` on a `sleep 3600` loop — *"the
+watchdog is the scheduler when cron/systemd are unavailable"*. Both it and
+`ensure-cmo-agents` have refused to run since **2026-08-04**: *"v1 orchestration
+decommissioned. Two parallel stacks ran against one tasks.md for 11 days. Do not
+re-enable without explicit founder approval."* `hourly-cycle.log` ends that same day.
+So "add a line to the watchdog" is not an available option, and adding one would be a
+re-enablement decision, not a wiring detail.
+
+The radar therefore carries its own supervisor, `bin/run-news-radar`, modelled on
+`bin/run-content-worker` — the one long-lived pattern here that has survived. It holds a
+`cmo-news-radar` tmux session running `--due` every 30 minutes; the clock lives in the
+Python, so a tick outside the 07:00 IST window is a cheap no-op and a container restart
+at 06:59 cannot skip the day. Liveness is the pane's `#{pane_dead}`, not a `pgrep`:
+between sweeps this loop is a `sleep`, so there is no process of its own to find.
+
+```bash
+bin/run-news-radar          # idempotent; exits 0 if a healthy session is already up
+tail -f "$CMO_DASHBOARD_PROFILE_DIR/logs/news-radar.log"
+```
+
+**This is not a revival of v1 orchestration**, and the reason is structural rather than
+a promise: the radar writes to `state/console.db` only, and `propose()` mints no board
+card, so nothing on this path can touch `tasks.md`. The failure that got v1
+decommissioned — two stacks writing one board — is not reachable from here.
+
+`bin/` is **not** copied by `deploy-dashboard` either. Install the supervisor by hand,
+as hermes:
+
+```bash
+install -o hermes -g hermes -m 0755 bin/run-news-radar "$CMO_DASHBOARD_PROFILE_DIR/bin/"
+```
+
+Everything under the profile is hermes-owned. Running the radar as any other user leaves
+a lock nobody else can take — that happened, so `main()` now names the cause instead of
+raising a `PermissionError` from `touch`, which reads as a missing file.
 
 ## Competitor analytics
 

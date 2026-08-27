@@ -15,8 +15,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from cmo_runtime import news_radar  # noqa: E402
-from cmo_runtime.news_radar import NewsRadar, RadarRefused  # noqa: E402
+from cmo_runtime.news_radar import IST, NewsRadar, RadarRefused, _due  # noqa: E402
 from cmo_runtime.topic_proposals import ProposalRefused, SourcePage  # noqa: E402
+
+import contextlib  # noqa: E402
+import datetime as dt  # noqa: E402
+import io  # noqa: E402
 
 EMPTY_BOARD = """# CMO Task Board
 
@@ -339,6 +343,92 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
         (root / "state" / "ceo-watchlist.json").write_text("not json", encoding="utf-8")
 
         self.assertEqual([slug for slug, _query in radar.beats()], [slug for slug, _ in BEATS])
+
+
+class TheLockSaysWhatWentWrong(unittest.TestCase):
+    def test_a_lock_that_cannot_be_taken_names_the_cause_not_a_traceback(self) -> None:
+        """This happened for real: a run as root left a root-owned
+        state/news-radar.lock, and every hermes tick afterwards died on a
+        PermissionError raised by `touch` — which reads as a missing file rather
+        than as the wrong user, and cost a debugging round to recognise.
+
+        The trigger here is an unusable `state` path rather than a mode bit,
+        because a suite running as root ignores mode bits and would pass while
+        the branch never ran. Same `except OSError`, same message, and it holds
+        whoever the suite runs as."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        (root / "state").write_text("not a directory", encoding="utf-8")
+
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = news_radar.main(["--profile", str(root), "--force"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("cannot take the radar lock", errors.getvalue())
+        self.assertIn("run this as hermes", errors.getvalue())
+
+
+class TheDailyClock(unittest.TestCase):
+    """`--due` is the whole schedule. There is no cron on this box: the loop that
+    calls it ticks every half hour and this decides whether a tick is the day's
+    sweep. Getting it wrong is either a silently skipped day or a sweep that pays
+    for the same headlines twice."""
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        (self.root / "state").mkdir()
+        self.stamp = self.root / "state" / "news-radar-last-run"
+
+    @staticmethod
+    def at(day: int, hour: int, minute: int = 0) -> dt.datetime:
+        return dt.datetime(2026, 8, day, hour, minute, tzinfo=IST)
+
+    def test_before_the_window_is_not_due(self) -> None:
+        due, reason = _due(self.root, self.at(27, 6, 59))
+        self.assertFalse(due)
+        self.assertIn("before the daily window", reason)
+
+    def test_a_first_ever_run_is_due_once_the_window_opens(self) -> None:
+        due, reason = _due(self.root, self.at(27, 7, 0))
+        self.assertTrue(due)
+        self.assertIn("no previous run", reason)
+
+    def test_a_second_tick_the_same_day_is_not_due(self) -> None:
+        self.stamp.write_text(self.at(27, 7, 2).isoformat(), encoding="utf-8")
+
+        due, reason = _due(self.root, self.at(27, 7, 30))
+
+        self.assertFalse(due)
+        self.assertIn("already swept", reason)
+
+    def test_the_next_morning_is_due_again(self) -> None:
+        self.stamp.write_text(self.at(27, 7, 2).isoformat(), encoding="utf-8")
+
+        self.assertFalse(_due(self.root, self.at(28, 6, 30))[0], "still yesterday's window")
+        self.assertTrue(_due(self.root, self.at(28, 7, 1))[0], "a new day must sweep")
+
+    def test_a_container_asleep_through_the_window_still_sweeps_and_says_it_was_late(self) -> None:
+        """A skipped day is worse than a late one: nothing on the console says why
+        no topics arrived."""
+        self.stamp.write_text(self.at(26, 7, 0).isoformat(), encoding="utf-8")
+
+        due, reason = _due(self.root, self.at(27, 14, 0))
+
+        self.assertTrue(due)
+        self.assertIn("late", reason)
+
+    def test_an_unreadable_stamp_sweeps_rather_than_stalling_forever(self) -> None:
+        self.stamp.write_text("not a timestamp", encoding="utf-8")
+
+        self.assertTrue(_due(self.root, self.at(27, 8, 0))[0])
+
+    def test_the_window_is_seven_in_the_morning_india_time(self) -> None:
+        self.assertEqual(news_radar.RADAR_HOUR_IST, 7)
+        self.assertEqual(str(IST), "Asia/Kolkata")
 
 
 if __name__ == "__main__":
