@@ -636,23 +636,42 @@ class ServedPageTests(unittest.TestCase):
         self.assertEqual(status, 401, "the change token is readable without a session")
         self.assertIn(b"bearer", body.lower())
 
-    # ---- the process tab, on the wire ------------------------------------
+    # ---- the blog detail, on the wire ------------------------------------
 
-    def test_the_served_page_orders_the_blog_card_tabs_with_process_after_read(self) -> None:
-        """The detail tab order was never asserted over the wire until now.
+    def test_the_served_page_offers_exactly_two_blog_card_tabs(self) -> None:
+        """Read and Files, in that order, and nothing else.
 
         A tab that renders nothing and a tab that is missing look identical in a
-        module; over the socket they do not.
+        module; over the socket they do not. Process, Impact and Discussion were
+        removed — their work moved onto Read or, in Process's case, off the page.
         """
         page = self.text("/ceo")
         nav = page.split('<nav class="nested"', 1)[1].split("</nav>", 1)[0]
 
-        self.assertEqual(
-            re.findall(r'data-detail="([a-z-]+)"', nav),
-            ["read", "process", "impact", "discussion", "files"],
-        )
+        self.assertEqual(re.findall(r'data-detail="([a-z-]+)"', nav), ["read", "files"])
         self.assertRegex(nav, r'class="active" data-detail="read"')
-        self.assertIn(">Process<", nav)
+        for gone in ("Process", "Impact", "Discussion"):
+            self.assertNotIn(f">{gone}<", nav, f"the {gone} tab is still in the tab strip")
+
+    def test_the_served_page_carries_no_approve_control_at_all(self) -> None:
+        """The Approve button is removed, not hidden.
+
+        Publishing records Gate 1 itself, so a second control that only records it
+        would be a step with nothing behind it. The whole document is searched,
+        because a renderer that is never reached still ships its markup.
+        """
+        page = self.text("/ceo")
+
+        self.assertNotIn('data-decision="approve"', page)
+        self.assertNotIn("Approve again", page)
+
+    def test_the_served_page_carries_no_merge_to_main_control(self) -> None:
+        """Gate 2 is gone from this console; a human merges the pull request on GitHub."""
+        page = self.text("/ceo")
+
+        self.assertNotIn('data-publish="1"', page)
+        self.assertNotIn('id="publish-block"', page)
+        self.assertNotIn("/ceo/publish-check", page, "the console still asks about merging to main")
 
     def test_the_state_endpoint_serves_only_the_stages_that_were_recorded(self) -> None:
         """Invariant 2, over the socket."""

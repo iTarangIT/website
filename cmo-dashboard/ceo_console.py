@@ -219,7 +219,10 @@ def dispatch(handler: Any, method: str) -> bool:
         # mints this human's single-use instruction. Reporting is not publishing.
         task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
         try:
-            check = ceo_blog_publish.preflight(PROFILE_DIR, task_id)
+            # The console has one button, and pressing it records Gate 1 (see
+            # `ceo_blog_publish.publish`). So the check asks whether this article
+            # *can* be published, not whether someone already said it should be.
+            check = ceo_blog_publish.preflight(PROFILE_DIR, task_id, require_approval=False)
         except ceo_blog_publish.PublicationRefused as error:
             _json(handler, HTTPStatus.OK, {"eligible": False, "blockers": [str(error)]})
             return True

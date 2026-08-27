@@ -12,7 +12,6 @@ let state=null;
 let currentView=DEFAULT_VIEW;
 let openTask=null;
 let detailTab='read';
-let publishRequest='';
 let blogPublishRequest='';
 let busy=false;
 let focusIndex=-1;
@@ -512,7 +511,7 @@ function needsRows(){
  const rows=[];
  const awaiting=count('awaiting you');
  if(awaiting)rows.push({count:awaiting,warn:false,
-  text:`article${awaiting===1?'':'s'} waiting on your Gate 1 approval. Nothing reaches the preview until you decide.`,
+  text:`article${awaiting===1?'':'s'} waiting on you. Nothing reaches the preview until you publish one.`,
   label:'Review',jump:'blogs:awaiting you'});
  const undecided=(topics.proposals||[]).filter(item=>item.status==='proposed').length;
  if(undecided)rows.push({count:undecided,warn:false,
@@ -524,7 +523,7 @@ function needsRows(){
   label:'Open',jump:'blogs:failed'});
  const approved=count('approved');
  if(approved)rows.push({count:approved,warn:false,
-  text:`approved article${approved===1?'':'s'} waiting for a human to merge to main (Gate 2).`,
+  text:`published article${approved===1?'':'s'} waiting for a human to merge the pull request on GitHub.`,
   label:'Open',jump:'blogs:approved'});
  const budget=topics.budget||{};
  if(budget.status&&budget.status!=='ready'&&budget.status!=='unknown')rows.push({count:'!',warn:true,
@@ -1171,7 +1170,9 @@ function detailRead(task){
 <span class="meta"><span class="num">${grouped.format(article.word_count||0)}</span> words · <span class="num">${article.read_minutes||0}</span> min read${(article.revisions||[]).length?` · <span class="num">${article.revisions.length}</span> earlier version${article.revisions.length===1?'':'s'} kept`:''}</span>
 </div>
 <article class="article-sheet">${article.html||'<p>This article is empty.</p>'}</article>
-${reviewNotesHtml(task)}`;
+${reviewNotesHtml(task)}
+${decisionHtml(task)}
+${blogPublishHtml(task)}`;
 }
 function editorHtml(task){
  return `<div class="editor">
@@ -1226,32 +1227,36 @@ function showEditorConflict(){
  line.hidden=false;
  line.textContent='This article changed elsewhere. Save yours, or reload to see theirs.';
 }
-function pipelineHtml(task){
- const item=task.publishing_pipeline;
- /* A blog card is a website card, but at Gate 1 it has no commit and no preview
-    yet — the article is approved first and pushed afterwards. So which block
-    belongs here depends on whether the push has happened, not on the change type:
-    before it, the control that performs the push; after it, the pipeline showing
-    where that push landed. */
- const pushed=Boolean(item&&(item.commit||item.preview_url));
- if(task.article&&!pushed)return blogPublishHtml();
- if(!item)return emptyState('No website pipeline','This card publishes nothing to the website, so there is no preview or commit to check.');
- const link=(url,label)=>url?`<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`:'—';
- return `<div class="pipeline"><strong>Approval is Gate 1, not publication.</strong><p class="meta">${esc(item.waiting_on)}</p><dl><dt>Change status</dt><dd>${cell(item.change_status)}</dd><dt>Branch</dt><dd>${cell(item.branch)}</dd><dt>Commit</dt><dd>${item.commit_url?link(item.commit_url,esc(item.commit||'Open commit')):cell(item.commit)}</dd><dt>Preview</dt><dd>${link(item.preview_url,'Open preview')}</dd><dt>Lighthouse evidence</dt><dd>${cell(item.lighthouse_evidence)}</dd></dl>${publishHtml()}</div>`;
-}
-function publishHtml(){
- return `<div class="publish" id="publish-block"><h4>Gate 2 — publish to website</h4><p class="meta" id="publish-state">Checking whether this commit can be published…</p><div id="publish-evidence"></div><div class="actions"><button data-publish="1" type="button" disabled>Publish to website</button></div><p class="meta">Publishing merges the approved commit to main. Your name is recorded in approvals.log and in the merge commit trailer.</p></div>`;
-}
-/* Publishing an article stops at the preview. There is no merge button here on
-   purpose: cmo-changes → preview → a human merges on GitHub. The only other
-   publish control on this console is Gate 2, and it lives on website-change
-   cards, not on these. */
-function blogPublishHtml(){
+/* Everything needed to ship this article, on the tab that holds the article.
+   Publishing stops at the preview: cmo-changes, then a human merges the pull
+   request on GitHub. There is no merge-to-main control on this console at all —
+   the one that used to live here is gone, not moved. */
+function blogPublishHtml(task){
+ const item=task.publishing_pipeline||{};
+ const commit=item.commit||'';
+ const preview=task.blog?.url||item.preview_url||'';
+ const impact=`<p class="meta">Expected impact: ${cell(task.metric||task.declared_metric)}</p>`;
+ /* Already pushed. The control that performed the push has nothing left to do,
+    so what belongs here is where it landed — not a second button. */
+ if(commit||preview){
+  const open=preview
+   ?`<div class="actions"><a class="ghost small" href="${esc(preview)}" target="_blank" rel="noopener">Open preview</a></div>`:'';
+  return `<div class="publish" id="blog-publish-block" data-checked="1"><h4>Published</h4>
+${impact}
+<p class="meta" id="blog-publish-state">Pushed to <span class="num">cmo-changes</span>${commit?` at <span class="num">${esc(String(commit).slice(0,7))}</span>`:''}.</p>
+${open}
+<p class="meta">A human merges the pull request on GitHub. This console never touches <span class="num">main</span>.</p></div>`;
+ }
+ /* Publish is refused outside Human Approval server-side, twice. Drawing a
+    button here whose only possible outcome is a refusal would be the same lie
+    the decision controls used to tell on the Discussion tab. */
+ if(String(task.board_section||task.status||'').trim()!=='Human Approval')return '';
  return `<div class="publish" id="blog-publish-block"><h4>Publish to website</h4>
+${impact}
 <p class="meta" id="blog-publish-state">Checking whether this article can be published…</p>
 <div id="blog-publish-files"></div>
 <div class="actions"><button data-blog-publish="1" type="button" disabled>Publish to website</button></div>
-<p class="meta">This writes the blog page, its index entry and its diagram, then pushes them to <span class="num">cmo-changes</span>. It does not touch <span class="num">main</span> — a human merges on GitHub after seeing the preview. Your name is recorded in approvals.log and in the commit trailer.</p></div>`;
+<p class="meta">This records your approval in <span class="num">approvals.log</span>, then writes the blog page, its index entry and its diagram and pushes them to <span class="num">cmo-changes</span>. It does not touch <span class="num">main</span> — a human merges the pull request on GitHub after seeing the preview. Your name is recorded in the commit trailer.</p></div>`;
 }
 function blogPublishFilesHtml(check){
  if(!check.files||!check.files.length)return '';
@@ -1280,6 +1285,9 @@ function publishCheckPending(){
 async function refreshBlogPublish(task){
  const block=$('#blog-publish-block');if(!block)return;
  const line=$('#blog-publish-state'),button=block.querySelector('[data-blog-publish]');
+ /* The published block wears the same id and carries no button. There is
+    nothing left to ask the remote about it. */
+ if(!button)return;
  try{
   const check=await withDeadline(
    api('/ceo/blog-publish-check?task='+encodeURIComponent(task.id)),
@@ -1307,7 +1315,7 @@ async function refreshBlogPublish(task){
 async function publishBlog(task){
  const line=$('#blog-publish-state');
  if(!blogPublishRequest){
-  if(line)line.textContent='This card has no current publish instruction. Reopen the Impact tab.';
+  if(line)line.textContent='This card has no current publish instruction. Close this article and open it again.';
   return;
  }
  if(!confirm('Publish '+task.id+' to cmo-changes? This does not merge to main.'))return;
@@ -1324,34 +1332,6 @@ async function publishBlog(task){
   action.fail(error.message);blogPublishRequest='';
  }finally{action.done();}
 }
-function scoreCell(before,after){
- if(before==null&&after==null)return '—';
- const delta=(before!=null&&after!=null)?after-before:null;
- const arrow=delta==null?'':(delta>0?` (+${delta.toFixed(0)})`:delta<0?` (${delta.toFixed(0)})`:' (no change)');
- return `${before==null?'—':before} → ${after==null?'—':after}${arrow}`;
-}
-function publishEvidenceHtml(check){
- if(!check.comparison||!check.comparison.length)return '<p class="meta">No baseline-to-preview comparison is attached.</p>';
- const rows=check.comparison.map(row=>`<tr><td>${esc(row.path)}</td><td>${scoreCell(row.performance_before,row.performance_after)}</td><td>${scoreCell(row.weight_before==null?null:Math.round(row.weight_before/1024),row.weight_after==null?null:Math.round(row.weight_after/1024))}</td></tr>`).join('');
- return `<table class="evidence"><thead><tr><th>Route</th><th>Performance</th><th>Weight (KB)</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-async function refreshPublish(task){
- const block=$('#publish-block');if(!block)return;
- const line=$('#publish-state'),button=block.querySelector('[data-publish]');
- try{
-  const check=await api('/ceo/publish-check?task='+encodeURIComponent(task.id));
-  publishRequest=check.request_id||'';
-  setHtml($('#publish-evidence'),publishEvidenceHtml(check));
-  if(check.eligible){
-   line.textContent=`Ready: commit ${(check.commit||'').slice(0,7)} is current, the preview is deployed and the evidence is attached.`;
-   button.disabled=false;
-  }else{
-   line.innerHTML='Cannot publish yet:<ul>'+check.blockers.map(reason=>`<li>${esc(reason)}</li>`).join('')+'</ul>';
-   button.disabled=true;
-  }
- }catch(error){line.textContent='Could not check publish eligibility: '+error.message;button.disabled=true;}
-}
-function detailImpact(task){return `<h3>Expected impact</h3><p>${cell(task.metric||task.declared_metric)}</p>${pipelineHtml(task)}`;}
 /* Why a card cannot be decided yet, in the words its own state warrants. Every
    one of these ends by saying when it *will* come to him, because "you cannot act
    on this" without "here is when you can" is just a dead end. */
@@ -1365,58 +1345,59 @@ const NOT_YET_DECIDABLE={
  held:'On hold. It will come to you once it is released.',
  published:'Published to cmo-changes. The decision on it is already recorded.'
 };
-function detailDiscussion(task){
+/* The change request, on the tab that holds the article.
+
+   `request_revision` refuses any card that is not in Human Approval, and it does
+   not fail quietly on the ones it accepts: it sets `revision requested` on a card
+   that may never have reached him, which the content worker then picks up and
+   rewrites. So the field appears only where a change can actually be asked for.
+   This is the courtesy; the guard is server-side and proved separately. */
+function decisionHtml(task){
  const thread=(task.approval_thread||[]).map(event=>`<div class="history-row"><span class="meta">Round ${esc(event.round)} · ${esc(event.type)}</span><p>${esc(event.text)}</p></div>`).join('');
- /* The decision controls appear only where a decision can actually be recorded.
-    `DecisionStore` refuses any card that is not in Human Approval, so offering
-    Approve anywhere else is a button whose only possible outcome is "The decision
-    was not recorded." Ask for changes is worse than that: it does not fail, it
-    succeeds — setting `revision requested` on a card that never reached him, which
-    the content worker then picks up and rewrites. Both are gone from every other
-    lane, and both are refused server-side as well; this is the courtesy, not the
-    guard. */
- const section=String(task.board_section||task.status||'').trim();
- const decidable=section==='Human Approval';
  const surfaces=`<div id="detail-pending" class="rows" aria-live="polite" hidden></div>
 <p class="row-error" id="detail-error" role="alert" hidden></p>`;
- if(!decidable){
+ const history=thread?`<h3>Thread</h3>${thread}`:'';
+ const round=`<p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>.</p>`;
+ const section=String(task.board_section||task.status||'').trim();
+ /* Why it cannot be acted on yet, in the words its own state warrants — and
+    always ending with when it *will* come to him. "You cannot act on this"
+    without "here is when you can" is just a dead end. */
+ if(section!=='Human Approval'){
   const state=task.blog?.state||'';
-  const line=NOT_YET_DECIDABLE[state]||`In ${esc(section||'another lane')}. It will come to you when it reaches your approval.`;
+  const line=NOT_YET_DECIDABLE[state]
+   ||`In ${section||'another lane'}. It will come to you when it reaches your approval.`;
   const reason=task.blog?.reason?`<p class="meta">${esc(task.blog.reason)}</p>`:'';
-  return `<h3>Decision</h3><p>${esc(line)}</p>${reason}${surfaces}
-<p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>.</p>
-${thread?`<h3>Thread</h3>${thread}`:''}`;
+  return `<h3>Decision</h3><p>${esc(line)}</p>${reason}${surfaces}${round}${history}`;
  }
- const record=task.decision_summary||{};
- const decided=record.approver_id?`by ${esc(record.approver_id)}`:'';
- const when=record.timestamp?` on ${esc(record.timestamp)}`:'';
- /* The approval no longer describes the article in front of him. Publish already
-    refuses it and asks for a fresh Gate 1 — so this is where that becomes possible,
-    or the card sits between "already decided" and "the approval does not match"
-    with no control that resolves either. */
+ /* A decision that still describes this article closes the door on a revision —
+    the server refuses one, so the field would be a control that cannot work. A
+    decision the article has outgrown does not: publishing records a fresh one. */
+ if(task.decision_approved&&!task.decision_stale){
+  const record=task.decision_summary||{};
+  const decided=record.approver_id?` by ${esc(record.approver_id)}`:'';
+  const when=record.timestamp?` on ${esc(record.timestamp)}`:'';
+  return `<h3>Decision</h3><p>Approved${decided}${when}.</p>
+<p class="meta">A change request is refused once a decision exists, so this article can no longer be sent back from here.</p>${surfaces}${history}`;
+ }
+ /* Approved once, and then the article moved. Publishing records a fresh
+    decision over what is on screen now, so this is no longer the deadlock it
+    used to be — but he still has to be told that the old approval does not
+    describe the article he is reading. */
+ let stale='';
  if(task.decision_stale){
+  const record=task.decision_summary||{};
+  const decided=record.approver_id?` by ${esc(record.approver_id)}`:'';
+  const when=record.timestamp?` on ${esc(record.timestamp)}`:'';
   const changes=(task.decision_change||[]).map(line=>`<li>${esc(line)}</li>`).join('');
-  return `<h3>Decision</h3><p>Approved ${decided}${when}, <strong>but the article has changed since</strong>, so that approval no longer covers it.</p>
+  stale=`<h3>Decision</h3><p>Approved${decided}${when}, <strong>but the article has changed since</strong>, so that approval no longer covers it.</p>
 ${changes?`<p class="meta">What changed:</p><ul class="meta">${changes}</ul>`:''}
-<div class="actions"><button data-decision="approve" type="button">Approve again</button></div>
-<label class="field">Ask for changes<textarea id="revision-comment" rows="3" placeholder="State the exact change needed"></textarea></label>
+<p class="meta">Publishing records a new decision over the article as it stands now and keeps the old one; nothing is overwritten.</p>`;
+ }
+ return `${stale}<h3>Ask for changes</h3>
+<label class="field"><span class="visually-hidden">What needs to change</span><textarea id="revision-comment" rows="3" placeholder="State the exact change needed"></textarea></label>
 <div class="actions"><button class="ghost" data-revision="1" type="button">Ask for changes</button></div>
 ${surfaces}
-<p class="meta">Approving again records a new decision and keeps the old one; nothing is overwritten. Revision round: <span class="num">${esc(task.revision_round||'0')}</span>.</p>
-${thread?`<h3>Thread</h3>${thread}`:''}`;
- }
- if(task.decision_approved){
-  return `<h3>Decision</h3><p>Approved ${decided}${when}.</p>
-<p class="meta">A revision is refused once a decision exists, so this article can no longer be changed here. Publish it from the Impact tab.</p>${surfaces}
-${thread?`<h3>Thread</h3>${thread}`:''}`;
- }
- return `<h3>Decision</h3><p>Status: ${esc(task.decision_status)}</p>
-<div class="actions"><button data-decision="approve" type="button">Approve</button></div>
-<label class="field">Ask for changes<textarea id="revision-comment" rows="3" placeholder="State the exact change needed"></textarea></label>
-<div class="actions"><button class="ghost" data-revision="1" type="button">Ask for changes</button></div>
-${surfaces}
-<p class="meta">Revision round: <span class="num">${esc(task.revision_round||'0')}</span>. A revision keeps the card in its current lane and is refused after any human decision.</p>
-${thread?`<h3>Thread</h3>${thread}`:''}`;
+<p class="meta">This sends the article back to the agent to rewrite and keeps the card in this lane.</p>${round}${history}`;
 }
 function detailFiles(task){
  const files=(task.article?.files||[]).map(file=>`<div class="list-row"><span>${esc(file.name)} · <span class="meta">${esc(file.kind)}</span></span><span class="meta num">${grouped.format(file.bytes)} bytes</span></div>`).join('');
@@ -1427,73 +1408,6 @@ function detailFiles(task){
 <h3>Image slots</h3><div class="rows">${slots||'<p class="empty">The article declares no image slots.</p>'}</div>
 <p class="meta">Images: PNG, JPG, JPEG, WEBP or GIF, maximum 5 MB. SVG is not accepted for upload.</p>`;
 }
-/* How much work went into this piece, stage by stage.
-
-   Every line here is a row the pipeline wrote while it was running. Nothing is
-   inferred and nothing is filled in: a stage the pipeline never recorded is
-   simply absent, so this can never imply work that did not happen. The source
-   list under research comes from the fetch ledger, never from the article's own
-   citations — an article can name a URL nobody fetched, and that is exactly the
-   claim this tab exists to refuse. */
-function stageDuration(stage){
- if(stage.status==='running')return '';
- const ms=Number(stage.duration_ms);
- if(!Number.isFinite(ms)||ms<=0)return '';
- if(ms<1000)return `${ms}ms`;
- const seconds=Math.round(ms/1000);
- if(seconds<60)return `${seconds}s`;
- return `${Math.floor(seconds/60)}m ${seconds%60}s`;
-}
-function stageFetchHtml(stage){
- if(!stage.fetches||!stage.fetches.length)return '';
- const rows=stage.fetches.map(item=>{
-  /* A URL is shown as text, never as a link. This page requests nothing from
-     another host, and an anchor here would be the first thing to break that. */
-  const what=item.url||item.query||'—';
-  const when=[item.published_date,item.accessed_at].filter(Boolean).join(' · read ');
-  const note=[item.title,when,item.message].filter(Boolean).join(' — ');
-  return `<div class="list-row"><div class="card-main"><span class="num">${esc(what)}</span>${note?`<p class="meta">${esc(note)}</p>`:''}</div><span class="meta">${esc(item.outcome)}</span></div>`;
- }).join('');
- const failed=Number(stage.failed)||0;
- const counted=`${grouped.format(Number(stage.fetched)||0)} retrieved`+(failed?`, ${grouped.format(failed)} failed`:'');
- return `<p class="meta">${esc(counted)}. Every attempt is listed, including the ones that returned nothing.</p><div class="rows">${rows}</div>`;
-}
-function stageDetailHtml(stage){
- const detail=stage.detail||{};
- const parts=Object.keys(detail).map(key=>{
-  const value=detail[key];
-  if(value===null||value===undefined||value==='')return '';
-  const text=Array.isArray(value)
-   ?(value.length?value.map((item,index)=>`${index+1}. ${typeof item==='object'?JSON.stringify(item):item}`).join('\n'):'')
-   :(typeof value==='object'?JSON.stringify(value,null,1):String(value));
-  if(!text)return '';
-  const label=key.replace(/_/g,' ');
-  return `<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`;
- }).filter(Boolean).join('');
- return parts?`<dl class="stage-detail">${parts}</dl>`:'';
-}
-function detailProcess(task){
- const stages=task.process||[];
- if(!stages.length){
-  return `<h3>Process</h3>${emptyState('Nothing recorded yet','No stage of this article has been recorded. Cards written before the pipeline started recording its stages show nothing here — this is what was logged, not what was reconstructed.')}`;
- }
- const done=stages.filter(item=>item.status==='completed').length;
- const running=stages.filter(item=>item.status==='running').length;
- const failed=stages.filter(item=>item.status==='failed').length;
- const headline=[`${done} stage(s) completed`,running?`${running} in progress`:'',failed?`${failed} failed`:'']
-  .filter(Boolean).join(' · ');
- const body=stages.map(stage=>{
-  const clock=stage.status==='running'
-   ?` · <span class="num" data-elapsed="${esc(stage.started_at)}">${esc(elapsedText(stage.started_at))}</span>`
-   :(stageDuration(stage)?` · <span class="num">${esc(stageDuration(stage))}</span>`:'');
-  const again=Number(stage.attempt)>1?` · attempt ${esc(stage.attempt)}`:'';
-  const mark=stage.status==='running'?'in progress':stage.status==='failed'?'failed':'done';
-  return `<details class="stage" data-key="${esc(stage.stage)}-${esc(stage.attempt)}"${stage.status==='running'?' open':''}>
-<summary><strong>${esc(stage.ordinal)}. ${esc(stage.label)}</strong> <span class="meta">${esc(mark)}${again}</span>${clock}</summary>
-<div class="body"><p>${esc(stage.summary||'No summary was recorded for this stage.')}</p>${stageDetailHtml(stage)}${stageFetchHtml(stage)}</div></details>`;
- }).join('');
- return `<h3>Process</h3><p class="meta">${esc(headline)}. Each stage was written when it finished, so this survives a run that dies halfway.</p><div class="stages">${body}</div>`;
-}
 /* `force` is for a tab or mode change, where the body must be rebuilt. Left alone,
    this paints only when the markup actually differs, and puts the reading position
    back where it was — a background update must not scroll the open article. */
@@ -1502,7 +1416,9 @@ async function renderDetail(force=false){
  $('#detail-id').textContent=task.id;$('#detail-title').textContent=task.title||task.id;
  $$('.nested button').forEach(node=>node.classList.toggle('active',node.dataset.detail===detailTab));
  const body=$('#detail-body');
- const render={read:detailRead,process:detailProcess,impact:detailImpact,discussion:detailDiscussion,files:detailFiles}[detailTab];
+ /* Two tabs. Anything else — a stale value, an old link — is Read. */
+ if(detailTab!=='files')detailTab='read';
+ const render={read:detailRead,files:detailFiles}[detailTab];
  if(force)painted.delete(body);
  const where=body?body.scrollTop||0:0;
  const repainted=setHtml(body,render(task));
@@ -1514,8 +1430,8 @@ async function renderDetail(force=false){
  /* Publish eligibility asks the git remote, so it runs on a repaint — and on any
     render where the block is still unanswered, so a check that never landed gets
     another chance instead of leaving the placeholder up for good. */
- if(detailTab==='impact'&&(repainted||publishCheckPending())){
-  await refreshPublish(task);await refreshBlogPublish(task);
+ if(detailTab==='read'&&!editing&&(repainted||publishCheckPending())){
+  await refreshBlogPublish(task);
  }
 }
 /* What a background update is allowed to do to an open card. */
@@ -1615,17 +1531,6 @@ async function updateWatch(keyword,action){
  try{const result=await post('/ceo/api/watchlist',{keyword,action});state.watchlist=result.watchlist;renderTrends();}
  catch(error){toast(error.message,true);notice(error.message,true);}
 }
-async function decide(task,decision){
- if(busy)return;
- const action=runAction({
-  button:document.querySelector(`[data-decision="${decision}"]`),label:'Recording…',
-  slot:'#detail-pending',shape:'row-h',count:1,surface:'#detail-error',
-  failTitle:'The decision was not recorded.'
- });
- try{await post('/ceo/api/decision',{task_id:task.id,decision});toast('Decision recorded.');closeDetail();await refresh();}
- catch(error){action.fail(error.message);}
- finally{action.done();}
-}
 async function revise(task){
  if(busy)return;
  const comment=$('#revision-comment').value;
@@ -1650,27 +1555,6 @@ async function upload(task,slot,file){
   await refresh();openTask=task.id;detailTab='files';await renderDetail(true);
  }catch(error){action.fail(error.message);}
  finally{action.done();}
-}
-async function publish(task){
- const line=$('#publish-state');
- if(!publishRequest){
-  if(line)line.textContent='This card has no current publish instruction. Reopen the Impact tab.';
-  return;
- }
- if(!confirm('Merge '+task.id+' to main and publish it to itarang.com?'))return;
- if(busy)return;
- const action=runAction({
-  button:document.querySelector('#publish-block [data-publish]'),label:'Publishing…',
-  surface:line,failTitle:'The publish did not go through.'
- });
- try{
-  const outcome=await post('/ceo/publish',{task:task.id,request_id:publishRequest});
-  publishRequest='';
-  toast('Published. Merge commit '+(outcome.merge_commit||'').slice(0,7)+'.');
-  await refresh();await renderDetail(true);
- }catch(error){
-  action.fail(error.message);publishRequest='';
- }finally{action.done();}
 }
 
 /* ------------------------------------------------------------------- events */
@@ -1734,9 +1618,7 @@ document.addEventListener('click',event=>{
   if(data.editor==='cancel')cancelEdit(task);
  }
  if(data.retry)retryBlog(data.retry);
- if(data.decision)decide(findTask(openTask),data.decision);
  if(data.revision)revise(findTask(openTask));
- if(data.publish)publish(findTask(openTask));
  if(data.blogPublish)publishBlog(findTask(openTask));
  if(data.recheck)refreshBlogPublish(findTask(openTask));
 });

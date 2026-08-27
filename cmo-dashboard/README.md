@@ -87,11 +87,11 @@ how a reader that printed raw Markdown stayed green for weeks:
   reply came back", "the unchanged row is still the same node" and "the textarea was
   not overwritten" checkable at all.
 
-## Showing the work: the Process tab
+## Showing the work: the recorded stages
 
 A blog used to go from an approved topic to a finished article with nothing visible in
-between. The **Process** tab on a blog card is the record of what actually happened,
-stage by stage, in the order they are meant to be read:
+between. `pipeline_stages` is the record of what actually happened, stage by stage, in
+the order they are meant to be read:
 
 ```text
 1  Topic selection    the topic, and why it was chosen
@@ -102,23 +102,29 @@ stage by stage, in the order they are meant to be read:
 6  Writing            words, sections, trim passes, refusals
 ```
 
-**Rows, and only rows.** Every stage is written by the pipeline while it runs; the tab
-renders the query result directly. A stage that never ran has no row, so it is not
-drawn — there is no notion of a stage that "should" be there and therefore no way to
-imply work that did not happen. Cards written before this existed show an empty tab,
-which is the honest answer rather than a reconstructed one.
+**Rows, and only rows.** Every stage is written by the pipeline while it runs; a reader
+of this table gets the query result directly. A stage that never ran has no row — there
+is no notion of a stage that "should" be there and therefore no way to imply work that
+did not happen. Cards written before this existed have no rows at all, which is the
+honest answer rather than a reconstructed one.
+
+**There is no longer a Process tab.** The blog detail is Read and Files (see *One
+article, one screen* below); the stage rows are not drawn on it. Everything below still
+holds — the pipeline records exactly as it did, `console_board.process_payload()` still
+assembles the rows and `/ceo/api/state` still serves them under `process` on each blog.
+They are read from `state/console.db` or off that payload, not from a tab.
 
 **A stage completed is a stage recorded.** `pipeline_stages` rows are opened before the
 work (`status='running'`, `started_at` set) and closed after it, in two separate
 `ConsoleDB.write()` transactions. A process killed mid-run therefore leaves every
 finished stage committed and the interrupted one readable as `running` — which is also
-exactly what the tab needs to show elapsed time. `tests/test_pipeline_stages.py` proves
-this by `SIGKILL`ing a real subprocess and reading the database back.
+exactly what an elapsed-time reading needs. `tests/test_pipeline_stages.py` proves this
+by `SIGKILL`ing a real subprocess and reading the database back.
 
 **The source list comes from the fetch ledger, never from the article.** `stage_fetches`
 holds one row per attempt to read something, failures included, and
 `console_board.process_payload()` builds the research stage from that table alone. An
-article can cite any URL it likes; a URL with no fetch record cannot reach the page.
+article can cite any URL it likes; a URL with no fetch record cannot reach the payload.
 There is a test for exactly that, because "here are six sources" and "we asked for eight
 and six came back" read identically until someone writes the second one down.
 
@@ -134,9 +140,49 @@ split into its own generation — the keywords come back attached to the title t
 to, and a second call would drift from it; the stage records them with the Search Console
 demand rows that justify them, and says so.
 
-The tab updates live through the existing token: `ceo_version.py` already watches
+The payload updates live through the existing token: `ceo_version.py` already watches
 `console.db` and its `-wal` sidecar, so a stage row committed by the writer reaches an
 open console within three seconds with no new mechanism.
+
+## One article, one screen
+
+Opening a blog card used to be a three-tab errand. The article was on **Read**, Approve
+and Ask for changes were on **Discussion**, and Publish to website was on **Impact** —
+so shipping one piece meant Read, then Discussion, then Impact: two clicks in two places
+for one decision, with two tabs in between that carried no action at all.
+
+The blog detail is now **Read** and **Files**. Everything a human does to an article is
+on Read, under the article it is being done to:
+
+- the rendered piece, its word count and the Edit / Download / Print bar, as before;
+- **Ask for changes** — the same field and the same `POST /ceo/api/revision`, shown only
+  where `request_revision` will accept it;
+- **Publish to website** — the same eligibility check and the same
+  `POST /ceo/blog-publish`, listing the three files it will write before it writes them.
+
+Files is unchanged.
+
+**There is one button, and pressing it is the approval.** `ceo_blog_publish.publish()`
+records Gate 1 under the name of the human who pressed it, before anything reaches the
+working tree. `approvals.log`, `state/human-approvals.json` and the `Gate 1 approved by`
+trailer on the commit are all exactly what they were — the second button is gone, the
+record it wrote is not. `GET /ceo/blog-publish-check` therefore asks
+`preflight(require_approval=False)`: whether this article *can* be published, not whether
+somebody already said it should be.
+
+Two things that click cannot resolve, and both still grey the button out with the reason
+on screen. An article that is not finished has nothing to approve — `preflight` refuses
+it and `DecisionStore.decide` refuses the same card for the same reason, so the recording
+is not a way around the lane. And an approval written before fingerprinting existed cannot
+be shown to be stale, so it cannot be superseded either; no click clears it, and saying so
+is better than a button that fails.
+
+**Gate 2 is not on this console.** `SOUL.md` section 12 clause 4 offers a human two ways
+to merge `cmo-changes` to `main` — directly on GitHub, or a console control — and this
+console takes the first. Publishing stops at the preview, as it always did. The routes
+`/ceo/publish-check` and `/ceo/publish` and their suite in `test_ceo_publish.py` are still
+here and still proven; nothing in the page reaches them, and `/ceo/publish` cannot be
+called without a `request_id` that only its own check mints for an eligible card.
 
 ## The console updates itself
 

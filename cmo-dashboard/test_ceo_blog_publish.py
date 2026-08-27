@@ -171,6 +171,41 @@ class PublishFixture(unittest.TestCase):
             self.profile, "TASK-900", website_root=self.website, today=date(2026, 8, 12)
         )
 
+    def console_preflight(self) -> ceo_blog_publish.BlogPreflight:
+        """Exactly what `GET /ceo/blog-publish-check` asks, flag included.
+
+        The console shows one button and pressing it records Gate 1, so the check
+        behind that button asks whether this article *can* be published — not
+        whether somebody already said it should be.
+        """
+        return ceo_blog_publish.preflight(
+            self.profile, "TASK-900", website_root=self.website, today=date(2026, 8, 12),
+            require_approval=False,
+        )
+
+    def console_publish(self) -> dict:
+        """One press of the one button: check, mint the instruction, publish."""
+        check = self.console_preflight()
+        self.assertTrue(check.eligible, f"the button would be disabled: {check.blockers}")
+        request_id = ceo_blog_publish.issue_request(
+            self.profile, "TASK-900", actor="ceo@itarang.test", head=check.head
+        )
+        return ceo_blog_publish.publish(
+            self.profile,
+            "TASK-900",
+            actor="ceo@itarang.test",
+            role="ceo",
+            request_id=request_id,
+            website_root=self.website,
+            today=date(2026, 8, 12),
+        )
+
+    def approval_record(self) -> dict:
+        path = self.profile / "state" / "human-approvals.json"
+        if not path.is_file():
+            return {}
+        return json.loads(path.read_text(encoding="utf-8")).get("TASK-900", {})
+
     def publish(self, request_id: str | None = None) -> dict:
         check = self.preflight()
         if request_id is None:
@@ -300,22 +335,80 @@ class ItNeverReachesMain(PublishFixture):
 
 
 class ItRefusesForOneNamedReasonAtATime(PublishFixture):
-    def test_without_a_gate_one_approval_it_cannot_publish(self) -> None:
+    def test_a_caller_that_demands_a_recorded_approval_still_gets_one(self) -> None:
+        """`publish` re-checks with this flag on after recording Gate 1.
+
+        That re-check is what makes the recording load-bearing rather than
+        decorative, so the strict shape has to keep refusing.
+        """
         check = self.preflight()
 
         self.assertFalse(check.eligible)
         self.assertIn("no Gate 1 approval is recorded for this card", check.blockers)
 
-    def test_without_a_gate_one_approval_the_publish_call_itself_refuses(self) -> None:
-        """The button is not the guard. Calling past it must fail the same way."""
+    def test_the_button_is_offered_before_anyone_has_approved_anything(self) -> None:
+        """There is no Approve step in front of it any more; the press is the approval."""
+        check = self.console_preflight()
+
+        self.assertTrue(check.eligible, check.blockers)
+        self.assertNotIn("no Gate 1 approval is recorded for this card", check.blockers)
+
+    def test_publishing_records_gate_one_under_the_name_that_pressed_it(self) -> None:
+        """The Approve button is gone; the record it used to write is not.
+
+        `approvals.log` is the authoritative account of which human instructed a
+        publication (SOUL.md section 12 clause 4). Collapsing two clicks into one
+        was a change to the screen, and it must not become a change to that.
+        """
+        self.assertEqual(self.approval_record(), {}, "the fixture starts with an approval")
+
+        self.console_publish()
+
+        record = self.approval_record()
+        self.assertEqual(record["decision"], "approve")
+        self.assertEqual(record["approver_id"], "ceo@itarang.test")
+        self.assertTrue(record["publish_fingerprint"], "nothing identifies what was approved")
+        self.assertIn(
+            "ceo@itarang.test",
+            json.dumps(self.log_events()),
+            "approvals.log does not name the human who published",
+        )
+
+    def test_a_publish_with_no_prior_approval_still_names_gate_one_in_the_commit(self) -> None:
+        self.console_publish()
+
+        message = git(self.website, "log", "-1", "--format=%B", "cmo-changes")
+
+        self.assertIn("Gate 1 approved by ceo@itarang.test", message)
+        self.assertIn("Published-by: ceo@itarang.test", message)
+
+    def test_an_article_that_is_not_finished_is_refused_by_both_guards(self) -> None:
+        """The button is not the guard. Calling past it must fail the same way.
+
+        `DecisionStore.decide` refuses a card outside Human Approval, so the press
+        cannot approve one either — the recording is not a way around the lane.
+        """
+        board = (self.profile / "tasks.md").read_text(encoding="utf-8")
+        (self.profile / "tasks.md").write_text(
+            board.replace("## Human Approval", "## CMO Review"), encoding="utf-8"
+        )
+
+        check = self.console_preflight()
+        self.assertFalse(check.eligible)
+        self.assertIn(
+            "not Human Approval, so it is not finished yet", " ".join(check.blockers)
+        )
+
         request_id = ceo_blog_publish.issue_request(
             self.profile, "TASK-900", actor="ceo@itarang.test", head="deadbeef"
         )
-
-        with self.assertRaises(PublicationConflict) as raised:
-            self.publish(request_id)
-
-        self.assertIn("no Gate 1 approval", str(raised.exception))
+        with self.assertRaises(PublicationRefused) as raised:
+            ceo_blog_publish.publish(
+                self.profile, "TASK-900", actor="ceo@itarang.test", role="ceo",
+                request_id=request_id, website_root=self.website, today=date(2026, 8, 12),
+            )
+        self.assertIn("not Human Approval", str(raised.exception))
+        self.assertEqual(self.approval_record(), {}, "an unfinished card was approved")
         self.assertEqual(git(self.website, "rev-parse", "origin/main"), self.main_before)
 
     def test_a_missing_category_refuses_with_the_reason(self) -> None:
