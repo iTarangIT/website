@@ -336,6 +336,12 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
             ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
+            (
+                "/ceo/api/generate-image",
+                {"task_id": "TASK-001", "slot": "cover", "scene": "a depot at dusk"},
+                None,
+                "",
+            ),
             ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
             ("/ceo/api/article/edit", {"task_id": "TASK-001", "text": "# Edited\n"}, None, ""),
             ("/ceo/api/article/title", {"task_id": "TASK-001", "title": "Renamed"}, None, ""),

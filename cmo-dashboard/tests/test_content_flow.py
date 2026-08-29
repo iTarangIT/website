@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 from cmo_runtime.agent_runtime import BoardStore, RunAccountant
 from cmo_runtime.cmo_agent import run_content_execution
@@ -16,7 +19,9 @@ from cmo_runtime.content_flow import (
     ResearchBundle,
     ResearchSource,
     _frontmatter,
+    _normalise_package_slot,
 )
+from cmo_runtime.image_gen import ImageGenRefused
 from cmo_runtime.task_file import TaskFile
 
 
@@ -446,6 +451,168 @@ class ContentFlowTest(unittest.TestCase):
             skill,
         )
         self.assertNotIn("research mode", skill.casefold())
+
+
+def illustrated_package() -> ArticlePackage:
+    """The writer's output when it also directs the two photographic images."""
+    base = package()
+    markdown = base.markdown.replace(
+        "## Decision bullets:",
+        "{{image:depot-evening|A depot at the end of a working day}}\n\n## Decision bullets:",
+    )
+    return replace(
+        base,
+        markdown=markdown,
+        cover_scene="A charged e-rickshaw at a kerbside charging point at dusk.",
+        photo_slot_id="depot-evening",
+        photo_scene="A small fleet depot with vehicles parked in a row after dark.",
+        photo_alt="E-rickshaws parked in a row at a depot after dark",
+    )
+
+
+class FakeGeneratedImage:
+    def __init__(self, prompt: str, index: int) -> None:
+        self.webp = f"webp-bytes-{index}".encode()
+        self.prompt = prompt
+        self.estimated_cost_usd = 0.067
+        self.width, self.height = 1344, 768
+
+
+class FakeImageClient:
+    def __init__(self, failures: int = 0) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.failures = failures
+
+    def generate(self, prompt: str, *, task_id: str = "", **_options):
+        self.calls.append((prompt, task_id))
+        if len(self.calls) <= self.failures:
+            raise ImageGenRefused("blocked — the image model said no")
+        return FakeGeneratedImage(prompt, len(self.calls))
+
+
+class GeneratedImageryTest(unittest.TestCase):
+    """The cover and the illustration, alongside a diagram that must not change."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        for name in ("artifacts", "logs", "state", "cmo_skills"):
+            (self.root / name).mkdir()
+        (self.root / "tasks.md").write_text(BOARD, encoding="utf-8")
+        (self.root / "WRITER_CONTRACT.md").write_text("Writer contract for tests.\n", encoding="utf-8")
+        self.task_file = RecordingTaskFile(self.root / "tasks.md")
+        self.loader = RecordingSkillLoader()
+
+    def runtime(self, *, client: object | None, package_: ArticlePackage | None = None) -> ContentRuntime:
+        return ContentRuntime(
+            self.root,
+            task_file=self.task_file,
+            skill_loader=self.loader,
+            researcher=FakeResearcher(bundle()),
+            writer=FakeWriter(package_ or illustrated_package()),
+            image_client=client,
+        )
+
+    def test_both_images_are_written_bound_and_priced(self) -> None:
+        client = FakeImageClient()
+
+        result = self.runtime(client=client).execute()
+
+        cover = self.root / "artifacts/TASK-100-cover.webp"
+        figure = self.root / "artifacts/TASK-100-depot-evening.webp"
+        self.assertTrue(cover.is_file())
+        self.assertTrue(figure.is_file())
+
+        card = BoardStore(self.root).get("TASK-100")
+        self.assertEqual(card.fields["Cover image"], "artifacts/TASK-100-cover.webp")
+        self.assertEqual(
+            card.fields["Image slot depot-evening"], "artifacts/TASK-100-depot-evening.webp"
+        )
+        self.assertEqual(
+            card.fields["Image alt depot-evening"],
+            "E-rickshaws parked in a row at a depot after dark",
+        )
+        # The diagram slot is still bound to the writer's SVG, untouched.
+        self.assertEqual(card.fields["Image slot heat-flow"], "artifacts/TASK-100-heat-flow.svg")
+        self.assertTrue(result.diagram_path.read_text(encoding="utf-8").startswith("<svg"))
+
+        self.assertEqual(result.usage["image_calls"], 2)
+        self.assertAlmostEqual(float(result.usage["image_cost_usd"]), 0.134)
+
+    def test_the_writers_scene_reaches_the_model_inside_the_house_rules(self) -> None:
+        client = FakeImageClient()
+
+        self.runtime(client=client).execute()
+
+        prompts = [prompt for prompt, _task in client.calls]
+        self.assertEqual([task for _prompt, task in client.calls], ["TASK-100", "TASK-100"])
+        self.assertIn("A charged e-rickshaw at a kerbside charging point at dusk.", prompts[0])
+        self.assertIn("A small fleet depot with vehicles parked in a row after dark.", prompts[1])
+        for prompt in prompts:
+            self.assertIn("Render NO text", prompt)
+
+    def test_a_refused_image_does_not_cost_the_article(self) -> None:
+        client = FakeImageClient(failures=2)
+
+        result = self.runtime(client=client).execute()
+
+        self.assertTrue(result.article_path.is_file())
+        self.assertTrue(result.diagram_path.is_file())
+        card = BoardStore(self.root).get("TASK-100")
+        self.assertNotIn("Cover image", card.fields)
+        self.assertNotIn("Image slot depot-evening", card.fields)
+        self.assertEqual(card.section, "CMO Review")
+        self.assertEqual(result.usage["image_calls"], 0)
+        self.assertIn("the image model said no", str(result.usage["image_outcome"]))
+
+    def test_a_half_failed_run_keeps_the_image_it_did_get(self) -> None:
+        client = FakeImageClient(failures=1)
+
+        result = self.runtime(client=client).execute()
+
+        card = BoardStore(self.root).get("TASK-100")
+        self.assertNotIn("Cover image", card.fields)
+        self.assertEqual(
+            card.fields["Image slot depot-evening"], "artifacts/TASK-100-depot-evening.webp"
+        )
+        self.assertEqual(result.usage["image_calls"], 1)
+
+    def test_a_profile_with_no_gemini_key_still_publishes_articles(self) -> None:
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": ""}, clear=False):
+            result = self.runtime(client=None).execute()
+
+        self.assertTrue(result.article_path.is_file())
+        card = BoardStore(self.root).get("TASK-100")
+        self.assertNotIn("Cover image", card.fields)
+        self.assertEqual(result.usage["image_calls"], 0)
+
+    def test_an_article_that_directs_no_imagery_calls_nothing(self) -> None:
+        client = FakeImageClient()
+
+        result = self.runtime(client=client, package_=package()).execute()
+
+        self.assertEqual(client.calls, [])
+        self.assertEqual(result.usage["image_calls"], 0)
+        self.assertTrue(result.article_path.is_file())
+
+    def test_a_photo_slot_with_no_alt_text_is_not_generated(self) -> None:
+        # The publisher refuses a raster slot with no alt text, so paying for one
+        # would buy a picture that can never be published.
+        client = FakeImageClient()
+        directed = replace(illustrated_package(), photo_alt="")
+
+        self.runtime(client=client, package_=directed).execute()
+
+        self.assertEqual(len(client.calls), 1, "only the cover is worth generating")
+        self.assertNotIn("Image slot depot-evening", BoardStore(self.root).get("TASK-100").fields)
+
+    def test_the_second_marker_is_recognised_as_the_photo_slot(self) -> None:
+        normalised = _normalise_package_slot(illustrated_package())
+
+        self.assertEqual(normalised.slot_id, "heat-flow")
+        self.assertEqual(normalised.photo_slot_id, "depot-evening")
+        self.assertEqual(normalised.cover_scene, illustrated_package().cover_scene)
 
 
 if __name__ == "__main__":

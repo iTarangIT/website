@@ -1421,11 +1421,35 @@ ${surfaces}
 function detailFiles(task){
  const files=(task.article?.files||[]).map(file=>`<div class="list-row"><span>${esc(file.name)} · <span class="meta">${esc(file.kind)}</span></span><span class="meta num">${grouped.format(file.bytes)} bytes</span></div>`).join('');
  const revisions=(task.article?.revisions||[]).map(item=>`<div class="list-row"><span>${esc(item.name)} · <span class="meta">revision ${esc(item.round)}</span></span><span class="meta num">${grouped.format(item.bytes)} bytes</span></div>`).join('');
- const slots=(task.article?.image_slots||[]).map(slot=>`<div class="list-row"><span>${esc(slot.caption)} · <span class="meta">${slot.bound?esc(slot.filename):'no image bound'}</span></span><label class="ghost small" style="cursor:pointer">Bind image<input data-upload="${esc(slot.id)}" type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden></label></div>`).join('');
+ const slots=(task.article?.image_slots||[]).map(imageSlotRow).join('');
+ const cover=task.article?.cover?imageSlotRow(task.article.cover):'';
  return `<h3>Files</h3><div class="rows">${files||'<p class="empty">No files.</p>'}</div>
 <h3>Earlier versions</h3><div class="rows">${revisions||'<p class="empty">No revision has been written yet.</p>'}</div>
+<h3>Cover image</h3><div class="rows">${cover||'<p class="empty">This card has no article yet.</p>'}</div>
 <h3>Image slots</h3><div class="rows">${slots||'<p class="empty">The article declares no image slots.</p>'}</div>
-<p class="meta">Images: PNG, JPG, JPEG, WEBP or GIF, maximum 5 MB. SVG is not accepted for upload.</p>`;
+<p class="meta">Uploads: PNG, JPG, JPEG, WEBP or GIF, maximum 5 MB. SVG is not accepted for upload.</p>
+<p class="meta">Generating asks the image model for a new picture from the description and binds it here. It costs a fraction of a dollar per image and is recorded in the spend ledger. A diagram slot is drawn by the writer, not generated.</p>`;
+}
+/* One row per image the card can carry: what is bound, the description it was
+   drawn from, and the two ways to change it. The description is editable because
+   the first thing anyone wants after seeing a generated picture is to say what was
+   wrong with it. */
+function imageSlotRow(slot){
+ const bound=slot.bound?esc(slot.filename):'no image bound';
+ const preview=slot.bound?`<img class="slot-thumb" src="${esc(slot.url)}" alt="" loading="lazy">`:'';
+ const diagram=slot.kind==='diagram';
+ const altField=slot.kind==='illustration'
+  ?`<label class="field"><span class="visually-hidden">Alt text for ${esc(slot.id)}</span><input data-alt="${esc(slot.id)}" type="text" placeholder="Alt text: what the picture shows" value="${esc(slot.alt||'')}"></label>`
+  :'';
+ const generate=diagram
+  ?'<span class="meta">Drawn by the writer as SVG; not generated.</span>'
+  :`<button class="ghost small" data-generate="${esc(slot.id)}" type="button">${slot.bound?'Regenerate':'Generate'}</button>`;
+ const describe=diagram
+  ?''
+  :`<label class="field"><span class="visually-hidden">Describe the image for ${esc(slot.id)}</span><textarea data-scene="${esc(slot.id)}" rows="2" placeholder="Describe the scene: what is visible, no text or logos">${esc(slot.prompt||'')}</textarea></label>${altField}`;
+ return `<div class="list-row slot-row"><div class="slot-main">${preview}<span>${esc(slot.caption)} · <span class="meta">${bound}</span></span></div>
+${describe}
+<div class="actions">${generate}<label class="ghost small" style="cursor:pointer">Bind image<input data-upload="${esc(slot.id)}" type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden></label></div></div>`;
 }
 /* `force` is for a tab or mode change, where the body must be rebuilt. Left alone,
    this paints only when the markup actually differs, and puts the reading position
@@ -1638,6 +1662,21 @@ async function revise(task){
  catch(error){action.fail(error.message);}
  finally{action.done();}
 }
+async function generateImage(task,slot){
+ if(busy)return;
+ const scene=document.querySelector(`[data-scene="${slot}"]`)?.value||'';
+ const alt=document.querySelector(`[data-alt="${slot}"]`)?.value||'';
+ const action=runAction({
+  button:document.querySelector(`[data-generate="${slot}"]`),label:'Generating…',
+  failTitle:'The image was not generated.'
+ });
+ try{
+  const result=await post('/ceo/api/generate-image',{task_id:task.id,slot,scene,alt});
+  toast(`Image generated${result.cost_usd?` · $${result.cost_usd.toFixed(3)}`:''}.`);
+  await refresh();openTask=task.id;detailTab='files';await renderDetail(true);
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
+}
 async function upload(task,slot,file){
  if(busy)return;
  const action=runAction({
@@ -1671,6 +1710,7 @@ document.addEventListener('click',event=>{
  if(data.focus){showView(data.focus==='competitor'?'analytics':'topics');$('#'+data.focus)?.focus();}
  if(data.open)openDetail(data.open);
  if(data.detail){detailTab=data.detail;renderDetail(true);}
+ if(data.generate)generateImage(findTask(openTask),data.generate);
  if(data.arrivals)showArrivals(data.arrivals);
  if(data.clear){setUi(data.clear,{search:'',filter:'all',page:1});$(`#${data.clear}-search`).value='';renderAll();}
  if(data.page){const [key,value]=data.page.split(':');setUi(key,{page:Number(value)},false);renderAll();}

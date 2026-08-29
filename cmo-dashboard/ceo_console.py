@@ -273,7 +273,11 @@ def dispatch(handler: Any, method: str) -> bool:
         slot = query.get("slot", [""])[0]
         try:
             task = _task(task_id)
-            image = ceo_artifacts.image_for(task, slot, PROFILE_DIR)
+            image = (
+                ceo_artifacts.cover_for(task, PROFILE_DIR)
+                if slot.casefold() == "cover"
+                else ceo_artifacts.image_for(task, slot, PROFILE_DIR)
+            )
             if image is None:
                 raise FileNotFoundError
             body = image.read_bytes()
@@ -306,6 +310,15 @@ def dispatch(handler: Any, method: str) -> bool:
                 handler.rfile.read(length),
             )
             result = {"ok": True, "filename": destination.name, "slot": slot}
+        elif path == "/ceo/api/generate-image":
+            payload = _body(handler)
+            result = ceo_artifacts.generate_image(
+                PROFILE_DIR,
+                str(payload.get("task_id", "")),
+                str(payload.get("slot", "")),
+                str(payload.get("scene", "")),
+                alt_text=str(payload.get("alt", "")),
+            )
         elif path in {
             "/ceo/api/propose",
             "/ceo/api/proposal/approve",

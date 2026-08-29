@@ -400,7 +400,33 @@ def render_markdown_fragment(
     return "".join(out)
 
 
-def render_article(text: str, slots: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
+def cover_strip(cover: dict[str, Any] | None) -> str:
+    """The picture that will go on the blog card, shown above the article.
+
+    Gate 1 approves what the reader is looking at. The cover never appears in the
+    prose, so without this the one image most people will actually see was the one
+    image the approver could not.
+    """
+    if not cover:
+        return ""
+    if not cover.get("bound"):
+        return (
+            '<div class="cover-strip is-empty"><strong>Cover image</strong>'
+            "<span>None bound. Generate or upload one from the Files tab.</span></div>"
+        )
+    # The frame is the inner element, as it is for a body slot: hydration replaces
+    # the frame's children with the loaded picture, so a caption inside it would be
+    # thrown away the moment the image arrived.
+    return (
+        '<figure class="figure cover-strip"><div class="figure-frame" data-image-url="'
+        + _esc(str(cover.get("url", "")))
+        + '"><span class="figure-status">Loading cover…</span></div>'
+        "<figcaption>Cover image — blog card and social preview</figcaption></figure>"
+    )
+
+
+def render_article(text: str, slots: Iterable[dict[str, Any]] | None = None,
+                   cover: dict[str, Any] | None = None) -> dict[str, Any]:
     """Render one artifact into prose HTML plus its collapsed review notes."""
     metadata, body = strip_front_matter(text or "")
     prose, notes = split_review_notes(body)
@@ -412,7 +438,8 @@ def render_article(text: str, slots: Iterable[dict[str, Any]] | None = None) -> 
     ]
     return {
         "metadata": metadata,
-        "html": render_markdown_fragment(prose, slots=slot_list, strip_metadata=False),
+        "html": cover_strip(cover)
+        + render_markdown_fragment(prose, slots=slot_list, strip_metadata=False),
         "review_notes_html": render_markdown_fragment(notes, slots=slot_list, strip_metadata=False),
         "review_note_titles": note_titles,
         "prose_markdown": prose,

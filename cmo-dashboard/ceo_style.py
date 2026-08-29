@@ -166,6 +166,18 @@ font-weight:700;font-size:var(--f-sm)}
 .list-row{display:flex;align-items:center;justify-content:space-between;gap:var(--gap);
 padding:9px var(--pad);border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff}
 .list-row .meta{margin:0}
+/* An image slot is a row that has to hold a thumbnail, a description worth
+   editing, and two controls — so it stacks rather than sitting on one line. */
+.slot-row{display:block}
+.slot-row .slot-main{display:flex;align-items:center;gap:10px;min-width:0}
+.slot-row .slot-thumb{width:72px;height:41px;object-fit:cover;flex:none;
+border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--line)}
+.slot-row .field{margin-top:9px}
+.slot-row textarea,.slot-row input[type=text]{width:100%}
+/* The cover sits above the first paragraph, visibly not part of the prose. */
+.cover-strip{margin:0 0 22px}
+.cover-strip.is-empty{display:flex;flex-direction:column;gap:4px;padding:18px var(--pad);
+border:1px dashed var(--line);border-radius:var(--radius-sm);color:var(--muted);font-size:var(--f-sm)}
 
 /* ---- empty and loading --------------------------------------------------- */
 /* An empty panel is a state, not a failure. Neutral tone, one way forward. */

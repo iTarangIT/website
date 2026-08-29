@@ -8,13 +8,15 @@ import tempfile
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Mapping, Protocol, Sequence
 
 from cmo_runtime.agent_runtime import BoardCard, BoardStore, SkillLoader
 from cmo_runtime.console_db import ConsoleDB
+from cmo_runtime import image_gen
+from cmo_runtime.env_file import read_env_value as _read_env_value
 from cmo_runtime.pipeline_stages import NullRecorder, StageRecorder
 from cmo_runtime.task_file import TaskFile, TaskFileError
 
@@ -23,6 +25,8 @@ FIRECRAWL_PAGE_CAP = 8
 FIRECRAWL_MONTHLY_STOP = 800
 FIRECRAWL_HTTP_TIMEOUT_SECONDS = 300
 MAX_ARTIFACT_BYTES = 250_000
+#: Generated images are the only binary artifacts; the generator caps them too.
+MAX_BINARY_ARTIFACT_BYTES = image_gen.MAX_GENERATED_IMAGE_BYTES
 IMAGE_MARKER = re.compile(r"\{\{image:([a-z0-9]+(?:-[a-z0-9]+)*)\|([^}]+)\}\}", re.I)
 BLOG_CATEGORY_SLUGS = frozenset(
     {
@@ -249,6 +253,12 @@ class ArticlePackage:
     slot_caption: str
     svg: str
     usage: Mapping[str, object] = field(default_factory=dict)
+    #: Scene descriptions for the two generated images, written by the same call
+    #: that wrote the article. Empty on a revision, which reuses what is bound.
+    cover_scene: str = ""
+    photo_slot_id: str = ""
+    photo_scene: str = ""
+    photo_alt: str = ""
 
 
 @dataclass(frozen=True)
@@ -383,23 +393,6 @@ def _outline_refusal(markdown: str) -> str:
         if stripped.upper().startswith(OUTLINE_REFUSAL_MARKER):
             return _single_line(stripped[len(OUTLINE_REFUSAL_MARKER):], limit=600)
         return ""
-    return ""
-
-
-def _read_env_value(root: Path, name: str) -> str:
-    direct = os.getenv(name, "").strip()
-    if direct:
-        return direct
-    env_path = root / ".env"
-    if not env_path.is_file():
-        return ""
-    for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key.strip() == name:
-            return value.strip().strip("'\"")
     return ""
 
 
@@ -590,6 +583,20 @@ class HermesContentWriter:
             raise ContentRunRefused(f"writer response is missing the {name} section")
         return match.group(1).strip()
 
+    @staticmethod
+    def _optional_section(output: str, name: str) -> str:
+        """Read a section the writer may not have emitted.
+
+        The imagery sections are optional at this layer on purpose: a revision run
+        is not asked for them, and an older writer response that predates them must
+        still produce an article rather than a refusal. A missing scene costs the
+        post its generated picture, not its publication."""
+        match = re.search(
+            rf"(?s)<<<BEGIN_{re.escape(name)}>>>\s*(.*?)\s*<<<END_{re.escape(name)}>>>",
+            output,
+        )
+        return match.group(1).strip() if match else ""
+
     def _complete(self, task_id: str, prompt: str) -> ArticlePackage:
         usage_dir = self.root / "state" / "content-usage"
         usage_dir.mkdir(parents=True, exist_ok=True)
@@ -631,6 +638,10 @@ class HermesContentWriter:
             slot_caption=self._section(completed.stdout, "SLOT_CAPTION"),
             svg=self._section(completed.stdout, "SVG"),
             usage=usage,
+            cover_scene=self._optional_section(completed.stdout, "COVER_SCENE"),
+            photo_slot_id=self._optional_section(completed.stdout, "PHOTO_SLOT_ID"),
+            photo_scene=self._optional_section(completed.stdout, "PHOTO_SCENE"),
+            photo_alt=self._optional_section(completed.stdout, "PHOTO_ALT"),
         )
 
     def outline(
@@ -759,24 +770,50 @@ top-level `- URL:` values under `## Retained source pages`, character for charac
 inside retained page excerpts are not approved sources. Choose exactly one `category` from
 `financing`, `battery-selection`, `charging-maintenance`, `safety`, `lifecycle-recycling`,
 or `partners-industry`; emit that slug in front matter so it can be recorded on the card.
-Include 3–5 business-facing bullets under a heading exactly named `## Decision bullets:`. Declare
-one useful explanatory image slot. Generate its SVG directly; do not use Excalidraw or a
-browser. The SVG must be accessible, self-contained, have a viewBox, title and desc, and
-must not contain scripts, external URLs, foreignObject, or embedded data.
+Include 3–5 business-facing bullets under a heading exactly named `## Decision bullets:`.
+
+Declare exactly two image slots, each with its `{{image:<slot-id>|<caption>}}` marker at the
+position it belongs in the body:
+  · One explanatory diagram. Generate its SVG directly; do not use Excalidraw or a browser.
+    The SVG must be accessible, self-contained, have a viewBox, title and desc, and must not
+    contain scripts, external URLs, foreignObject, or embedded data.
+  · One photographic illustration, placed beside the paragraph it supports. You do not draw
+    this one — describe the scene and an image model renders it.
+
+Also describe the article's cover image, which goes on the blog card and the social preview.
+
+For both photographic scenes: describe only what is visible, in one or two sentences. Every
+number, label and name in this article belongs in the diagram or the prose, never in a
+photograph — do not ask for text, signage, logos, screens, documents or recognisable faces in
+an image, because an image model renders them wrong and a wrong number in a picture is a
+false claim nobody proofreads. Write PHOTO_ALT as alt text for a reader who cannot see the
+illustration: what it shows, not what it means.
 
 Return only these exact delimited sections:
 <<<BEGIN_ARTICLE>>>
-[complete Markdown article with WRITER_CONTRACT front matter and image marker]
+[complete Markdown article with WRITER_CONTRACT front matter and both image markers]
 <<<END_ARTICLE>>>
 <<<BEGIN_SLOT_ID>>>
-[lowercase letters, numbers and hyphens only]
+[the diagram slot id: lowercase letters, numbers and hyphens only]
 <<<END_SLOT_ID>>>
 <<<BEGIN_SLOT_CAPTION>>>
-[one short reader-facing caption]
+[one short reader-facing caption for the diagram]
 <<<END_SLOT_CAPTION>>>
 <<<BEGIN_SVG>>>
 [complete SVG beginning with <svg]
 <<<END_SVG>>>
+<<<BEGIN_PHOTO_SLOT_ID>>>
+[the illustration slot id: lowercase letters, numbers and hyphens only]
+<<<END_PHOTO_SLOT_ID>>>
+<<<BEGIN_PHOTO_SCENE>>>
+[one or two sentences describing the illustration]
+<<<END_PHOTO_SCENE>>>
+<<<BEGIN_PHOTO_ALT>>>
+[one line of alt text for the illustration]
+<<<END_PHOTO_ALT>>>
+<<<BEGIN_COVER_SCENE>>>
+[one or two sentences describing the cover image]
+<<<END_COVER_SCENE>>>
 
 TASK ID: {task_id}
 TOPIC: {topic}
@@ -1173,15 +1210,40 @@ def accept_trim(original: ArticleSection, returned: str) -> str | None:
 
 
 def _normalise_package_slot(package: ArticlePackage) -> ArticlePackage:
-    marker = IMAGE_MARKER.search(package.markdown)
-    if marker is None:
+    """Believe the article body over what the writer said about it.
+
+    An article may now declare two slots — the hand-authored diagram and one
+    illustration for the generator to fill — so this has to decide which marker is
+    which rather than taking the first one it finds. The diagram is the marker
+    matching the declared `SLOT_ID`; failing that, the first marker that is not the
+    declared photo slot. A photo slot declared but never placed in the body is
+    dropped, because there is nowhere to put the picture.
+    """
+    markers = list(IMAGE_MARKER.finditer(package.markdown))
+    if not markers:
         return package
-    return ArticlePackage(
-        markdown=package.markdown,
-        slot_id=marker.group(1),
-        slot_caption=marker.group(2).strip(),
-        svg=package.svg,
-        usage=package.usage,
+    declared = package.slot_id.casefold()
+    photo_declared = package.photo_slot_id.casefold()
+    diagram = next((item for item in markers if item.group(1).casefold() == declared), None)
+    if diagram is None:
+        diagram = next(
+            (item for item in markers if item.group(1).casefold() != photo_declared),
+            markers[0],
+        )
+    photo = next(
+        (
+            item
+            for item in markers
+            if item is not diagram
+            and (not photo_declared or item.group(1).casefold() == photo_declared)
+        ),
+        None,
+    )
+    return replace(
+        package,
+        slot_id=diagram.group(1),
+        slot_caption=diagram.group(2).strip(),
+        photo_slot_id=photo.group(1) if photo is not None else "",
     )
 
 
@@ -1306,10 +1368,22 @@ def _safe_artifact(root: Path, filename: str) -> Path:
     return destination
 
 
-def _atomic_text_write(path: Path, content: str) -> None:
-    data = content.encode("utf-8")
-    if len(data) > MAX_ARTIFACT_BYTES:
-        raise ContentRunRefused(f"artifact exceeds {MAX_ARTIFACT_BYTES} bytes: {path.name}")
+def _atomic_text_write(path: Path, content: str | bytes) -> None:
+    """Write one artifact, whole or not at all.
+
+    Takes bytes as well as text since the artifact store began holding generated
+    images. The size cap is per kind: prose and SVG stay at the tight text budget,
+    a picture gets the generator's own ceiling, because 250 KB of Markdown is a
+    runaway article while 250 KB of WebP is an ordinary cover.
+    """
+    if isinstance(content, bytes):
+        data = content
+        ceiling = MAX_BINARY_ARTIFACT_BYTES
+    else:
+        data = content.encode("utf-8")
+        ceiling = MAX_ARTIFACT_BYTES
+    if len(data) > ceiling:
+        raise ContentRunRefused(f"artifact exceeds {ceiling} bytes: {path.name}")
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary_path = Path(temporary)
@@ -1325,7 +1399,7 @@ def _atomic_text_write(path: Path, content: str) -> None:
             temporary_path.unlink()
 
 
-def _atomic_artifact_set(files: Mapping[Path, str]) -> None:
+def _atomic_artifact_set(files: Mapping[Path, str | bytes]) -> None:
     originals = {path: path.read_bytes() if path.is_file() else None for path in files}
     written: list[Path] = []
     try:
@@ -1576,6 +1650,7 @@ class ContentRuntime:
         writer: Writer | None = None,
         database: ConsoleDB | None = None,
         record_stages: bool = True,
+        image_client: object | None = None,
     ) -> None:
         self.root = Path(root)
         self.board = BoardStore(self.root)
@@ -1583,6 +1658,9 @@ class ContentRuntime:
         self.skill_loader = skill_loader or SkillLoader(self.root / "cmo_skills")
         self.researcher = researcher or FirecrawlResearcher(self.root)
         self.writer = writer or HermesContentWriter(self.root)
+        # Built on demand rather than here: constructing it raises when the key is
+        # absent, and a profile with no Gemini key must still write articles.
+        self._image_client = image_client
         self.record_stages = record_stages
         self._database = database
         self._owns_database = False
@@ -2036,6 +2114,75 @@ class ContentRuntime:
                 self._return_revision(card.task_id, original_section, str(exc))
             raise
 
+    # ------------------------------------------------------------- imagery
+
+    def _generate_imagery(
+        self, *, task_id: str, package: ArticlePackage
+    ) -> tuple[dict[Path, bytes], dict[str, str], dict[str, object]]:
+        """Render the cover and the in-article illustration, or give up quietly.
+
+        Never raises. By the time this runs the article has already cost Firecrawl
+        credits and a writer call, and no picture is worth losing that: a refusal
+        here leaves the slot unbound, which the console renders as an empty frame a
+        human can fill from the Files tab, and the publisher treats a missing cover
+        as a post that simply has none.
+
+        Returns the artifact bytes to write, the board fields to set, and what it
+        spent, for the caller to fold into one atomic write and one ledger line.
+        """
+        wanted = [
+            ("cover", package.cover_scene, image_gen.cover_prompt),
+            (
+                "photo",
+                package.photo_scene if package.photo_slot_id and package.photo_alt else "",
+                image_gen.figure_prompt,
+            ),
+        ]
+        if not any(scene for _role, scene, _builder in wanted):
+            return {}, {}, {"image_calls": 0}
+
+        try:
+            client = self._image_client or image_gen.GeminiImageClient(self.root)
+        except image_gen.ImageGenRefused as refusal:
+            return {}, {}, {"image_calls": 0, "image_outcome": _single_line(refusal, limit=200)}
+
+        artifacts: dict[Path, bytes] = {}
+        fields: dict[str, str] = {}
+        spent = 0.0
+        calls = 0
+        failures: list[str] = []
+        for role, scene, build_prompt in wanted:
+            if not scene:
+                continue
+            try:
+                prompt = build_prompt(scene)
+                generated = client.generate(prompt, task_id=task_id)
+            except image_gen.ImageGenRefused as refusal:
+                failures.append(f"{role}: {_single_line(refusal, limit=200)}")
+                continue
+            calls += 1
+            spent += generated.estimated_cost_usd
+            if role == "cover":
+                path = _safe_artifact(self.root, f"{task_id}-cover.webp")
+                fields["Cover image"] = f"artifacts/{path.name}"
+                fields["Cover prompt"] = _single_line(scene, limit=400)
+            else:
+                path = _safe_artifact(self.root, f"{task_id}-{package.photo_slot_id}.webp")
+                fields[f"Image slot {package.photo_slot_id}"] = f"artifacts/{path.name}"
+                fields[f"Image alt {package.photo_slot_id}"] = _single_line(
+                    package.photo_alt, limit=300
+                )
+                fields[f"Image prompt {package.photo_slot_id}"] = _single_line(scene, limit=400)
+            artifacts[path] = generated.webp
+
+        accounting: dict[str, object] = {
+            "image_calls": calls,
+            "image_cost_usd": round(spent, 6),
+        }
+        if failures:
+            accounting["image_outcome"] = "; ".join(failures)
+        return artifacts, fields, accounting
+
     def execute(self) -> ContentRunResult:
         card = self._select()
         moved = False
@@ -2153,10 +2300,14 @@ class ContentRuntime:
                 )
             article_path = _safe_artifact(self.root, f"{card.task_id}-content.md")
             diagram_path = _safe_artifact(self.root, f"{card.task_id}-{package.slot_id}.svg")
+            images, image_fields, image_accounting = self._generate_imagery(
+                task_id=card.task_id, package=package
+            )
             _atomic_artifact_set(
                 {
                     article_path: package.markdown.rstrip() + "\n",
                     diagram_path: package.svg.rstrip() + "\n",
+                    **images,
                 }
             )
 
@@ -2184,6 +2335,7 @@ class ContentRuntime:
                     "Change type": "website",
                     "Metric": metric,
                     f"Image slot {package.slot_id}": f"artifacts/{diagram_path.name}",
+                    **image_fields,
                 },
             )
             self.task_file.move(
@@ -2198,7 +2350,7 @@ class ContentRuntime:
                 article_path=article_path,
                 diagram_path=diagram_path,
                 research=research,
-                usage=package.usage,
+                usage=_combined_usage(package.usage, image_accounting),
                 trim=tuple(trim_history),
             )
         except Exception as exc:

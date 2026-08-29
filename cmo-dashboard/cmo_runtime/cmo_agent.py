@@ -113,6 +113,12 @@ def run_content_execution(
     for key in ("estimated_cost_usd", "api_calls", "model", "provider"):
         if key in usage:
             extra[f"writer_{key}"] = usage[key]
+    # Image spend is already its own line in the ledger, written by the generator
+    # through spend-tracker. These are carried so the run row says what the run
+    # bought, without conflating it with what the writer cost.
+    for key in ("image_calls", "image_cost_usd", "image_model", "image_outcome"):
+        if key in usage:
+            extra[key] = usage[key]
     selected_accountant.append(  # type: ignore[attr-defined]
         "content-execute",
         "content",

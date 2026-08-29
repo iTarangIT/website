@@ -177,12 +177,25 @@ BOARD = """# iTarang CMO Task Board
 - Attachment: artifacts/TASK-777-content.md
 - Metric: Organic sessions to the article
 - Tag: action to be taken by: human
+- Cover image: artifacts/TASK-777-cover.webp
+- Cover prompt: A charged e-rickshaw at a kerbside charging point at dusk
 - Revision round: 0
 - Last updated: 2026-08-11T00:00:00Z
 - Updated: 2026-08-11T00:00:00Z
 
 ## Completed
 """
+
+
+def cover_webp() -> bytes:
+    """A real WebP, so the served content type is decided by real bytes."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (1200, 675), (18, 92, 66)).save(buffer, format="WEBP", quality=70)
+    return buffer.getvalue()
 
 
 def seed_recorded_stages(root: Path) -> None:
@@ -330,6 +343,7 @@ class ServedPageTests(unittest.TestCase):
         (root / "artifacts" / "TASK-777-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-779-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-783-content.md").write_text(ARTICLE, encoding="utf-8")
+        (root / "artifacts" / "TASK-777-cover.webp").write_bytes(cover_webp())
         seed_recorded_stages(root)
         cls.proposal_fixtures = seed_proposals(root)
         cls.root = root
@@ -427,6 +441,78 @@ class ServedPageTests(unittest.TestCase):
         status, _headers, body = self.fetch(path, auth=auth)
         self.assertEqual(status, 200, f"{path} returned {status}")
         return body.decode("utf-8")
+
+
+    # ---- marker: generated imagery ---------------------------------------
+
+    def test_the_served_console_offers_a_generate_control_per_image_slot(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn("data-generate=", page, "no way to ask for an image")
+        self.assertIn("data-scene=", page, "no way to say what the image should show")
+        self.assertIn("data-alt=", page, "no way to give an illustration alt text")
+        self.assertIn("/ceo/api/generate-image", page)
+        # A diagram is drawn by the writer; offering to regenerate it would be a lie.
+        self.assertIn("Drawn by the writer as SVG; not generated.", page)
+
+    def test_the_state_payload_carries_the_cover_and_its_recorded_prompt(self) -> None:
+        state = json.loads(self.text("/ceo/api/state", auth=True))
+        task = next(item for item in state["blogs"] if item["id"] == "TASK-777")
+
+        cover = task["article"]["cover"]
+        self.assertTrue(cover["bound"])
+        self.assertEqual(cover["filename"], "TASK-777-cover.webp")
+        self.assertEqual(cover["url"], "/ceo/image?task=TASK-777&slot=cover")
+        self.assertIn("kerbside charging point", cover["prompt"])
+
+    def test_a_bound_cover_is_served_as_the_image_it_is(self) -> None:
+        status, headers, body = self.fetch(
+            "/ceo/image?task=TASK-777&slot=cover", auth=True
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Type"), "image/webp")
+        self.assertEqual(body[:4], b"RIFF")
+        self.assertEqual(body[8:12], b"WEBP")
+
+    def test_the_reader_shows_the_cover_above_the_article(self) -> None:
+        state = json.loads(self.text("/ceo/api/state", auth=True))
+        task = next(item for item in state["blogs"] if item["id"] == "TASK-777")
+        html = task["article"]["html"]
+
+        self.assertIn('class="figure cover-strip"', html)
+        self.assertIn('data-image-url="/ceo/image?task=TASK-777&amp;slot=cover"', html)
+        self.assertLess(
+            html.index("cover-strip"), html.index("<p>"), "the cover is not above the prose"
+        )
+
+    def test_generating_without_a_description_is_refused_before_it_spends(self) -> None:
+        status, _headers, body = self.fetch(
+            "/ceo/api/generate-image",
+            auth=True,
+            payload={"task_id": "TASK-777", "slot": "cover", "scene": "   "},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("describe the image", json.loads(body)["error"])
+
+    def test_generating_an_illustration_without_alt_text_is_refused(self) -> None:
+        status, _headers, body = self.fetch(
+            "/ceo/api/generate-image",
+            auth=True,
+            payload={"task_id": "TASK-777", "slot": "depot", "scene": "a depot at dusk"},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("alt text is required", json.loads(body)["error"])
+
+    def test_generating_needs_a_session(self) -> None:
+        status, _headers, _body = self.fetch(
+            "/ceo/api/generate-image",
+            payload={"task_id": "TASK-777", "slot": "cover", "scene": "a depot"},
+        )
+
+        self.assertIn(status, {401, 403})
 
     # ---- marker: the build stamp -----------------------------------------
 

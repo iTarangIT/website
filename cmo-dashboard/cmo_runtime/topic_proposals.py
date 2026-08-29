@@ -36,6 +36,7 @@ from cmo_runtime.console_db import (
     norm_key,
     utc_timestamp,
 )
+from cmo_runtime.env_file import read_env_value as _read_env_value
 from cmo_runtime.pipeline_stages import StageRecorder
 from cmo_runtime.task_file import TaskFile, TaskFileError
 
@@ -68,23 +69,6 @@ class ProposalRefused(RuntimeError):
 
 def _single_line(value: object, *, limit: int = 400) -> str:
     return re.sub(r"\s+", " ", str(value)).strip()[:limit]
-
-
-def _read_env_value(root: Path, name: str) -> str:
-    direct = os.getenv(name, "").strip()
-    if direct:
-        return direct
-    env_path = root / ".env"
-    if not env_path.is_file():
-        return ""
-    for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key.strip() == name:
-            return value.strip().strip("'\"")
-    return ""
 
 
 @dataclass(frozen=True)

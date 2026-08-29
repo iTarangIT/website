@@ -221,7 +221,7 @@ def preflight(
         files = [
             str(plan.page_path.relative_to(website_root)),
             "src/data/blog-posts.ts",
-            str(plan.image_path.relative_to(website_root)),
+            *(str(image.relative_to(website_root)) for image in plan.image_paths),
         ]
 
     client = git or Git(website_root)
@@ -392,7 +392,7 @@ def publish(
 
     message = (
         f"Publish {task_id}: {plan.slug}\n\n"
-        f"Adds the blog page, its blog-posts.ts entry and its diagram on {BRANCH}.\n"
+        f"Adds the blog page, its blog-posts.ts entry and its images on {BRANCH}.\n"
         f"Gate 1 approved by {check.approver}.\n\n"
         f"Published-by: {actor}\n"
         f"Published-via: CEO console ({role})\n"
@@ -413,9 +413,10 @@ def publish(
         "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     try:
-        # Exactly the three files this publish produced, by name. `git add -A`
-        # here would sweep up whatever else is lying in the worktree and push it
-        # under a commit message about a blog post.
+        # Exactly the files this publish produced, by name — the page, the blog
+        # index, and one entry per image it wrote. `git add -A` here would sweep up
+        # whatever else is lying in the worktree and push it under a commit message
+        # about a blog post.
         client.run("add", "--", *check.files)
         client.run("-c", f"user.name=iTarang CMO", "-c", "user.email=it@itarang.com",
                    "commit", "-m", message)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import io
 import json
 import math
 import os
@@ -13,6 +14,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any, Mapping
 
 from cmo_runtime.agent_runtime import BoardStore
 from cmo_runtime.review_sections import strip_scaffolding
@@ -30,6 +32,19 @@ _INLINE = re.compile(
     r"\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|(?<!\*)\*([^*]+)\*(?!\*)|`([^`]+)`"
 )
 _TABLE_DIVIDER = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
+#: Board field naming the article's cover image, when one was generated.
+COVER_FIELD = "Cover image"
+
+#: Suffixes accepted for a generated or uploaded illustration. WebP is what the
+#: generator writes; the other three exist because the console upload route has
+#: always accepted them and a human-supplied picture publishes the same way.
+RASTER_SUFFIXES = frozenset({".webp", ".png", ".jpg", ".jpeg"})
+
+#: Said under an illustration no human drew. Every generated image also carries an
+#: invisible SynthID watermark; this is the half a reader can see. Set to "" to stop
+#: disclosing.
+AI_FIGURE_CREDIT = "Illustration generated with AI."
+
 _REQUIRED_FRONTMATTER = {
     "title",
     "meta_title",
@@ -45,6 +60,28 @@ class BlogPublishRefused(RuntimeError):
 
 
 @dataclass(frozen=True)
+class Figure:
+    """One rendered `<figure>`: where the file will live and what it says."""
+
+    src: str
+    alt: str
+    width: int
+    height: int
+    caption: str
+    credit: str
+    kind: str
+
+
+@dataclass(frozen=True)
+class PublishedImage:
+    """One file this publish will write into the website worktree."""
+
+    path: Path
+    source: bytes
+    role: str
+
+
+@dataclass(frozen=True)
 class PublishPlan:
     task_id: str
     slug: str
@@ -52,10 +89,21 @@ class PublishPlan:
     publication_date: str
     read_time: str
     page_path: Path
-    image_path: Path
     page_source: str
     updated_blog_posts: str
-    image_source: bytes
+    #: Every image this publish writes: the diagram, the illustration when the
+    #: article has one, and the cover when one was generated.
+    images: tuple[PublishedImage, ...] = ()
+    #: Public path of the cover, empty when the post publishes without one.
+    cover_src: str = ""
+
+    @property
+    def image_paths(self) -> tuple[Path, ...]:
+        return tuple(image.path for image in self.images)
+
+    def image_for(self, role: str) -> PublishedImage | None:
+        """The diagram, illustration, or cover this publish writes — or None."""
+        return next((image for image in self.images if image.role == role), None)
 
 
 class BlogPublisher:
@@ -96,28 +144,10 @@ class BlogPublisher:
 
         public_body = _public_body(body)
         markers = list(IMAGE_MARKER.finditer(public_body))
-        if len(markers) != 1:
+        if not 1 <= len(markers) <= 2:
             raise BlogPublishRefused(
-                f"{task_id} must contain exactly one image marker; found {len(markers)}"
+                f"{task_id} must declare one or two image slots; found {len(markers)}"
             )
-        marker = markers[0]
-        slot_id = marker.group(1)
-        caption = marker.group(2).strip()
-        image_field = f"Image slot {slot_id}"
-        image_reference = card.fields.get(image_field, "")
-        if not image_reference:
-            raise BlogPublishRefused(f"{task_id} is missing card field: {image_field}")
-        source_image_path = self._artifact(image_reference)
-        image_source = source_image_path.read_bytes()
-        try:
-            svg_text = image_source.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise BlogPublishRefused(f"{image_reference} is not UTF-8 SVG") from exc
-        try:
-            _validate_svg(svg_text)
-        except ContentRunRefused as exc:
-            raise BlogPublishRefused(f"SVG refused: {exc}") from exc
-        alt_text, width, height = _svg_metadata(svg_text)
 
         page_path = (
             self.website_root
@@ -125,7 +155,6 @@ class BlogPublisher:
             / slug
             / "page.tsx"
         )
-        image_path = self.website_root / "public/images/blog" / f"{slug}.svg"
         # Publishing over somebody else's page stays refused. Publishing over the
         # page *this card* published is a republish, and it has to be possible: the
         # converter is code, code gets fixed, and the fix has to reach the article
@@ -137,25 +166,52 @@ class BlogPublisher:
         republishing = card.fields.get("Preview URL", "").rstrip("/").endswith(f"/blog/{slug}")
         if page_path.exists() and not republishing:
             raise BlogPublishRefused(f"blog page already exists: {page_path}")
-        if image_path.exists() and not republishing:
-            raise BlogPublishRefused(f"blog image already exists: {image_path}")
+
+        figures: dict[str, Figure] = {}
+        images: list[PublishedImage] = []
+        seen_kinds: set[str] = set()
+        for marker in markers:
+            slot_id = marker.group(1)
+            caption = marker.group(2).strip()
+            figure, published = self._bind_slot(
+                card=card,
+                task_id=task_id,
+                slug=slug,
+                slot_id=slot_id,
+                caption=caption,
+            )
+            # Two diagrams would both want `{slug}.svg` and two illustrations would
+            # both want `{slug}-figure.webp`. Rather than inventing a numbering
+            # scheme nobody asked for, one of each is the contract.
+            if figure.kind in seen_kinds:
+                raise BlogPublishRefused(
+                    f"{task_id} binds two {figure.kind} slots; one diagram and one "
+                    "illustration are the most an article may publish"
+                )
+            seen_kinds.add(figure.kind)
+            figures[marker.group(0)] = figure
+            images.append(published)
+
+        cover = self._bind_cover(card=card, slug=slug)
+        if cover is not None:
+            images.append(cover)
+        cover_src = f"/images/blog/{cover.path.name}" if cover is not None else ""
+
+        for published in images:
+            if published.path.exists() and not republishing:
+                raise BlogPublishRefused(f"blog image already exists: {published.path}")
 
         blog_posts_path = self.website_root / "src/data/blog-posts.ts"
         blog_posts = blog_posts_path.read_text(encoding="utf-8")
         read_time = _read_time(public_body)
-        image_src = f"/images/blog/{slug}.svg"
         page_source = _render_page(
             fields=fields,
             body=public_body,
             category=category,
             publication_date=publication_date.isoformat(),
             read_time=read_time,
-            marker=marker.group(0),
-            caption=caption,
-            image_src=image_src,
-            alt_text=alt_text,
-            width=width,
-            height=height,
+            figures=figures,
+            cover_src=cover_src,
         )
         updated_blog_posts = _insert_blog_post(
             blog_posts,
@@ -166,6 +222,7 @@ class BlogPublisher:
             publication_date=publication_date.isoformat(),
             read_time=read_time,
             category=category,
+            cover_image=cover_src,
         )
         return PublishPlan(
             task_id=task_id,
@@ -174,11 +231,102 @@ class BlogPublisher:
             publication_date=publication_date.isoformat(),
             read_time=read_time,
             page_path=page_path,
-            image_path=image_path,
             page_source=page_source,
             updated_blog_posts=updated_blog_posts,
-            image_source=image_source,
+            images=tuple(images),
+            cover_src=cover_src,
         )
+
+    def _bind_slot(
+        self,
+        *,
+        card: Any,
+        task_id: str,
+        slug: str,
+        slot_id: str,
+        caption: str,
+    ) -> tuple["Figure", "PublishedImage"]:
+        """Resolve one declared image slot to the file that will be committed.
+
+        The bound artifact's suffix decides which kind it is. That is the whole
+        dispatch: an SVG is the writer's hand-authored diagram and is validated as
+        one, anything else is a generated or uploaded illustration and is validated
+        as one. No second marker syntax, because the board field already says which
+        file is bound and the file already says what it is.
+        """
+        image_field = f"Image slot {slot_id}"
+        reference = card.fields.get(image_field, "")
+        if not reference:
+            raise BlogPublishRefused(f"{task_id} is missing card field: {image_field}")
+        source_path = self._artifact(reference)
+        source = source_path.read_bytes()
+        suffix = source_path.suffix.casefold()
+
+        if suffix == ".svg":
+            try:
+                svg_text = source.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise BlogPublishRefused(f"{reference} is not UTF-8 SVG") from exc
+            try:
+                _validate_svg(svg_text)
+            except ContentRunRefused as exc:
+                raise BlogPublishRefused(f"SVG refused: {exc}") from exc
+            alt_text, width, height = _svg_metadata(svg_text)
+            destination = self.website_root / "public/images/blog" / f"{slug}.svg"
+            credit = ""
+            kind = "diagram"
+        elif suffix in RASTER_SUFFIXES:
+            # A picture carries no title element to read alt text out of, so the
+            # writer states it on the card. An illustration nobody described is not
+            # publishable: a screen reader would reach it and find nothing.
+            alt_text = _single_line_field(card.fields.get(f"Image alt {slot_id}", ""))
+            if not alt_text:
+                raise BlogPublishRefused(
+                    f"{task_id} is missing card field: Image alt {slot_id}"
+                )
+            width, height = _raster_metadata(source, reference)
+            destination = (
+                self.website_root / "public/images/blog" / f"{slug}-figure{suffix}"
+            )
+            credit = AI_FIGURE_CREDIT
+            kind = "illustration"
+        else:
+            raise BlogPublishRefused(
+                f"{reference} is not a publishable image; expected .svg or one of "
+                + ", ".join(sorted(RASTER_SUFFIXES))
+            )
+
+        figure = Figure(
+            src=f"/images/blog/{destination.name}",
+            alt=alt_text,
+            width=width,
+            height=height,
+            caption=caption,
+            credit=credit,
+            kind=kind,
+        )
+        return figure, PublishedImage(path=destination, source=source, role=kind)
+
+    def _bind_cover(self, *, card: Any, slug: str) -> "PublishedImage | None":
+        """Resolve the card's cover image, if it has one.
+
+        Optional on purpose. A cover that failed to generate must not hold an
+        approved article at the gate — the blog card falls back to its category
+        gradient exactly as it did before covers existed.
+        """
+        reference = card.fields.get(COVER_FIELD, "")
+        if not reference:
+            return None
+        source_path = self._artifact(reference)
+        suffix = source_path.suffix.casefold()
+        if suffix not in RASTER_SUFFIXES:
+            raise BlogPublishRefused(
+                f"{COVER_FIELD} must be a raster image; {reference} is not"
+            )
+        source = source_path.read_bytes()
+        _raster_metadata(source, reference)
+        destination = self.website_root / "public/images/blog" / f"{slug}-cover{suffix}"
+        return PublishedImage(path=destination, source=source, role="cover")
 
     def apply(self, task_id: str, *, publication_date: date) -> PublishPlan:
         branch = subprocess.run(
@@ -218,7 +366,7 @@ class BlogPublisher:
             {
                 plan.page_path: plan.page_source.encode("utf-8"),
                 blog_posts_path: plan.updated_blog_posts.encode("utf-8"),
-                plan.image_path: plan.image_source,
+                **{image.path: image.source for image in plan.images},
             }
         )
         return plan
@@ -237,8 +385,12 @@ class BlogPublisher:
             / plan.slug
             / "page.tsx",
             "blog_posts": output / "src/data/blog-posts.ts",
-            "image": output / "public/images/blog" / f"{plan.slug}.svg",
         }
+        # Mirrors the worktree layout so a preview can be typechecked exactly where
+        # the real page would sit, images and all.
+        for image in plan.images:
+            key = image.role if image.role != "diagram" else "image"
+            paths[key] = output / "public/images/blog" / image.path.name
         existing = [str(path) for path in paths.values() if path.exists()]
         if existing:
             raise BlogPublishRefused(
@@ -248,7 +400,10 @@ class BlogPublisher:
             {
                 paths["page"]: plan.page_source.encode("utf-8"),
                 paths["blog_posts"]: plan.updated_blog_posts.encode("utf-8"),
-                paths["image"]: plan.image_source,
+                **{
+                    output / "public/images/blog" / image.path.name: image.source
+                    for image in plan.images
+                },
             }
         )
         return paths
@@ -328,6 +483,30 @@ def _public_body(body: str) -> str:
     return strip_scaffolding(body)
 
 
+def _single_line_field(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _raster_metadata(source: bytes, reference: str) -> tuple[int, int]:
+    """Read a picture's pixel dimensions, or refuse it.
+
+    The `<Image>` element needs real width and height or the page reflows as the
+    picture loads, and a size taken on trust from a board field would be a size
+    nobody measured. Pillow is already in the runtime venv for the generator.
+    """
+    from PIL import Image as PillowImage
+
+    try:
+        with PillowImage.open(io.BytesIO(source)) as opened:
+            width, height = opened.size
+            opened.verify()
+    except Exception as exc:  # Pillow raises a wide family for malformed input
+        raise BlogPublishRefused(f"{reference} is not a readable image: {exc}") from exc
+    if width < 1 or height < 1:
+        raise BlogPublishRefused(f"{reference} has no dimensions")
+    return width, height
+
+
 def _svg_metadata(svg: str) -> tuple[str, int, int]:
     root = ET.fromstring(svg)
     title = next(
@@ -394,16 +573,7 @@ def _table_cells(line: str) -> list[str]:
     return [cell.strip() for cell in stripped.split("|")]
 
 
-def _render_blocks(
-    body: str,
-    *,
-    marker: str,
-    caption: str,
-    image_src: str,
-    alt_text: str,
-    width: int,
-    height: int,
-) -> str:
+def _render_blocks(body: str, *, figures: Mapping[str, Figure]) -> str:
     if re.search(r"<\s*/?\s*[A-Za-z]", body):
         raise BlogPublishRefused("raw HTML is not supported in writer Markdown")
     lines = body.splitlines()
@@ -421,20 +591,26 @@ def _render_blocks(
             h1_seen = True
             index += 1
             continue
-        if line == marker:
+        if line in figures:
+            figure = figures[line]
+            caption_html = _render_inline(figure.caption)
+            if figure.credit:
+                caption_html += (
+                    f' <span className="text-gray-400">{html.escape(figure.credit)}</span>'
+                )
             blocks.extend(
                 [
                     '      <figure className="my-10">',
                     "        <Image",
-                    f'          src="{html.escape(image_src, quote=True)}"',
-                    f'          alt="{html.escape(alt_text, quote=True)}"',
-                    f"          width={{{width}}}",
-                    f"          height={{{height}}}",
+                    f'          src="{html.escape(figure.src, quote=True)}"',
+                    f'          alt="{html.escape(figure.alt, quote=True)}"',
+                    f"          width={{{figure.width}}}",
+                    f"          height={{{figure.height}}}",
                     '          loading="lazy"',
                     "          unoptimized",
                     '          className="h-auto w-full rounded-xl"',
                     "        />",
-                    f"        <figcaption>{_render_inline(caption)}</figcaption>",
+                    f"        <figcaption>{caption_html}</figcaption>",
                     "      </figure>",
                 ]
             )
@@ -530,26 +706,21 @@ def _render_page(
     category: str,
     publication_date: str,
     read_time: str,
-    marker: str,
-    caption: str,
-    image_src: str,
-    alt_text: str,
-    width: int,
-    height: int,
+    figures: Mapping[str, Figure],
+    cover_src: str = "",
 ) -> str:
-    blocks = _render_blocks(
-        body,
-        marker=marker,
-        caption=caption,
-        image_src=image_src,
-        alt_text=alt_text,
-        width=width,
-        height=height,
-    )
+    blocks = _render_blocks(body, figures=figures)
     title = json.dumps(fields["meta_title"], ensure_ascii=False)
     description = json.dumps(fields["meta_description"], ensure_ascii=False)
-    path = json.dumps(f"/blog/{fields['slug']}", ensure_ascii=False)
+    slug = fields["slug"]
+    path = json.dumps(f"/blog/{slug}", ensure_ascii=False)
     layout_title = html.escape(fields["title"], quote=True)
+    # Without this the post shares the generic site-wide `/og-image.jpg`. Omitted
+    # rather than faked when the article publishes with no cover: `createMetadata`
+    # already falls back.
+    og_image = (
+        f"\n  ogImage: {json.dumps(cover_src, ensure_ascii=False)}," if cover_src else ""
+    )
     return f'''import Image from "next/image";
 import {{ createMetadata }} from "@/lib/metadata";
 import BlogLayout from "@/components/blog/BlogLayout";
@@ -557,13 +728,14 @@ import BlogLayout from "@/components/blog/BlogLayout";
 export const metadata = createMetadata({{
   title: {title},
   description: {description},
-  path: {path},
+  path: {path},{og_image}
 }});
 
-export default function {_component_name(fields["slug"])}() {{
+export default function {_component_name(slug)}() {{
   return (
     <BlogLayout
       title="{layout_title}"
+      slug="{html.escape(slug, quote=True)}"
       date="{publication_date}"
       readTime="{read_time}"
       category="{category}"
@@ -585,6 +757,7 @@ def _insert_blog_post(
     publication_date: str,
     read_time: str,
     category: str,
+    cover_image: str = "",
 ) -> str:
     existing = re.search(rf'(?m)^  \{{\n(?:.*\n)*?    slug: {re.escape(json.dumps(slug))},\n(?:.*\n)*?  \}},\n', source)
     if existing is not None:
@@ -610,8 +783,13 @@ def _insert_blog_post(
             f"    date: {json.dumps(publication_date)},",
             f"    readTime: {json.dumps(read_time)},",
             f"    category: {json.dumps(category)},",
-            "  },",
         ]
+        + (
+            [f"    coverImage: {json.dumps(cover_image, ensure_ascii=False)},"]
+            if cover_image
+            else []
+        )
+        + ["  },"]
     )
     prefix = source[:closing].rstrip()
     return prefix + "\n" + entry + source[closing:]
@@ -692,7 +870,8 @@ def main(argv: list[str] | None = None) -> int:
             plan = publisher.apply(args.task_id, publication_date=publish_date)
             print(f"APPLIED (not committed): {plan.page_path}")
             print(f"UPDATED: {publisher.website_root / 'src/data/blog-posts.ts'}")
-            print(f"COPIED: {plan.image_path}")
+            for image in plan.images:
+                print(f"COPIED ({image.role}): {image.path}")
             return 0
 
         plan = publisher.preview(
@@ -707,7 +886,8 @@ def main(argv: list[str] | None = None) -> int:
         print("DRY RUN — website worktree unchanged")
         print(f"PAGE: {paths['page']}")
         print(f"BLOG INDEX: {paths['blog_posts']}")
-        print(f"IMAGE: {paths['image']}")
+        for image in plan.images:
+            print(f"IMAGE ({image.role}): {paths[image.role if image.role != 'diagram' else 'image']}")
         print(f"DATE: {plan.publication_date}")
         print(f"READ TIME: {plan.read_time}")
         print(f"CATEGORY: {plan.category}")

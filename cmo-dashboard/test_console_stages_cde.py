@@ -404,6 +404,9 @@ class ConsoleStagesCDETests(unittest.TestCase):
             "id": "flow", "caption": "Approved topic to blog flow",
             "bound": True, "url": "/ceo/image?task=TASK-900&slot=flow",
             "filename": "TASK-900-flow.svg",
+            # A diagram carries no generation prompt and needs no alt field: its
+            # alt text is read out of the SVG's own <title> at publish.
+            "prompt": "", "alt": "", "kind": "diagram",
         }])
         self.assertIn(
             {"name": "TASK-900-flow.svg", "kind": "image:flow", "bytes": len(committed.read_bytes())},

@@ -21,6 +21,45 @@ This creates session `cmo-dashboard`; the session runs `/opt/data/profiles/itara
 
 `/opt/data/profiles/itarang_cmo/bin/dashboard-session-healthy` requires all of the following: the expected tmux session has a live pane, its process tree contains the expected server script owned by `hermes`, and that same process owns the expected listening port. A session name or live pane by itself is not considered healthy.
 
+## Blog imagery
+
+Two producers, two jobs. The writer hand-authors an accessible **SVG diagram** — the
+right tool for labels, numbers and steps. Google's Nano Banana 2 generates the
+**photographic illustration** that sits beside a paragraph and the **cover** that goes
+on the blog card and the Open Graph tag. Neither replaces the other.
+
+| Setting | Value |
+| --- | --- |
+| Model | `gemini-3.1-flash-image` (Nano Banana 2); override with `GEMINI_IMAGE_MODEL` |
+| Endpoint | `https://generativelanguage.googleapis.com/v1beta/interactions`; override with `GEMINI_API_URL` |
+| Key | `GEMINI_API_KEY` in `$CMO_DASHBOARD_PROFILE_DIR/.env` (mode 600) |
+| Cost | $0.067 per 1K image, standard tier. **No free tier** — an unbilled key fails on the first call. |
+| Output | 16:9 WebP, long edge capped at 1600px, quality stepped down toward 250 KB |
+
+At up to three articles a day and two images each, that is roughly **$12 a month**
+against the profile's $50 budget. Every call is recorded through
+`scripts/spend-tracker.py` as `provider: gemini`, and a generation that would cross the
+$40 warning is refused *before* the request goes out rather than discovered afterwards.
+
+Where it runs:
+
+- **Automatically**, in the write stage. The writer emits a scene for each image in the
+  same call that writes the article, so the picture comes from the piece rather than
+  from its headline. `cmo_runtime/image_gen.py` wraps each scene in the house rules —
+  no text, no faces, no logos, no documents — and writes the WebP into the artifact
+  store.
+- **By hand**, from the console's Files tab. Each slot carries the description it was
+  drawn from, editable, with a Generate button beside the existing upload. A diagram
+  slot says so and offers no button: the writer draws that one.
+
+A failed generation never fails a run. The article has already cost Firecrawl credits
+and a writer call; a missing picture leaves the slot unbound, which the console renders
+as an empty frame and the publisher treats as a post that simply has no cover.
+
+Generated images carry an invisible SynthID watermark, and an illustration publishes
+with `Illustration generated with AI.` in its caption (`AI_FIGURE_CREDIT` in
+`cmo_runtime/blog_publisher.py`; set it to `""` to stop disclosing).
+
 ## Deploy
 
 **This directory is not what is being served.** `dashboard_server.py` runs from

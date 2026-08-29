@@ -75,14 +75,36 @@ Declare each intended visual at its exact reading position in the Markdown body:
 {{image:<slot-id>|<reader-facing caption>}}
 ```
 
+An article declares **two** slots, of two different kinds:
+
+| Kind | Who makes it | File | Belongs to |
+| --- | --- | --- | --- |
+| Diagram | the writer, as SVG | `artifacts/<TASK-ID>-<slot-id>.svg` | labels, numbers, steps, comparisons |
+| Illustration | the image model, from a scene the writer describes | `artifacts/<TASK-ID>-<slot-id>.webp` | atmosphere, place, the human situation |
+
 Rules:
 
 - `<slot-id>` uses letters, numbers, hyphens, or underscores, starts with a letter or number, and is at most 41 characters.
 - A repeated slot ID is rendered once.
 - An unbound slot remains a captioned placeholder; it is not silently removed.
-- A writer-produced diagram uses `artifacts/<TASK-ID>-<slot-id>.svg`.
+- One diagram slot and one illustration slot is the most an article may publish. Two of either kind is refused rather than numbered.
 - Bind a committed diagram with board field `Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.svg`.
+- An illustration also needs `Image alt <slot-id>`. A picture with no alt text is refused at publish, because a screen reader would reach it and find nothing.
 - Browser uploads remain limited to PNG, JPG/JPEG, WEBP, or GIF and 5 MB. SVG is never accepted through the upload route.
+
+## Describing an image the writer does not draw
+
+Two scenes are written per article: one for the illustration, one for the cover that
+goes on the blog card and the social preview. Both are one or two sentences describing
+**what is visible** — not what it means, not what it proves.
+
+Nothing measurable goes in a picture. Every number, label, brand, document, screen and
+recognisable face belongs in the diagram or the prose. An image model renders text
+wrong, and a wrong figure inside a photograph is a fabricated claim that nobody
+proofreads. The generator enforces this in the prompt it sends; the writer's job is not
+to ask for it in the first place.
+
+Alt text says what the illustration shows, in one line, for a reader who cannot see it.
 
 ## Board fields written by the writer
 
@@ -97,6 +119,21 @@ Description: <one-line functional description of the completed article>
 Metric: <the approved content KPI and its measurement method>
 Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.svg   # one per committed diagram, when present
 ```
+
+The generated imagery is bound by the pipeline rather than by the writer, in the same
+`set_board_fields()` call:
+
+```text
+Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.webp   # the illustration
+Image alt <slot-id>: <one line of alt text>
+Image prompt <slot-id>: <the scene it was drawn from>
+Cover image: artifacts/<TASK-ID>-cover.webp
+Cover prompt: <the scene it was drawn from>
+```
+
+A generation that fails binds nothing and does not stop the article: the slot stays
+empty, the console shows an unbound frame, and a human can generate or upload one from
+the Files tab.
 
 It preserves `Topic stage: approved`, acceptance criteria, and every human-authored field. It does not set approval fields or claim publication.
 
