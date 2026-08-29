@@ -387,6 +387,19 @@ def dispatch(handler: Any, method: str) -> bool:
             result = ceo_actions.save_article_edit(
                 PROFILE_DIR, task_id, str(payload.get("text", "")), email
             )
+        elif path == "/ceo/api/article/title":
+            # Renaming the piece. One press moves the front-matter title the published
+            # page uses, the article's own H1, and both copies of the title on the
+            # board card — the four places a headline was written down and none of
+            # them kept in step. It goes through the same revision and the same
+            # refusals as any other edit to the article.
+            payload = _body(handler)
+            task_id = str(payload.get("task_id", "")).strip()
+            if not re.fullmatch(r"TASK-[0-9]+", task_id):
+                raise ValueError("valid task_id is required")
+            result = ceo_actions.rename_article(
+                PROFILE_DIR, task_id, str(payload.get("title", "")), email
+            )
         else:
             payload = _body(handler)
             if path == "/ceo/api/watchlist":

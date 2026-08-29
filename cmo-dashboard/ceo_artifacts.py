@@ -55,9 +55,13 @@ def text_reference(task: dict[str, Any], profile_dir: Path) -> dict[str, Any] | 
     return {"name": path.name, "text": text}
 
 
-def _front_matter(text: str) -> tuple[dict[str, str], str]:
-    """One front-matter rule for the whole console — the reader's."""
-    return ceo_reader.strip_front_matter(text)
+def _front_matter(text: str) -> tuple[dict[str, str], str, str]:
+    """One front-matter rule for the whole console — the reader's.
+
+    Three values, not two: the browser's editor needs the header block back as
+    text, or the save it posts is refused for having lost it.
+    """
+    return ceo_reader.split_source(text)
 
 
 def _slot_key(slot: str) -> str:
@@ -81,7 +85,7 @@ def artifact_payload(task: dict[str, Any], artifact: Path, profile_dir: Path) ->
         text = artifact.read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
-    metadata, body = _front_matter(text)
+    metadata, front_matter, body = _front_matter(text)
     words = re.findall(r"\b[\w’'-]+\b", body)
     slots: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -110,6 +114,11 @@ def artifact_payload(task: dict[str, Any], artifact: Path, profile_dir: Path) ->
     rendered = ceo_reader.render_article(body, slots)
     return {
         "text": body,
+        # The header block, kept beside the body rather than folded into `text`.
+        # `text` is the prose the Blogs search box reads and the reader renders, and
+        # a test asserts the slug never reaches it; the editor concatenates the two
+        # to get the file back byte for byte.
+        "front_matter": front_matter,
         "metadata": metadata,
         "html": rendered["html"],
         "review_notes_html": rendered["review_notes_html"],

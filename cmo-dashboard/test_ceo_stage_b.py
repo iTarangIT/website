@@ -338,6 +338,7 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
             ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
             ("/ceo/api/article/edit", {"task_id": "TASK-001", "text": "# Edited\n"}, None, ""),
+            ("/ceo/api/article/title", {"task_id": "TASK-001", "title": "Renamed"}, None, ""),
             ("/ceo/api/article/preview", {"text": "# Draft\n"}, None, ""),
             ("/ceo/api/competitor", {"target": "example.com"}, None, ""),
         ]

@@ -153,6 +153,20 @@ BOARD = """# iTarang CMO Task Board
 - Last updated: 2026-08-11T00:00:00Z
 - Updated: 2026-08-11T00:00:00Z
 
+### TASK-783 — A card the rename test consumes
+- ID: TASK-783
+- Title: A card the rename test consumes
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Human Approval
+- Attachment: artifacts/TASK-783-content.md
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: human
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
+
 ### TASK-777 — Battery replacement, city by city
 - ID: TASK-777
 - Title: Battery replacement, city by city
@@ -315,6 +329,7 @@ class ServedPageTests(unittest.TestCase):
         (root / "tasks.md").write_text(BOARD, encoding="utf-8")
         (root / "artifacts" / "TASK-777-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-779-content.md").write_text(ARTICLE, encoding="utf-8")
+        (root / "artifacts" / "TASK-783-content.md").write_text(ARTICLE, encoding="utf-8")
         seed_recorded_stages(root)
         cls.proposal_fixtures = seed_proposals(root)
         cls.root = root
@@ -564,6 +579,78 @@ class ServedPageTests(unittest.TestCase):
 
     # ---- marker: a rendered article --------------------------------------
 
+    # ---- marker: renaming an article -------------------------------------
+
+    def test_the_served_page_carries_the_title_editor(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn('id="edit-title"', page)
+        self.assertIn('id="title-form"', page)
+        self.assertIn('id="title-input"', page)
+        self.assertIn('id="title-save"', page)
+        self.assertIn('id="title-cancel"', page)
+        self.assertIn("/ceo/api/article/title", page)
+        # The pencil is an icon, so what a screen reader gets has to be in the bytes.
+        self.assertIn('aria-label="Edit title"', page)
+        # And the controls must be wired, not merely present.
+        self.assertIn("$('#edit-title').addEventListener('click',openTitleForm)", page)
+        self.assertIn("$('#title-save').addEventListener('click',saveTitle)", page)
+
+    def test_renaming_over_the_wire_moves_every_copy_of_the_title(self) -> None:
+        """A title is written down four times; a rename that moves three is a bug.
+
+        Uses its own card, because this mutates the board and a suite whose
+        assertions depend on which test ran first is a suite that will lie later.
+        """
+        before = self.blogs()["TASK-783"]
+        self.assertEqual(before["title"], "A card the rename test consumes")
+
+        status, _headers, body = self.fetch(
+            "/ceo/api/article/title",
+            auth=True,
+            payload={"task_id": "TASK-783", "title": "What a replacement pack really costs"},
+        )
+        self.assertEqual(status, 200, body)
+
+        after = self.blogs()["TASK-783"]
+        # The card, as the console shows it.
+        self.assertEqual(after["title"], "What a replacement pack really costs")
+        # The header the published page takes its heading from.
+        self.assertIn(
+            "title: What a replacement pack really costs", after["article"]["front_matter"]
+        )
+        # The article's own H1, which is what this console renders.
+        self.assertIn("<h1>What a replacement pack really costs</h1>", after["article"]["html"])
+        # And the address did not move with the headline.
+        self.assertIn("slug: battery-replacement", after["article"]["front_matter"])
+        # The version it replaced is kept, and the thread says who did it.
+        self.assertEqual([item["round"] for item in after["article"]["revisions"]], [1])
+        self.assertIn(CEO_EMAIL, after["approval_thread_1_edit"])
+
+    def test_a_title_the_publisher_could_not_read_back_is_refused(self) -> None:
+        status, _headers, body = self.fetch(
+            "/ceo/api/article/title", auth=True, payload={"task_id": "TASK-779", "title": '"Quoted"'}
+        )
+
+        self.assertEqual(status, 400, body)
+        self.assertIn("quote", json.loads(body)["error"])
+        self.assertEqual(self.blogs()["TASK-779"]["title"], "Charging habits that shorten a pack's life")
+
+    def test_an_empty_title_is_refused(self) -> None:
+        status, _headers, body = self.fetch(
+            "/ceo/api/article/title", auth=True, payload={"task_id": "TASK-779", "title": "   "}
+        )
+
+        self.assertEqual(status, 400, body)
+        self.assertIn("empty", json.loads(body)["error"])
+
+    def test_renaming_needs_a_session(self) -> None:
+        status, _headers, _body = self.fetch(
+            "/ceo/api/article/title", payload={"task_id": "TASK-779", "title": "Renamed"}
+        )
+
+        self.assertIn(status, {401, 403})
+
     def test_a_served_article_contains_a_real_table_element(self) -> None:
         article = self.text("/api/attachment?task=TASK-777", auth=True)
 
@@ -732,7 +819,15 @@ class ServedPageTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(served),
-            ["TASK-777", "TASK-778", "TASK-779", "TASK-780", "TASK-781", "TASK-782"],
+            [
+                "TASK-777",
+                "TASK-778",
+                "TASK-779",
+                "TASK-780",
+                "TASK-781",
+                "TASK-782",
+                "TASK-783",
+            ],
         )
         self.assertIsNone(served["TASK-780"]["article"])
         self.assertEqual(served["TASK-780"]["blog"]["label"], "Queued to be written")

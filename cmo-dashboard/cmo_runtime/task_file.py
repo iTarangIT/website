@@ -544,6 +544,57 @@ class TaskFile:
             candidate = original[: heading.start()] + card + "\n\n" + original[end:]
             self._commit(original, candidate, "board field update")
 
+    def set_card_title(self, task_id: str, title: str) -> None:
+        """Rename a card — the heading and the mirrored field, in one commit.
+
+        A board card carries its title twice: in the `### TASK-000 — ...` heading and
+        in a `- Title:` field. `dashboard_server.parse_tasks` reads the heading first
+        and then lets the field overwrite it, so the field is what the console shows
+        and the heading is what every other reader greps. Writing one without the
+        other leaves a card that answers the same question two ways.
+
+        `set_board_fields` can already write the field; nothing could write the
+        heading, which is why this exists rather than a second call at the caller.
+        Both go through one lock and one `_commit`, so they cannot land apart.
+        """
+        # Collapsed before it is validated, not after: `_validate_single_line` asks
+        # whether the value is empty, and "   " is not — so a whitespace-only title
+        # would pass it and write `### TASK-000 —` with nothing after the dash.
+        title = " ".join(str(title or "").split())
+        _validate_single_line("title", title)
+        timestamp = utc_timestamp()
+
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock_path.touch(exist_ok=True)
+        with self.lock_path.open("r+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle, fcntl.LOCK_EX)
+            original = self.path.read_text(encoding="utf-8")
+            heading = re.search(rf"(?m)^### {re.escape(task_id)}(?:\s+—\s+.*?)?$", original)
+            if heading is None:
+                raise TaskFileError(f"task not found: {task_id}")
+            boundary = re.search(r"(?m)^### |^## ", original[heading.end() :])
+            end = heading.end() + (
+                boundary.start() if boundary is not None else len(original) - heading.end()
+            )
+            card = original[heading.start() : end].strip()
+            # An em dash, not a hyphen: the board parser's card pattern requires one,
+            # and a hyphen yields a board with zero tasks rather than an error.
+            # A function replacement, not a template: a title is free text a human
+            # typed, and a backslash in it would otherwise be read as a group
+            # reference and either corrupt the heading or raise.
+            card = re.sub(
+                rf"\A### {re.escape(task_id)}(?:\s+—\s+.*)?$",
+                lambda _match: f"### {task_id} — {title}",
+                card,
+                count=1,
+                flags=re.M,
+            )
+            card = self._set_board_field(card, "Title", title)
+            card = self._set_board_field(card, "Last updated", timestamp)
+            card = self._set_board_field(card, "Updated", timestamp)
+            candidate = original[: heading.start()] + card + "\n\n" + original[end:]
+            self._commit(original, candidate, "card title update")
+
     def add_board_cards(self, cards: list[str], section: str = "Backlog") -> None:
         """Add fully rendered cards through the locked, validated commit path."""
         if section not in BOARD_SECTIONS:
@@ -669,7 +720,10 @@ class TaskFile:
             raise TaskFileError(f"duplicate {name} field")
         line = f"- {name}: {value}"
         if matches:
-            return re.sub(pattern, line, card, count=1)
+            # `value` reaches here from a human-typed title, so the replacement is a
+            # function: `re.sub` would read a backslash in a template as a group
+            # reference.
+            return re.sub(pattern, lambda _match: line, card, count=1)
         return card.rstrip() + "\n" + line
 
     @staticmethod

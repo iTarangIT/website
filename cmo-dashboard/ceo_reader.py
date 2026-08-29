@@ -23,6 +23,7 @@ __all__ = [
     "render_article",
     "split_review_notes",
     "strip_front_matter",
+    "split_source",
     "REVIEW_HEADINGS",
 ]
 
@@ -80,6 +81,25 @@ def strip_front_matter(text: str) -> tuple[dict[str, str], str]:
                 metadata[key] = value.strip().strip('"').strip("'")
             return metadata, "\n".join(lines[index + 1 :])
     return {}, body
+
+
+def split_source(text: str) -> tuple[dict[str, str], str, str]:
+    """The same split as `strip_front_matter`, keeping the block it throws away.
+
+    The console's editor has to hand back the whole file, header included, or
+    `check_edited_front_matter` refuses the save — so the browser needs the block
+    as text, not as the parsed dict. Rebuilding it from `strip_front_matter`'s
+    metadata cannot work: the parse lowercases keys, drops quotes and forgets the
+    order, so a save would rewrite the header every time.
+
+    The prefix is taken by length rather than re-matched, because every return path
+    in `strip_front_matter` yields a suffix of the text it was given. So
+    `front_matter + body == text` holds by construction — including the BOM and any
+    blank lines above the block — and there is no second parser to drift from the
+    first.
+    """
+    metadata, body = strip_front_matter(text)
+    return metadata, text[: len(text) - len(body)], body
 
 
 def _is_review_heading(title: str) -> bool:

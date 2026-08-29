@@ -1433,6 +1433,7 @@ function detailFiles(task){
 async function renderDetail(force=false){
  const task=findTask(openTask);if(!task)return;
  $('#detail-id').textContent=task.id;$('#detail-title').textContent=task.title||task.id;
+ paintTitleControl(task);
  $$('.nested button').forEach(node=>node.classList.toggle('active',node.dataset.detail===detailTab));
  const body=$('#detail-body');
  /* Two tabs. Anything else — a stale value, an old link — is Read. */
@@ -1453,12 +1454,86 @@ async function renderDetail(force=false){
   await refreshBlogPublish(task);
  }
 }
+/* ------------------------------------------------------- renaming an article */
+/* A blog title is written down four times — the card heading, the card's Title
+   field, the article's front-matter `title:` that the published page uses, and the
+   article's own H1 — and nothing kept them in step. The pencil moves all four in one
+   press, through the same revision and the same refusals as any other article edit.
+
+   It is offered only where the rename will be accepted. An approved article is
+   closed to it, because the headline is part of what was approved; saying so on the
+   disabled button beats a control that fails when pressed. */
+let renamingTitle=false;
+function titleRefusal(task){
+ if(!task)return 'No card is open.';
+ if(!task.article)return 'This card has no article to retitle yet.';
+ if(task.decision_approved&&!task.decision_stale)
+  return 'This article carries a human decision. Ask for a revision to reopen it.';
+ return '';
+}
+function paintTitleControl(task){
+ const button=$('#edit-title');if(!button)return;
+ const reason=titleRefusal(task);
+ button.hidden=!task||!task.article;
+ button.disabled=Boolean(reason);
+ button.title=reason||'Edit title';
+ button.setAttribute('aria-label',reason||'Edit title');
+ if(!renamingTitle)closeTitleForm();
+}
+function closeTitleForm(){
+ renamingTitle=false;
+ const form=$('#title-form');if(form)form.hidden=true;
+ const error=$('#title-error');if(error){error.hidden=true;error.textContent='';}
+ const line=$('#title-state');if(line)line.textContent='';
+}
+function openTitleForm(){
+ const task=findTask(openTask);
+ if(!task||titleRefusal(task))return;
+ renamingTitle=true;
+ const form=$('#title-form');if(form)form.hidden=false;
+ const input=$('#title-input');
+ if(input){input.value=task.title||'';input.focus();input.select();}
+ const error=$('#title-error');if(error){error.hidden=true;error.textContent='';}
+}
+async function saveTitle(){
+ if(busy)return;
+ const task=findTask(openTask);if(!task)return;
+ const input=$('#title-input');
+ const title=input?input.value.trim():'';
+ const error=$('#title-error');
+ const fail=message=>{if(error){error.hidden=false;error.textContent=message;}};
+ if(!title){fail('Type a title.');input?.focus();return;}
+ if(title===(task.title||'')){fail('That is already the title.');return;}
+ if(error){error.hidden=true;error.textContent='';}
+ const action=runAction({
+  button:$('#title-save'),label:'Saving…',
+  surface:'#title-state',failTitle:'The title was not changed.'
+ });
+ try{
+  await post('/ceo/api/article/title',{task_id:task.id,title});
+  toast('Renamed. The previous version of the article is kept.');
+  closeTitleForm();
+  await refresh();
+  await renderDetail(true);
+ }catch(err){fail(err.message);action.fail(err.message);}
+ finally{action.done();}
+}
+/* The article exactly as it sits on disk, header included.
+   `article.text` is the prose — what the reader renders and the search box reads —
+   and posting that back to /ceo/api/article/edit is refused for having lost the
+   front matter, which is what made Save revision fail on every article. Anything
+   that means "the source file" goes through here. */
+function articleSource(task){
+ const article=task&&task.article;
+ return article?(article.front_matter||'')+(article.text||''):'';
+}
 /* What a background update is allowed to do to an open card. */
 async function syncDetail(){
  const task=findTask(openTask);
  if(!task)return;
+ if(renamingTitle)return;
  if(!editing){await renderDetail();return;}
- const theirs=task.article?.text||'';
+ const theirs=articleSource(task);
  if(theirs===editorBase)return;
  if(editorText!==editorBase){
   /* He has typed. Losing that once would end his trust in the console. */
@@ -1471,15 +1546,15 @@ async function syncDetail(){
  const line=$('#editor-state');if(line)line.textContent='Updated to the version saved elsewhere.';
 }
 async function openDetail(id){
- openTask=id;detailTab='read';editing=false;editorText='';editorBase='';
+ openTask=id;detailTab='read';editing=false;editorText='';editorBase='';closeTitleForm();
  await renderDetail(true);$('#detail').showModal();
 }
 function closeDetail(){
  if(editing&&editorText!==editorBase&&!confirm('Discard your edit?'))return;
- openTask=null;editing=false;editorText='';editorBase='';$('#detail').close();
+ openTask=null;editing=false;editorText='';editorBase='';closeTitleForm();$('#detail').close();
 }
 function downloadArticle(task){
- const blob=new Blob([task.article?.text||''],{type:'text/markdown;charset=utf-8'});
+ const blob=new Blob([articleSource(task)],{type:'text/markdown;charset=utf-8'});
  const link=document.createElement('a');
  link.href=URL.createObjectURL(blob);
  link.download=(task.article?.metadata?.slug||task.id)+'.md';
@@ -1621,7 +1696,7 @@ document.addEventListener('click',event=>{
  if(data.undo)undoRejection(data.undo);
  if(data.reader){
   const task=findTask(openTask);
-  if(data.reader==='edit'){editing=true;editorText=task.article?.text||'';editorBase=editorText;renderDetail(true);}
+  if(data.reader==='edit'){editing=true;editorText=articleSource(task);editorBase=editorText;renderDetail(true);}
   if(data.reader==='download')downloadArticle(task);
   if(data.reader==='print')window.print();
  }
@@ -1697,6 +1772,13 @@ $('#watch-keyword').addEventListener('click',()=>{const keyword=$('#trend-keywor
 $('#apply-range').addEventListener('click',()=>{
  setUi('analytics',{range:'custom',start:$('#range-start').value,end:$('#range-end').value},false);
  refresh();
+});
+$('#edit-title').addEventListener('click',openTitleForm);
+$('#title-save').addEventListener('click',saveTitle);
+$('#title-cancel').addEventListener('click',closeTitleForm);
+$('#title-input').addEventListener('keydown',event=>{
+ if(event.key==='Enter'){event.preventDefault();saveTitle();}
+ if(event.key==='Escape'){event.preventDefault();closeTitleForm();}
 });
 $('#close-detail').addEventListener('click',closeDetail);
 $('#detail').addEventListener('cancel',event=>{event.preventDefault();closeDetail();});

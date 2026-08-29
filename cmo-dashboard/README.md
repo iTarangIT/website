@@ -184,6 +184,65 @@ console takes the first. Publishing stops at the preview, as it always did. The 
 here and still proven; nothing in the page reaches them, and `/ceo/publish` cannot be
 called without a `request_id` that only its own check mints for an eligible card.
 
+## Renaming an article
+
+A blog title used to be written down four times, and kept in step nowhere:
+
+| Where | Written by | What it drives |
+|---|---|---|
+| the card heading, `### TASK-095 — ...` | `topic_proposals._mint_card`, from `proposal_versions.title` | what greps find |
+| the card's `- Title:` field | the same template | `task.title` — the Blogs list and the detail heading |
+| the article's front-matter `title:` | the writer skill | `BlogLayout title=` on the published page |
+| the article's `# ` H1 | the writer skill | the console reader; the publisher strips it |
+
+`parse_tasks` reads the heading and then lets the `Title` field overwrite it, so the
+field is what the console shows and the heading is what everything else greps. Nothing
+could write either of them, and the only way to reach the other two was the Markdown
+editor — which could not save at all (below). So the title the writer chose was the
+title that shipped.
+
+**The pencil beside the title on an open card moves all four in one press.**
+`POST /ceo/api/article/title` → `ceo_actions.rename_article`, which rewrites the
+front-matter `title:` line and the first H1 and then hands the article to
+`save_article_edit` — the same write path the editor uses, so a rename gets the same
+512 KB cap, the same refusals, the same `<stem>.r<n>.md` archive of the version it
+replaced, and the same `Approval thread N edit` line naming who did it. The board half
+goes through `TaskFile.set_card_title`, which moves the heading and the field under one
+lock and one commit so they cannot land apart.
+
+What it does not touch: **the slug**, so the page keeps its address, and
+**`meta_title`**, which is the search title and a different sentence on purpose.
+
+Refusals, all with the reason on screen and the button greyed rather than failing:
+
+- an article a human decision still covers — the headline is part of what was approved,
+  so it is closed with the rest of it (`Ask for a revision instead`);
+- a title that would not read back as typed. The header is not YAML: `ceo_reader`
+  strips surrounding quotes and the publisher does not, so `title: "Foo"` would show
+  bare here and publish with the quotes on. Refused rather than silently picking one;
+- empty, or longer than 180 characters — the cap `proposal_versions.title` already has.
+
+The article and the board are two files and cannot be one transaction. The article is
+written first, because that is where the refusals are; if the board write then fails the
+error says so, and "unchanged" is judged on the article **and** the card, so pressing
+Save again finishes the rename without minting a second revision.
+
+### The editor posts back the whole file
+
+`artifact_payload` splits an article into `front_matter` and `text`. `text` is the prose
+— what the reader renders and the Blogs search box reads, with the header deliberately
+not in it — and `front_matter` is the block as text, not as the parsed dict, because the
+parse lowercases keys, drops quotes and forgets the order.
+
+The browser rejoins them in `articleSource()`, and `ceo_reader.split_source` guarantees
+`front_matter + text` is the file byte for byte, on every path including a BOM.
+
+This is load-bearing. The editor used to seed its textarea from `text` alone, and
+`check_edited_front_matter` refuses a save that lost the header — so **Save revision
+was refused on every article**, with `the front matter is gone`, from the day that guard
+landed. Download Markdown had the same hole and produced a file that could not be
+published back. Both now carry the header.
+
 ## The console updates itself
 
 Sanchit never presses refresh. Two separate mechanisms, because the two problems are

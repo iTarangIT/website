@@ -229,5 +229,83 @@ class TheRuleItself(unittest.TestCase):
         self.assertEqual(TaskFile.card_ids(text), ["TASK-1", "TASK-22", "TASK-3"])
 
 
+class RenamingACardMovesBothCopiesOfTheTitle(Fixture):
+    """A card says its title twice, and only one of them is what the console shows.
+
+    `dashboard_server.parse_tasks` takes the title from the `### TASK-000 — ...`
+    heading and then lets a `- Title:` field overwrite it. So the field is what the
+    console renders and the heading is what everything else greps, and a writer that
+    moved one would leave the card answering the same question two ways.
+    """
+
+    def parsed(self, task_id: str = "TASK-101") -> dict:
+        import dashboard_server
+
+        text = self.path.read_text(encoding="utf-8")
+        return next(item for item in dashboard_server.parse_tasks(text) if item["id"] == task_id)
+
+    def test_the_heading_and_the_field_both_move(self) -> None:
+        self.task_file.set_card_title("TASK-101", "A renamed card")
+
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn("### TASK-101 — A renamed card", text)
+        self.assertIn("- Title: A renamed card", text)
+        self.assertEqual(self.parsed()["title"], "A renamed card")
+        self.assertEqual(self.parsed("TASK-100")["title"], "A card", "another card moved")
+
+    def test_the_separator_stays_an_em_dash(self) -> None:
+        """A hyphen there yields a board with zero cards rather than an error."""
+        self.task_file.set_card_title("TASK-101", "A renamed card")
+
+        self.assertIn("### TASK-101 — A renamed card", self.path.read_text(encoding="utf-8"))
+        self.assertEqual(len(TaskFile.card_ids(self.path.read_text(encoding="utf-8"))), 3)
+
+    def test_a_title_carrying_a_backslash_lands_verbatim(self) -> None:
+        """The replacement is a function, not a template.
+
+        A title is free text a human typed. Passed to `re.sub` as a template, a
+        backslash in it is read as a group reference — which corrupts the heading
+        silently or raises, depending on what follows it.
+        """
+        self.task_file.set_card_title("TASK-101", r"Costs \ savings, and a \g<0> too")
+
+        self.assertEqual(self.parsed()["title"], r"Costs \ savings, and a \g<0> too")
+
+    def test_a_title_with_no_text_in_it_is_refused(self) -> None:
+        """`_validate_single_line` alone would let "   " through — it is not empty.
+
+        A heading that passes validation and then reads `### TASK-101 —` with nothing
+        after the dash is worse than a refusal, so the value is collapsed first and
+        judged after.
+        """
+        for bad in ("", "   ", "\n\t "):
+            with self.subTest(title=bad), self.assertRaises(TaskFileError):
+                self.task_file.set_card_title("TASK-101", bad)
+
+        self.assertEqual(self.parsed()["title"], "A card")
+
+    def test_a_title_pasted_across_two_lines_is_collapsed_not_refused(self) -> None:
+        """A card heading is one line, and a paste that spans two is still a title.
+
+        Collapsing keeps the invariant the board needs — no writer may put a newline
+        in a heading — without refusing a human for how they copied the text.
+        """
+        self.task_file.set_card_title("TASK-101", "two\nlines   and  spaces")
+
+        self.assertEqual(self.parsed()["title"], "two lines and spaces")
+        self.assertEqual(validate_structure(self.path), [])
+
+    def test_renaming_a_card_that_is_not_there_is_refused(self) -> None:
+        with self.assertRaises(TaskFileError) as raised:
+            self.task_file.set_card_title("TASK-999", "A renamed card")
+
+        self.assertIn("task not found", str(raised.exception))
+
+    def test_a_rename_keeps_the_board_valid_and_whole(self) -> None:
+        self.task_file.set_card_title("TASK-102", "A completed card, renamed")
+
+        self.assertEqual(validate_structure(self.path), [])
+        self.assertEqual(TaskFile.card_ids(self.path.read_text(encoding="utf-8")), CARDS)
+
 if __name__ == "__main__":
     unittest.main()

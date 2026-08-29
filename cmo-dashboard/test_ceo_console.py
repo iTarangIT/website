@@ -244,5 +244,170 @@ class CEOConsoleTests(unittest.TestCase):
         self.assertNotRegex(page, r'''(?:src|href)=["'](?:https?:)?//''')
 
 
+class RenamingAnArticleMovesEveryCopyOfTheTitle(unittest.TestCase):
+    """A blog title was written down four times and kept in step nowhere.
+
+    The card heading, the card's mirrored `Title` field, the front-matter `title:`
+    the published page's layout reads, and the article's own H1. A rename that moves
+    some of them is how the console and the live site come to disagree, so these
+    assert on all four and on the two that must not move: the slug, which is the
+    page's address, and `meta_title`, which is a different sentence on purpose.
+    """
+
+    ARTICLE = (
+        "---\ntitle: A guide\nmeta_title: Search title stays put\n"
+        "meta_description: A description.\nslug: a-guide\ncategory: financing\n"
+        "audience: EV owners\nsource_urls: https://example.org/one\n---\n\n"
+        "# A guide\n\nBody.\n"
+    )
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "state").mkdir()
+        (self.root / "artifacts").mkdir()
+        self.article = self.root / "artifacts" / "TASK-1-content.md"
+        self.article.write_text(self.ARTICLE, encoding="utf-8")
+        (self.root / "tasks.md").write_text(
+            board_card(attachment="artifacts/TASK-1-content.md"), encoding="utf-8"
+        )
+
+    def card(self):
+        import dashboard_server
+
+        text = (self.root / "tasks.md").read_text(encoding="utf-8")
+        return next(item for item in dashboard_server.parse_tasks(text) if item["id"] == "TASK-1")
+
+    def rename(self, title, editor="ceo@example.test"):
+        return ceo_actions.rename_article(self.root, "TASK-1", title, editor)
+
+    def test_one_rename_moves_the_heading_the_field_the_header_and_the_h1(self):
+        self.rename("Battery planning for Delhi NCR")
+
+        board = (self.root / "tasks.md").read_text(encoding="utf-8")
+        article = self.article.read_text(encoding="utf-8")
+        self.assertIn("### TASK-1 — Battery planning for Delhi NCR", board)
+        self.assertIn("- Title: Battery planning for Delhi NCR", board)
+        self.assertIn("title: Battery planning for Delhi NCR", article)
+        self.assertIn("# Battery planning for Delhi NCR", article)
+        # And the console reads back the new one, through the parser it really uses.
+        self.assertEqual(self.card()["title"], "Battery planning for Delhi NCR")
+
+    def test_a_rename_leaves_the_address_and_the_search_title_alone(self):
+        self.rename("A completely different headline")
+
+        article = self.article.read_text(encoding="utf-8")
+        self.assertIn("slug: a-guide", article, "the page's URL moved")
+        self.assertIn("meta_title: Search title stays put", article)
+
+    def test_a_rename_keeps_the_version_it_replaced_and_names_who_did_it(self):
+        result = self.rename("A new headline", editor="sanchit@example.test")
+
+        archive = self.root / "artifacts" / "TASK-1-content.r1.md"
+        self.assertEqual(result["archived_as"], "TASK-1-content.r1.md")
+        self.assertEqual(archive.read_text(encoding="utf-8"), self.ARTICLE)
+        self.assertIn("sanchit@example.test", self.card()["approval_thread_1_edit"])
+
+    def test_the_renamed_article_still_satisfies_the_publisher(self):
+        from cmo_runtime.content_flow import _frontmatter
+
+        self.rename("A headline the publisher must accept")
+
+        fields, _body = _frontmatter(self.article.read_text(encoding="utf-8"))
+        self.assertEqual(fields["title"], "A headline the publisher must accept")
+        self.assertEqual(fields["slug"], "a-guide")
+
+    def test_an_article_a_decision_covers_cannot_be_renamed(self):
+        """The headline is part of what was approved, so it is closed with the rest."""
+        from cmo_runtime.task_file import TaskFileError
+
+        with patch.object(ceo_actions, "_decision_that_holds", return_value={"decision": "approve"}):
+            with self.assertRaises(TaskFileError) as raised:
+                self.rename("A new headline")
+
+        self.assertIn("already carries a human decision", str(raised.exception))
+        self.assertEqual(self.article.read_text(encoding="utf-8"), self.ARTICLE)
+
+    def test_a_title_that_would_not_read_back_as_typed_is_refused(self):
+        """The header is not YAML.
+
+        `ceo_reader` strips surrounding quotes on the way in and the publisher does
+        not, so a quoted title would show bare here and publish with the quotes on.
+        Refusing beats silently picking one of the two readings.
+        """
+        from cmo_runtime.task_file import TaskFileError
+
+        for bad, reason in (
+            ("", "empty"),
+            ("   ", "blank"),
+            ('"Quoted"', "quoted"),
+            ("x" * 181, "over the 180-character cap"),
+        ):
+            with self.subTest(reason=reason), self.assertRaises(TaskFileError):
+                self.rename(bad)
+        self.assertEqual(self.article.read_text(encoding="utf-8"), self.ARTICLE)
+
+    def test_renaming_to_the_title_it_already_has_everywhere_is_refused(self):
+        """Refused only once every copy agrees.
+
+        The fixture is a card that has already drifted — the board says
+        `Content idea`, the article says `A guide` — which is exactly the state this
+        control exists to fix. So renaming to the article's own title is real work
+        the first time and a no-op the second.
+        """
+        from cmo_runtime.task_file import TaskFileError
+
+        self.assertEqual(self.card()["title"], "Content idea")
+        self.rename("A guide")
+        self.assertEqual(self.card()["title"], "A guide")
+
+        with self.assertRaises(TaskFileError) as raised:
+            self.rename("A guide")
+        self.assertIn("unchanged", str(raised.exception))
+
+    def test_a_rename_that_wrote_the_article_and_not_the_card_can_be_finished(self):
+        """The two writes are two files and cannot be one transaction.
+
+        So the failure has to be recoverable rather than merely reported: the article
+        already says the new title, and asking only "did the article change" would
+        refuse the retry and leave the card on the old one for good.
+        """
+        from cmo_runtime.task_file import TaskFile, TaskFileError
+
+        with patch.object(TaskFile, "set_card_title", side_effect=OSError("disk full")):
+            with self.assertRaises(TaskFileError) as raised:
+                self.rename("Half a rename")
+        self.assertIn("board card was not", str(raised.exception))
+        self.assertIn("title: Half a rename", self.article.read_text(encoding="utf-8"))
+        self.assertEqual(self.card()["title"], "Content idea")
+
+        result = self.rename("Half a rename")
+
+        self.assertEqual(self.card()["title"], "Half a rename")
+        # The article was already right, so finishing the card mints no second
+        # revision — a retry must not cost a version.
+        self.assertNotIn("revision_round", result)
+        self.assertFalse((self.root / "artifacts" / "TASK-1-content.r2.md").exists())
+
+    def test_an_article_with_no_h1_does_not_grow_one(self):
+        """Preserving what the writer left is not the same as inventing it."""
+        source = "---\ntitle: Old\nslug: s\n---\n\nProse with no heading.\n"
+
+        renamed = ceo_actions.retitle_markdown(source, "New")
+
+        self.assertIn("title: New", renamed)
+        self.assertNotIn("# New", renamed)
+
+    def test_only_the_first_h1_is_the_headline(self):
+        source = "---\ntitle: Old\n---\n\n# Old\n\n## Section\n\n# Later heading\n"
+
+        renamed = ceo_actions.retitle_markdown(source, "New")
+
+        self.assertEqual(
+            [line for line in renamed.splitlines() if line.startswith("#")],
+            ["# New", "## Section", "# Later heading"],
+        )
+
 if __name__ == "__main__":
     unittest.main()

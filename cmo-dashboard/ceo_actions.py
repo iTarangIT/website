@@ -120,6 +120,16 @@ MAX_ARTICLE_BYTES = 512 * 1024
 
 
 
+def _normalised(text: str) -> bytes:
+    """The bytes an edit actually lands as: newlines settled, one trailing newline.
+
+    Shared so that "is this different from what is on disk" is one question with one
+    answer, rather than the saver's answer and the caller's.
+    """
+    body = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    return (body.rstrip() + "\n").encode("utf-8")
+
+
 def _next_revision(article: Path, current_round: int) -> int:
     """The first round number that has not already archived a version."""
     used = {current_round}
@@ -144,7 +154,7 @@ def save_article_edit(profile_dir: Path, task_id: str, text: str, editor: str) -
     body = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     if not body.strip():
         raise TaskFileError("an edited article cannot be empty")
-    encoded = (body.rstrip() + "\n").encode("utf-8")
+    encoded = _normalised(text)
     if len(encoded) > MAX_ARTICLE_BYTES:
         raise TaskFileError("the edited article exceeds the 512 KB limit")
     tasks_path = profile_dir / "tasks.md"
@@ -218,6 +228,127 @@ def save_article_edit(profile_dir: Path, task_id: str, text: str, editor: str) -
         "archived_as": archive.name,
         "bytes": len(encoded),
     }
+
+
+#: The cap the topic pipeline already puts on a title, kept in step so a headline
+#: a human types here cannot be longer than one the model proposed.
+MAX_TITLE_CHARS = 180
+
+#: The front-matter line the published page takes its heading from.
+FRONT_MATTER_TITLE = re.compile(r"(?m)^title:[^\n]*$")
+
+#: The article's own H1 — what the console reader shows. The publisher strips it and
+#: uses the front-matter title instead, so the two must say the same thing.
+BODY_H1 = re.compile(r"(?m)^#[ \t]+\S.*$")
+
+
+def retitle_markdown(source: str, title: str) -> str:
+    """The article with its front-matter `title:` and its H1 renamed, nothing else.
+
+    Line surgery rather than a parse-and-rebuild. The header block is compared field
+    by field on save — `check_edited_front_matter` refuses an edit that drops one —
+    so every other line has to come back byte for byte, which reserialising a parsed
+    dict does not guarantee.
+
+    An article with no H1 does not grow one. The rule the header guard states applies
+    here too: preserving what the writer left is not the same as inventing it.
+    """
+    import ceo_reader
+
+    _metadata, front_matter, body = ceo_reader.split_source(source)
+    if front_matter:
+        front_matter, count = FRONT_MATTER_TITLE.subn(lambda _m: f"title: {title}", front_matter, count=1)
+        if not count:
+            raise _refusal("this article's front matter has no title line to change")
+    return front_matter + BODY_H1.sub(lambda _m: f"# {title}", body, count=1)
+
+
+def _refusal(message: str) -> Exception:
+    from cmo_runtime.task_file import TaskFileError
+
+    return TaskFileError(message)
+
+
+def _clean_title(title: str) -> str:
+    """Normalise a typed headline, or refuse it with the reason a human can act on."""
+    import ceo_reader
+
+    cleaned = " ".join(str(title or "").split())
+    if not cleaned:
+        raise _refusal("a title cannot be empty")
+    if len(cleaned) > MAX_TITLE_CHARS:
+        raise _refusal(f"a title cannot be longer than {MAX_TITLE_CHARS} characters")
+    # The header is not YAML. `ceo_reader` strips surrounding quotes when it reads a
+    # value back but `content_flow._frontmatter` and the publisher do not, so a
+    # quoted title would show bare on this console and publish with the quotes still
+    # on it. Refuse rather than silently pick one of the two readings.
+    read_back = ceo_reader.strip_front_matter(f"---\ntitle: {cleaned}\n---\n")[0].get("title", "")
+    if read_back != cleaned:
+        raise _refusal("a title cannot start or end with a quote mark; type it as plain text")
+    return cleaned
+
+
+def rename_article(profile_dir: Path, task_id: str, title: str, editor: str) -> dict[str, object]:
+    """Retitle an article everywhere it is named, as one recorded revision.
+
+    A blog title is written down four times: the board card's heading and its
+    mirrored `Title` field, the article's front-matter `title:` — which is what the
+    published page's layout uses — and the article's H1, which is what this console
+    renders. Nothing kept them in step, so the only honest rename moves all four.
+
+    The article half goes through `save_article_edit` rather than writing the file
+    here. That is deliberate: it already refuses an article a decision still covers,
+    already archives the version being replaced as `<stem>.r<n>.md`, already writes
+    the change into the approval thread under the name that made it, and already
+    checks the header survived. A rename is an edit that happens to touch two lines,
+    and giving it a second way into the artifact would mean two sets of those rules.
+
+    The slug is not touched, so the page keeps its address.
+    """
+    import console_board
+    from cmo_runtime.task_file import TaskFile
+
+    title = _clean_title(title)
+    tasks_path = profile_dir / "tasks.md"
+    task = _task(tasks_path, task_id)
+    article = console_board.artifact_for(task, profile_dir)
+    if article is None:
+        raise _refusal(f"{task_id} has no article to retitle")
+
+    source = article.read_text(encoding="utf-8", errors="replace")
+    renamed = retitle_markdown(source, title)
+    # Asked the way `save_article_edit` asks it. Comparing the raw strings would call
+    # a file whose only difference is trailing whitespace "changed", and the save
+    # would then refuse it as unchanged — a rename that reports a failure it caused.
+    article_changed = _normalised(renamed) != article.read_bytes()
+    card_matches = str(task.get("title", "")).strip() == title
+
+    # Unchanged means unchanged *everywhere*. Asking only about the article would
+    # deadlock a retry after the board write below failed: the article would already
+    # say the new title, so the second press would be refused and the card would keep
+    # the old one forever.
+    if not article_changed and card_matches:
+        raise _refusal("the title is unchanged")
+
+    result: dict[str, object] = {"ok": True, "task_id": task_id, "title": title}
+    if article_changed:
+        result.update(save_article_edit(profile_dir, task_id, renamed, editor))
+        result["title"] = title
+
+    # Not one transaction with the write above, and it cannot be — two files, two
+    # locks. The article goes first because that is where the refusals live, and the
+    # check above lets a human press Save again to finish a rename that got this far
+    # and no further.
+    try:
+        TaskFile(tasks_path, lock_path=profile_dir / "state" / "tasks.lock").set_card_title(
+            task_id, title
+        )
+    except Exception as error:
+        raise _refusal(
+            f"the article was retitled but the board card was not: {error}. "
+            "Press Save again to finish renaming the card."
+        ) from error
+    return result
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:

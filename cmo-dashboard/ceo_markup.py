@@ -144,7 +144,11 @@ BODY = '''<main id="app">
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <dialog id="detail" aria-labelledby="detail-title">
-<div class="dialog-head"><div class="section-head"><div><p id="detail-id" class="eyebrow"></p><h2 id="detail-title"></h2></div><button id="close-detail" class="ghost small" type="button">Close</button></div></div>
+<div class="dialog-head"><div class="section-head"><div><p id="detail-id" class="eyebrow"></p>
+<div class="title-row"><h2 id="detail-title"></h2><button id="edit-title" class="icon-button" type="button" aria-label="Edit title" title="Edit title" hidden><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path d="M11.4 1.6a1.4 1.4 0 0 1 2 2l-.8.8-2-2 .8-.8Zm-1.5 1.5 2 2-6.5 6.5-2.6.6.6-2.6 6.5-6.5Z" fill="currentColor"/><path d="M2 13.6h12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg></button></div>
+<div class="title-form" id="title-form" hidden><label class="field"><span class="visually-hidden">Article title</span><input id="title-input" type="text" maxlength="180" autocomplete="off"></label>
+<div class="actions"><button id="title-save" type="button">Save title</button><button id="title-cancel" class="ghost" type="button">Cancel</button><span class="meta" id="title-state"></span></div>
+<p class="form-error" id="title-error" hidden></p></div></div><button id="close-detail" class="ghost small" type="button">Close</button></div></div>
 <nav class="nested" aria-label="Blog detail"><button class="active" data-detail="read" type="button">Read</button><button data-detail="files" type="button">Files</button></nav>
 <div class="dialog-body"><div id="detail-body"></div></div>
 </dialog>

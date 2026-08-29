@@ -76,6 +76,20 @@ summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--green);ou
 .danger{background:transparent;color:var(--red);border-color:#e0c4c4}
 .small{min-height:34px;padding:5px 10px;font-size:var(--f-sm)}
 .section-head,.dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--pad)}
+/* Renaming an article, in the head of the card it belongs to. The console's first
+   icon button: transparent, sized to the tap target, and coloured only on hover, so
+   it reads as an affordance on the title rather than a second control competing
+   with Close. `title-row` keeps it on the baseline of a heading that wraps. */
+.title-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.icon-button{display:inline-flex;align-items:center;justify-content:center;
+min-height:var(--tap);min-width:var(--tap);padding:0;border:0;border-radius:var(--radius-xs);
+background:transparent;color:var(--muted);cursor:pointer}
+.icon-button:hover:not(:disabled){color:var(--green);background:var(--line-soft)}
+.icon-button:disabled{opacity:.45;cursor:not-allowed}
+.icon-button[hidden]{display:none}
+.title-form{margin-top:9px;max-width:60ch}
+.title-form[hidden]{display:none}
+.title-form .actions{margin-top:8px}
 .section-head h2{margin:0 0 3px;font-size:var(--f-lg);letter-spacing:-.01em}
 .section-head .meta{max-width:62ch}
 h3.rule{margin:26px 0 10px;padding-top:16px;border-top:1px solid var(--line);font-size:var(--f-md)}

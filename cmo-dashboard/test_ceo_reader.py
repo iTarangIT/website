@@ -466,5 +466,93 @@ class NoRawMarkdownEscapesTheReader(unittest.TestCase):
                     self.assertIn("<table", html, "a Markdown table did not become a table")
 
 
+class TheEditorGetsTheFileBack(unittest.TestCase):
+    """`front_matter + text` is the article, byte for byte.
+
+    The console's editor posts what it was given straight back, and
+    `check_edited_front_matter` refuses a save that lost the header. Seeding the
+    textarea from the front-matter-stripped body therefore refused every save the
+    editor ever attempted — the header was gone before the human touched anything.
+
+    So the payload carries the block as text, and this is the property that has to
+    hold for the editor to work at all.
+    """
+
+    CASES = {
+        "a normal article": "---\ntitle: A\nslug: b\n---\n\n# A\n\nBody.\n",
+        "a byte-order mark": "\ufeff---\ntitle: A\n---\n\nBody\n",
+        "blank lines above the block": "\n\n---\ntitle: A\n---\nBody\n",
+        "no front matter at all": "# Just a heading\n\nBody\n",
+        "an unterminated block": "---\nnever closed\n\nBody\n",
+        "nothing": "",
+    }
+
+    def test_the_block_and_the_body_rejoin_into_the_original(self) -> None:
+        for name, source in self.CASES.items():
+            with self.subTest(case=name):
+                _metadata, front_matter, body = ceo_reader.split_source(source)
+                self.assertEqual(front_matter + body, source)
+
+    def test_the_body_half_still_hides_the_header_from_the_reader(self) -> None:
+        """The split is additive: `text` is what it always was."""
+        _metadata, _front_matter, body = ceo_reader.split_source(self.CASES["a normal article"])
+
+        self.assertNotIn("slug:", body)
+
+    def test_every_committed_artifact_rejoins(self) -> None:
+        artifacts = sorted(
+            path
+            for path in (dashboard_server.PROFILE_DIR / "artifacts").glob("*.md")
+            if path.is_file()
+        )
+        if not artifacts:
+            self.skipTest("no artifacts in this profile")
+        for path in artifacts:
+            with self.subTest(artifact=path.name):
+                source = path.read_text(encoding="utf-8", errors="replace")
+                _metadata, front_matter, body = ceo_reader.split_source(source)
+                self.assertEqual(front_matter + body, source)
+
+
+class ArticlePayloadCarriesTheSourceTheEditorPostsBack(unittest.TestCase):
+    def test_the_payload_halves_rejoin_into_the_article_on_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "artifacts").mkdir()
+            article = root / "artifacts" / "TASK-1-content.md"
+            article.write_text(ARTICLE, encoding="utf-8")
+
+            payload = ceo_artifacts.artifact_payload({"id": "TASK-1"}, article, root)
+
+        self.assertEqual(payload["front_matter"] + payload["text"], ARTICLE)
+        self.assertIn("slug:", payload["front_matter"])
+        self.assertNotIn("slug:", payload["text"])
+
+    def test_the_source_the_browser_rebuilds_is_a_save_the_server_accepts(self) -> None:
+        """The whole point, end to end: open the editor, change a word, save.
+
+        This is what was broken. The textarea held the body, the save wanted the
+        file, and every press came back `the front matter is gone`.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "state").mkdir()
+            (root / "artifacts").mkdir()
+            article = root / "artifacts" / "TASK-1-content.md"
+            article.write_text(ARTICLE, encoding="utf-8")
+            (root / "tasks.md").write_text(_board(), encoding="utf-8")
+            task = {"id": "TASK-1", "attachment": "artifacts/TASK-1-content.md"}
+            payload = ceo_artifacts.artifact_payload(task, article, root)
+
+            # exactly what `articleSource(task)` builds in the browser
+            source = (payload["front_matter"] or "") + (payload["text"] or "")
+            result = ceo_actions.save_article_edit(
+                root, "TASK-1", source.replace("one decision", "a single decision"), "ceo@example.test"
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertIn("a single decision", article.read_text(encoding="utf-8"))
+            self.assertIn("slug:", article.read_text(encoding="utf-8"), "the header was lost")
+
 if __name__ == "__main__":
     unittest.main()
