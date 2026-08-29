@@ -217,6 +217,50 @@ def seed_recorded_stages(root: Path) -> None:
         database.close()
 
 
+def seed_proposals(root: Path) -> dict[str, tuple[int, list[int]]]:
+    """Subjects that fanned out to three candidates each, through the real store.
+
+    The archive sweep is a property of approving, so a fixture has to be a real
+    fan-out: one subject, several live candidates, none of them carded. Each
+    mutating test gets its own subject — the same reason the blog tests each get
+    their own card — so nothing here depends on the order the suite runs in.
+    """
+    sys.path.insert(0, str(HERE))
+    from cmo_runtime.console_db import ConsoleDB, ProposalCandidate
+
+    database = ConsoleDB(root)
+    fixtures: dict[str, tuple[int, list[int]]] = {}
+    try:
+        for name in ("sweep", "restore", "refuse"):
+            subject = database.subject_for(f"served {name} fixture subject", CEO_EMAIL)
+            run_id = database.record_research_run(
+                subject_id=int(subject["id"]),
+                kind="initial",
+                pages_requested=1,
+                pages_fetched=1,
+                status="completed",
+            )
+            result = database.add_candidates(
+                subject_id=int(subject["id"]),
+                research_run_id=run_id,
+                candidates=[
+                    ProposalCandidate(
+                        title=f"Served {name} fixture candidate {index}",
+                        keywords=(f"served {name} fixture",),
+                        outline=f"Outline for served {name} fixture candidate {index}.",
+                        source_kind="firecrawl",
+                        source_refs=(f"https://fixture.test/{name}/{index}",),
+                    )
+                    for index in (1, 2, 3)
+                ],
+            )
+            ids = [int(item["id"]) for item in result["added"]]
+            fixtures[name] = (ids[0], ids[1:])
+        return fixtures
+    finally:
+        database.close()
+
+
 def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -272,6 +316,7 @@ class ServedPageTests(unittest.TestCase):
         (root / "artifacts" / "TASK-777-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-779-content.md").write_text(ARTICLE, encoding="utf-8")
         seed_recorded_stages(root)
+        cls.proposal_fixtures = seed_proposals(root)
         cls.root = root
         cls.port = free_port()
         cls.supabase = socketserver.TCPServer(("127.0.0.1", 0), FakeSupabase)
@@ -455,15 +500,23 @@ class ServedPageTests(unittest.TestCase):
 
     # ---- marker: tab order ------------------------------------------------
 
-    def test_the_served_page_orders_the_tabs_topics_blogs_analytics(self) -> None:
+    def test_the_served_page_orders_the_tabs_topics_blogs_analytics_archived(self) -> None:
         page = self.text("/ceo")
         nav = page.split('<nav class="primary"', 1)[1].split("</nav>", 1)[0]
 
-        self.assertEqual(re.findall(r'data-view="([a-z-]+)"', nav), ["topics", "blogs", "analytics"])
+        self.assertEqual(
+            re.findall(r'data-view="([a-z-]+)"', nav),
+            ["topics", "blogs", "analytics", "archived"],
+        )
         self.assertRegex(nav, r'class="active" data-view="topics"')
         self.assertEqual(
             re.findall(r"<kbd>(\d)</kbd>\s*([A-Za-z&; ]+?)<", nav),
-            [("1", "Topics &amp; Research"), ("2", "Blogs"), ("3", "Analytics")],
+            [
+                ("1", "Topics &amp; Research"),
+                ("2", "Blogs"),
+                ("3", "Analytics"),
+                ("4", "Archived"),
+            ],
         )
 
     def test_the_served_page_shows_topics_first_and_hides_the_others(self) -> None:
@@ -472,6 +525,29 @@ class ServedPageTests(unittest.TestCase):
         self.assertIn('<section id="panel-topics" class="screen paper">', page)
         self.assertIn('<section id="panel-blogs" class="screen paper" hidden>', page)
         self.assertIn('<section id="panel-analytics" class="screen paper" hidden>', page)
+        self.assertIn('<section id="panel-archived" class="screen paper" hidden>', page)
+
+    def test_the_served_page_opens_on_the_tabs_with_no_band_above_them(self) -> None:
+        """The Needs-you band is removed, markup and renderer both.
+
+        A region left in the shell but never filled is worse than no region: it
+        reads as one that failed to load. So the section, the styles that drew it
+        and the jump control it emitted all go together.
+        """
+        page = self.text("/ceo")
+
+        self.assertNotIn('id="needs-you"', page)
+        self.assertNotIn("needs-band", page)
+        self.assertNotIn("data-jump=", page, "the band's jump control outlived the band")
+        self.assertNotIn("if(data.jump){", page, "a handler with nothing left to handle")
+
+    def test_the_served_page_offers_the_news_radar(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn('id="scan-news"', page)
+        self.assertIn("/ceo/api/radar/scan", page)
+        # The button must be wired, not merely present.
+        self.assertIn("$('#scan-news').addEventListener('click',scanNews)", page)
 
     # ---- marker: the editor ----------------------------------------------
 
@@ -557,23 +633,42 @@ class ServedPageTests(unittest.TestCase):
         self.assertEqual(status, 401, "the change token is readable without a session")
         self.assertIn(b"bearer", body.lower())
 
-    # ---- the process tab, on the wire ------------------------------------
+    # ---- the blog detail, on the wire ------------------------------------
 
-    def test_the_served_page_orders_the_blog_card_tabs_with_process_after_read(self) -> None:
-        """The detail tab order was never asserted over the wire until now.
+    def test_the_served_page_offers_exactly_two_blog_card_tabs(self) -> None:
+        """Read and Files, in that order, and nothing else.
 
         A tab that renders nothing and a tab that is missing look identical in a
-        module; over the socket they do not.
+        module; over the socket they do not. Process, Impact and Discussion were
+        removed — their work moved onto Read or, in Process's case, off the page.
         """
         page = self.text("/ceo")
         nav = page.split('<nav class="nested"', 1)[1].split("</nav>", 1)[0]
 
-        self.assertEqual(
-            re.findall(r'data-detail="([a-z-]+)"', nav),
-            ["read", "process", "impact", "discussion", "files"],
-        )
+        self.assertEqual(re.findall(r'data-detail="([a-z-]+)"', nav), ["read", "files"])
         self.assertRegex(nav, r'class="active" data-detail="read"')
-        self.assertIn(">Process<", nav)
+        for gone in ("Process", "Impact", "Discussion"):
+            self.assertNotIn(f">{gone}<", nav, f"the {gone} tab is still in the tab strip")
+
+    def test_the_served_page_carries_no_approve_control_at_all(self) -> None:
+        """The Approve button is removed, not hidden.
+
+        Publishing records Gate 1 itself, so a second control that only records it
+        would be a step with nothing behind it. The whole document is searched,
+        because a renderer that is never reached still ships its markup.
+        """
+        page = self.text("/ceo")
+
+        self.assertNotIn('data-decision="approve"', page)
+        self.assertNotIn("Approve again", page)
+
+    def test_the_served_page_carries_no_merge_to_main_control(self) -> None:
+        """Gate 2 is gone from this console; a human merges the pull request on GitHub."""
+        page = self.text("/ceo")
+
+        self.assertNotIn('data-publish="1"', page)
+        self.assertNotIn('id="publish-block"', page)
+        self.assertNotIn("/ceo/publish-check", page, "the console still asks about merging to main")
 
     def test_the_state_endpoint_serves_only_the_stages_that_were_recorded(self) -> None:
         """Invariant 2, over the socket."""
@@ -652,6 +747,69 @@ class ServedPageTests(unittest.TestCase):
         self.assertEqual(card["label"], "Could not be written")
         self.assertIn("1742 words", card["reason"])
         self.assertTrue(card["retryable"])
+
+    # ---- marker: approving one topic sweeps its siblings -----------------
+
+    def topics(self) -> dict:
+        return json.loads(self.text("/ceo/api/state", auth=True))["topics"]
+
+    def test_approving_a_topic_archives_its_siblings_over_the_wire(self) -> None:
+        """The whole point of the sweep, measured on what the console is served.
+
+        Approving is one decision about one subject. The candidates that lost are
+        not rejected — nothing may be written to the rejection memory — but they
+        must leave the screen, and they must be findable afterwards.
+        """
+        approve_id, siblings = self.proposal_fixtures["sweep"]
+        live = {item["id"] for item in self.topics()["proposals"]}
+        self.assertIn(approve_id, live)
+        for sibling in siblings:
+            self.assertIn(sibling, live)
+
+        status, _headers, body = self.fetch(
+            "/ceo/api/proposal/approve", auth=True, payload={"proposal_id": approve_id}
+        )
+        self.assertEqual(status, 200, body)
+        outcome = json.loads(body)
+        self.assertRegex(outcome["task_id"], r"^TASK-[0-9]+$")
+        self.assertEqual(sorted(item["id"] for item in outcome["archived"]), sorted(siblings))
+
+        after = self.topics()
+        remaining = {item["id"] for item in after["proposals"]}
+        archived = {item["id"] for item in after["archived"]}
+        for sibling in siblings:
+            self.assertNotIn(sibling, remaining, "an archived sibling is still on Topics")
+            self.assertIn(sibling, archived, "an archived sibling is nowhere to be found")
+        # Archiving is not rejecting: the rejection memory must be untouched, or the
+        # idea could never be proposed again.
+        self.assertEqual(
+            [item for item in after["rejected"] if item["proposal_id"] in siblings], []
+        )
+        # And the archived rows carry what the Archived screen groups them by.
+        shelved = next(item for item in after["archived"] if item["id"] == siblings[0])
+        self.assertTrue(shelved["subject_id"])
+        self.assertEqual(shelved["status"], "archived")
+
+    def test_restoring_an_archived_topic_returns_it_to_the_pool(self) -> None:
+        approve_id, siblings = self.proposal_fixtures["restore"]
+        self.fetch("/ceo/api/proposal/approve", auth=True, payload={"proposal_id": approve_id})
+        target = siblings[-1]
+        status, _headers, body = self.fetch(
+            "/ceo/api/proposal/restore", auth=True, payload={"proposal_id": target}
+        )
+        self.assertEqual(status, 200, body)
+
+        after = self.topics()
+        self.assertIn(target, {item["id"] for item in after["proposals"]})
+        self.assertNotIn(target, {item["id"] for item in after["archived"]})
+
+    def test_restoring_something_that_was_never_archived_is_refused(self) -> None:
+        approve_id, _siblings = self.proposal_fixtures["refuse"]
+        status, _headers, body = self.fetch(
+            "/ceo/api/proposal/restore", auth=True, payload={"proposal_id": approve_id}
+        )
+        self.assertEqual(status, 400, body)
+        self.assertIn("not archived", body.decode("utf-8"))
 
     def test_a_published_card_is_served_with_its_preview_url(self) -> None:
         card = self.blogs()["TASK-779"]["blog"]

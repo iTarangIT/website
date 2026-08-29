@@ -90,7 +90,26 @@ def _proposal(index: int) -> dict:
     }
 
 
-def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dict | None = None) -> dict:
+def _archived(index: int, subject_id: int) -> dict:
+    return {
+        "id": 1000 + index,
+        "title": f"Archived candidate {index}",
+        "subject_id": subject_id,
+        "subject": f"archived subject {subject_id}",
+        "outline": "An outline for an archived candidate.",
+        "keywords": ["battery"],
+        "status": "archived",
+        "round": 1,
+        "source_kind": "firecrawl",
+        "source_refs": [f"https://source.test/{index}"],
+        "created_at": "2026-08-20T00:00:00Z",
+        "updated_at": "2026-08-26T00:00:00Z",
+        "history": [],
+    }
+
+
+def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dict | None = None,
+             archived: list | None = None, radar: dict | None = None) -> dict:
     series = [
         {"date": f"2026-08-{day:02d}", "impressions": day * 12, "clicks": day % 4, "ctr": 1.4, "position": 12.5}
         for day in range(1, 15)
@@ -110,8 +129,10 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
         "state": {
             "topics": {
                 "proposals": [_proposal(index) for index in range(1, proposals + 1)],
+                "archived": [] if archived is None else archived,
                 "rejected": [],
                 "carded": [],
+                "radar": radar,
                 "budget": {"status": "not_connected", "message": ""},
             },
             "blogs": [_task(f"TASK-{900 + index}", f"Article {index}") for index in range(blogs)],
@@ -356,6 +377,74 @@ class ConsoleRenders(unittest.TestCase):
         self.assertIn("No article yet", out["blogs"])
         self.assertIn("Go to Topics &amp; Research", out["blogs"])
         self.assertNotIn("error", out["proposals"].lower())
+
+    # ---- the archived shelf ----------------------------------------------
+
+    def test_the_archived_shelf_groups_candidates_under_their_subject(self) -> None:
+        """Six candidates from one subject are one decision already made.
+
+        Grouped, the shelf reads as "these lost to that"; ungrouped it reads as a
+        second undecided pile, which is the thing the sweep exists to end.
+        """
+        shelved = [_archived(1, 7), _archived(2, 7), _archived(3, 9)]
+        out = self.run_console(_fixture(archived=shelved))
+
+        # One heading per subject, not one per card.
+        self.assertEqual(out["archived"].count('<h3 class="rule"'), 2)
+        self.assertEqual(out["archived"].count("<article"), 3)
+        for index in (1, 2, 3):
+            self.assertIn(f"Archived candidate {index}", out["archived"])
+        self.assertIn("archived subject 7", out["archived"])
+        self.assertIn("archived subject 9", out["archived"])
+        self.assertIn("3 archived topics", out["archivedCount"])
+
+    def test_every_archived_card_offers_restore_and_says_it_is_not_rejected(self) -> None:
+        out = self.run_console(_fixture(archived=[_archived(1, 7)]))
+
+        self.assertIn("data-restore=", out["archived"])
+        self.assertIn("data-reject-open=", out["archived"])
+        self.assertNotIn("data-approve=", out["archived"])
+
+    def test_an_empty_shelf_explains_what_puts_things_there(self) -> None:
+        out = self.run_console(_fixture(archived=[]))
+
+        self.assertIn("Nothing is archived", out["archived"])
+        self.assertIn("not rejected", out["archived"])
+
+    def test_the_radar_line_says_when_it_last_ran_or_that_it_has_not(self) -> None:
+        never = self.run_console(_fixture())
+        self.assertIn("has not run yet", never["radarStatus"])
+
+        ran = self.run_console(_fixture(radar={
+            "started_at": "2026-08-27T01:30:00Z", "mode": "due", "status": "completed",
+            "message": "4 candidate(s) proposed from 2 subject(s); 9 credits used.",
+        }))
+        self.assertIn("2026-08-27T01:30:00Z", ran["radarStatus"])
+        self.assertIn("9 credits used", ran["radarStatus"])
+
+    def test_the_sweep_names_the_beats_it_covered(self) -> None:
+        """"Nothing new today" and "that beat was never searched" look identical
+        in a candidate list, and only one is a reason to change a query."""
+        out = self.run_console(_fixture(radar={
+            "started_at": "2026-08-27T01:30:00Z", "mode": "due", "status": "completed",
+            "message": "4 candidate(s) proposed from 2 subject(s); 9 credits used.",
+            "beats": ["ev-industry", "policy", "battery-tech", "market", "competitors"],
+            "empty_beats": ["battery-tech"],
+        }))
+
+        for name in ("EV industry", "Government policy", "Market trends", "Competitors"):
+            self.assertIn(name, out["radarStatus"], f"the {name} beat is not named")
+        self.assertIn("nothing new from Battery technology", out["radarStatus"])
+
+    def test_a_sweep_with_no_recorded_beats_claims_nothing(self) -> None:
+        """Runs from before beats were recorded must not read as full coverage."""
+        out = self.run_console(_fixture(radar={
+            "started_at": "2026-08-27T01:30:00Z", "mode": "due", "status": "completed",
+            "message": "4 candidate(s) proposed.",
+        }))
+
+        self.assertIn("2026-08-27T01:30:00Z", out["radarStatus"])
+        self.assertNotIn("Beats swept", out["radarStatus"])
 
     def test_the_console_makes_no_request_to_another_host(self) -> None:
         for request in self.out["requests"]:

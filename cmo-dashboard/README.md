@@ -87,11 +87,11 @@ how a reader that printed raw Markdown stayed green for weeks:
   reply came back", "the unchanged row is still the same node" and "the textarea was
   not overwritten" checkable at all.
 
-## Showing the work: the Process tab
+## Showing the work: the recorded stages
 
 A blog used to go from an approved topic to a finished article with nothing visible in
-between. The **Process** tab on a blog card is the record of what actually happened,
-stage by stage, in the order they are meant to be read:
+between. `pipeline_stages` is the record of what actually happened, stage by stage, in
+the order they are meant to be read:
 
 ```text
 1  Topic selection    the topic, and why it was chosen
@@ -102,23 +102,29 @@ stage by stage, in the order they are meant to be read:
 6  Writing            words, sections, trim passes, refusals
 ```
 
-**Rows, and only rows.** Every stage is written by the pipeline while it runs; the tab
-renders the query result directly. A stage that never ran has no row, so it is not
-drawn — there is no notion of a stage that "should" be there and therefore no way to
-imply work that did not happen. Cards written before this existed show an empty tab,
-which is the honest answer rather than a reconstructed one.
+**Rows, and only rows.** Every stage is written by the pipeline while it runs; a reader
+of this table gets the query result directly. A stage that never ran has no row — there
+is no notion of a stage that "should" be there and therefore no way to imply work that
+did not happen. Cards written before this existed have no rows at all, which is the
+honest answer rather than a reconstructed one.
+
+**There is no longer a Process tab.** The blog detail is Read and Files (see *One
+article, one screen* below); the stage rows are not drawn on it. Everything below still
+holds — the pipeline records exactly as it did, `console_board.process_payload()` still
+assembles the rows and `/ceo/api/state` still serves them under `process` on each blog.
+They are read from `state/console.db` or off that payload, not from a tab.
 
 **A stage completed is a stage recorded.** `pipeline_stages` rows are opened before the
 work (`status='running'`, `started_at` set) and closed after it, in two separate
 `ConsoleDB.write()` transactions. A process killed mid-run therefore leaves every
 finished stage committed and the interrupted one readable as `running` — which is also
-exactly what the tab needs to show elapsed time. `tests/test_pipeline_stages.py` proves
-this by `SIGKILL`ing a real subprocess and reading the database back.
+exactly what an elapsed-time reading needs. `tests/test_pipeline_stages.py` proves this
+by `SIGKILL`ing a real subprocess and reading the database back.
 
 **The source list comes from the fetch ledger, never from the article.** `stage_fetches`
 holds one row per attempt to read something, failures included, and
 `console_board.process_payload()` builds the research stage from that table alone. An
-article can cite any URL it likes; a URL with no fetch record cannot reach the page.
+article can cite any URL it likes; a URL with no fetch record cannot reach the payload.
 There is a test for exactly that, because "here are six sources" and "we asked for eight
 and six came back" read identically until someone writes the second one down.
 
@@ -134,9 +140,49 @@ split into its own generation — the keywords come back attached to the title t
 to, and a second call would drift from it; the stage records them with the Search Console
 demand rows that justify them, and says so.
 
-The tab updates live through the existing token: `ceo_version.py` already watches
+The payload updates live through the existing token: `ceo_version.py` already watches
 `console.db` and its `-wal` sidecar, so a stage row committed by the writer reaches an
 open console within three seconds with no new mechanism.
+
+## One article, one screen
+
+Opening a blog card used to be a three-tab errand. The article was on **Read**, Approve
+and Ask for changes were on **Discussion**, and Publish to website was on **Impact** —
+so shipping one piece meant Read, then Discussion, then Impact: two clicks in two places
+for one decision, with two tabs in between that carried no action at all.
+
+The blog detail is now **Read** and **Files**. Everything a human does to an article is
+on Read, under the article it is being done to:
+
+- the rendered piece, its word count and the Edit / Download / Print bar, as before;
+- **Ask for changes** — the same field and the same `POST /ceo/api/revision`, shown only
+  where `request_revision` will accept it;
+- **Publish to website** — the same eligibility check and the same
+  `POST /ceo/blog-publish`, listing the three files it will write before it writes them.
+
+Files is unchanged.
+
+**There is one button, and pressing it is the approval.** `ceo_blog_publish.publish()`
+records Gate 1 under the name of the human who pressed it, before anything reaches the
+working tree. `approvals.log`, `state/human-approvals.json` and the `Gate 1 approved by`
+trailer on the commit are all exactly what they were — the second button is gone, the
+record it wrote is not. `GET /ceo/blog-publish-check` therefore asks
+`preflight(require_approval=False)`: whether this article *can* be published, not whether
+somebody already said it should be.
+
+Two things that click cannot resolve, and both still grey the button out with the reason
+on screen. An article that is not finished has nothing to approve — `preflight` refuses
+it and `DecisionStore.decide` refuses the same card for the same reason, so the recording
+is not a way around the lane. And an approval written before fingerprinting existed cannot
+be shown to be stale, so it cannot be superseded either; no click clears it, and saying so
+is better than a button that fails.
+
+**Gate 2 is not on this console.** `SOUL.md` section 12 clause 4 offers a human two ways
+to merge `cmo-changes` to `main` — directly on GitHub, or a console control — and this
+console takes the first. Publishing stops at the preview, as it always did. The routes
+`/ceo/publish-check` and `/ceo/publish` and their suite in `test_ceo_publish.py` are still
+here and still proven; nothing in the page reaches them, and `/ceo/publish` cannot be
+called without a `request_id` that only its own check mints for an eligible card.
 
 ## The console updates itself
 
@@ -206,15 +252,212 @@ re-proposals until explicitly undone.
 
 Firecrawl is **discovery then retrieval**, never search-with-scrape: `/v2/search`
 without `scrapeOptions` returns URLs, then `/v2/scrape` reads at most
-`PROPOSAL_PAGE_CAP` of them at roughly one credit each. Search Console answers demand
-questions first because it is free. A repeat subject replays cached research for
-nothing. Runs refuse above `FIRECRAWL_PROPOSAL_STOP` measured credits rather than
-degrading quietly.
+`PROPOSAL_PAGE_CAP` of them. Search Console answers demand questions first because
+it is free. A repeat subject replays cached research for nothing. Runs refuse above
+`FIRECRAWL_PROPOSAL_STOP` measured credits rather than degrading quietly.
+
+**A page is not a credit, and neither is a search.** This section used to say the
+scrape cost "roughly one credit each"; measured on 2026-08-27 a page cost between
+1.5 and **17** credits, and a discovery search — the step described here as
+returning URLs only — cost about **3.7**. `PROPOSAL_PAGE_CAP` bounds pages and
+does not bound spend, which is why the accounting in `research_runs` is a measured
+before/after delta rather than a count, and why the news radar below carries a
+credit ceiling instead of trusting the page cap.
 
 Cards that predate this flow are set aside with
 `cmo_runtime.topic_proposals.hold_legacy_cards()`: the card stays on the board at
 `Change status: pending human decision`, both selectors skip it, and it reappears as a
 proposal naming the card as its source.
+
+### Approving one candidate archives the rest
+
+One subject fans out to up to `MAX_CANDIDATES` candidates and exactly one of them
+becomes a card. Approving sweeps the others — same subject, still `proposed` or
+`revising` — to `status = 'archived'` and onto the **Archived** tab. Before this
+existed they stayed on Topics forever; 31 of 39 live proposals were leftovers of
+decisions already made, which is the pile-up the sweep ends.
+
+**Archiving is not rejecting, and the difference is load-bearing.** A rejection writes
+a `rejected_topics` row keyed by the reworded-proof fingerprint and suppresses the idea
+until it is explicitly undone. Archiving writes nothing there. An archived candidate
+can be restored by hand (`POST /ceo/api/proposal/restore`), and `add_candidates`
+**resurfaces** one on its own when research produces the same fingerprint again,
+reporting it as `resurfaced` rather than swallowing it as a duplicate. That last part
+is the reason the liveness probe excludes `archived` as well as `rejected`: without it
+the archive would be a silent veto with none of a rejection's deliberateness.
+
+The sweep runs only after the board card exists, so a failed mint archives nothing, and
+a second approval of the same proposal archives nothing either — it is not a second
+decision. `POST /ceo/api/proposal/archive` sets one aside by hand, with the same
+reversibility.
+
+### The news radar
+
+`cmo_runtime/news_radar.py` is what makes a topic arrive without anyone typing one.
+It does not add a second research path: it produces subject strings and hands each to
+`TopicProposalService.propose`, which keeps its cache, accounting, dedup and stage
+recording unchanged.
+
+One sweep:
+
+**Five standing beats, one per kind of development it promises to watch:**
+
+```text
+ev-industry   India electric three-wheeler e-rickshaw battery swapping news
+policy        India EV policy news
+battery-tech  EV battery technology news sodium-ion solid-state
+market        India EV sales funding investment news
+competitors   built from the console's competitor list, or a general query
+```
+
+`competitors` used to be a leftover — appended after the watchlist and kept only if a
+slot survived under `RADAR_MAX_BEATS`. That made it silently conditional on the
+watchlist being empty: one keyword added on Analytics took the last slot and competitor
+news stopped being swept, with nothing saying so. It is standing now, and the watchlist
+takes whatever is left instead. Its query rotates one competitor per sweep rather than
+naming them all in one — the measured comparison above is why — so several competitors
+are covered over a few days at the same flat 2 credits.
+
+**A candidate says which beat found it.** The triager returns a beat with each subject;
+that used to be dropped between the triager and the pipeline, so a candidate could not
+say which of the five produced it. It is recorded on the `subjects` row (schema 4) and
+shown as a pill on the card. A subject typed into the box carries no beat rather than
+an invented one.
+
+**A beat that returned nothing is recorded as dry.** `empty_beats` holds the beats that
+were searched and contributed no new headline, and the Topics tab names them beside the
+ones that worked. Searched-and-quiet and never-searched look identical in a list of
+candidates, and only one of them is a reason to change a query.
+
+1. **Live budget check.** Refuses if Firecrawl is not ready, or if remaining credits
+   are below `RADAR_CREDIT_FLOOR` — an unattended daily job must never be why the CEO
+   cannot research a subject by hand. Refusals are recorded, because a sweep that left
+   no trace reads as one that never ran.
+2. **Discovery** across every beat — `DEFAULT_BEATS` (EV industry including
+   swapping, policy, battery technology, market), plus watchlist entries from
+   `state/ceo-watchlist.json` and rows from `competitors` filling whatever slots
+   `RADAR_MAX_BEATS` leaves, so the beat is steerable from surfaces the CEO
+   already controls without a redeploy.
+   `/v2/search` without `scrapeOptions` returns titles, narrowed to
+   `RADAR_RECENCY` (`qdr:w`). One dead beat does not end the sweep. **This is
+   billed** — see the costs below — so the balance is read after it and the spend
+   counts against the ceiling.
+3. **One Hermes triage call** turns the pooled headlines into at most
+   `RADAR_MAX_SUBJECTS` rough subjects. The cap is enforced in `_subjects_from`, not in
+   the prompt: a model asked for three and returning nine must cost three subjects'
+   worth of credits, not nine. An empty answer is a correct answer.
+4. **`propose()` per subject**, at `PROPOSAL_PAGE_CAP` pages each, until the
+   ceiling is reached. One refused subject does not lose the others, and whatever
+   the ceiling drops is named in the sweep's messages rather than skipped
+   silently.
+
+Note the recency window applies to discovery only. The research behind a topic is
+deliberately unbounded: a 2023 gazette notification is exactly the source a policy
+piece needs.
+
+#### What it costs, measured
+
+The page caps bound pages and do not bound money. Measured on this account on
+2026-08-27, from `research_runs` and the Firecrawl balance:
+
+| | measured |
+|---|---|
+| one beat search (`/v2/search`, no `scrapeOptions`) | **flat 2 credits** — limits 3, 5 and 8 each cost exactly 2 on fresh uncached queries |
+| retrieval, typical | 5 credits for 3 pages; 4 for 2 |
+| retrieval, worst seen | **85 for 5 pages**, and **79 for 2** |
+| the first unbounded sweep, end to end | **114 credits** (~20 discovery, 94 research) |
+
+Two things follow, and both are counter-intuitive enough to be worth stating.
+
+**`RADAR_DISCOVERY_LIMIT` is free to raise.** A search costs the same at limit 8
+as at limit 3, so asking for more headlines per beat costs nothing and gives the
+triage prompt more to work with. Cutting it saves nothing.
+
+**The beat count is the entire discovery bill.** At 2 credits a beat it is the only
+lever, which is why `RADAR_MAX_BEATS` caps defaults and dynamic additions
+*together*. The watchlist and competitor list used to take up to five slots each,
+so a filled watchlist could put fifteen searches — 30 credits — in front of a
+sweep that had not researched anything yet. Defaults are placed first and the
+additions fill what is left, so the standing beat can never be crowded out.
+
+The budget is sized so **three subjects fit a normal day**: 5 beats at 2 credits is
+10, three typical subjects are about 5 each, and 25–27 sits under the 28-credit
+ceiling. That projects to roughly **795 of the 1000-credit month**, leaving about
+205 for manual research — comfortable, not generous. A larger plan is what buys
+either a wider beat or a fourth subject.
+
+`RADAR_SWEEP_CREDIT_CEILING` reads the balance after discovery and again after
+each subject and stops when it has spent enough, so **how many subjects a sweep
+researches is decided by what they cost** — `RADAR_MAX_SUBJECTS` is only the cap
+on how many it may consider. The ceiling bounds the sweep, not a single run,
+because the check happens between subjects: worst case is the ceiling plus one
+expensive run. Bounding one run would need a per-page cost limit Firecrawl does
+not offer.
+
+A `--dry-run` skips retrieval but still pays for discovery. It reports that
+figure rather than claiming to be free, because it is the thing you run in a loop
+while tuning the beats.
+
+Every sweep, refusals included, lands in `radar_runs` and the latest is rendered on the
+console as `topics.radar`.
+
+Two ways to run it by hand:
+
+```bash
+# what it would research, spending nothing
+python -m cmo_runtime.news_radar --profile "$CMO_DASHBOARD_PROFILE_DIR" --dry-run
+
+# one sweep, subject to the daily clock
+python -m cmo_runtime.news_radar --profile "$CMO_DASHBOARD_PROFILE_DIR" --due
+```
+
+It lives in `cmo_runtime/` and not in `scripts/` on purpose: `deploy-dashboard` copies
+`cmo-dashboard/*.py`, `*.js` and `cmo_runtime/*.py`, and nothing under `scripts/`. A
+radar under `scripts/` would be committed and never shipped.
+
+### What actually schedules the sweep
+
+**There is no cron on this box.** No `crontab` binary, no `/etc/cron.d`;
+`cron/cmo-agents.crontab` was never installed and its own header tells you to install it
+with a command that does not exist. The hermes cron ticker holds zero jobs and last beat
+2026-08-10.
+
+**And the watchdog that used to be the scheduler is gone.** `start-cmo-agents:31` ran
+`hourly-cycle.py --once` then `morning-seo-job.py --due` on a `sleep 3600` loop — *"the
+watchdog is the scheduler when cron/systemd are unavailable"*. Both it and
+`ensure-cmo-agents` have refused to run since **2026-08-04**: *"v1 orchestration
+decommissioned. Two parallel stacks ran against one tasks.md for 11 days. Do not
+re-enable without explicit founder approval."* `hourly-cycle.log` ends that same day.
+So "add a line to the watchdog" is not an available option, and adding one would be a
+re-enablement decision, not a wiring detail.
+
+The radar therefore carries its own supervisor, `bin/run-news-radar`, modelled on
+`bin/run-content-worker` — the one long-lived pattern here that has survived. It holds a
+`cmo-news-radar` tmux session running `--due` every 30 minutes; the clock lives in the
+Python, so a tick outside the 07:00 IST window is a cheap no-op and a container restart
+at 06:59 cannot skip the day. Liveness is the pane's `#{pane_dead}`, not a `pgrep`:
+between sweeps this loop is a `sleep`, so there is no process of its own to find.
+
+```bash
+bin/run-news-radar          # idempotent; exits 0 if a healthy session is already up
+tail -f "$CMO_DASHBOARD_PROFILE_DIR/logs/news-radar.log"
+```
+
+**This is not a revival of v1 orchestration**, and the reason is structural rather than
+a promise: the radar writes to `state/console.db` only, and `propose()` mints no board
+card, so nothing on this path can touch `tasks.md`. The failure that got v1
+decommissioned — two stacks writing one board — is not reachable from here.
+
+`bin/` is **not** copied by `deploy-dashboard` either. Install the supervisor by hand,
+as hermes:
+
+```bash
+install -o hermes -g hermes -m 0755 bin/run-news-radar "$CMO_DASHBOARD_PROFILE_DIR/bin/"
+```
+
+Everything under the profile is hermes-owned. Running the radar as any other user leaves
+a lock nobody else can take — that happened, so `main()` now names the cause instead of
+raising a `PermissionError` from `touch`, which reads as a missing file.
 
 ## Competitor analytics
 

@@ -29,12 +29,18 @@ from cmo_runtime import topic_proposals
 from cmo_runtime.console_db import ConsoleDB
 
 
-class ThreeTabsAndNoFourth(unittest.TestCase):
-    """Invariant 4."""
+class FourTabsAndNoFifth(unittest.TestCase):
+    """Invariant 4, widened once.
 
-    def test_exactly_three_primary_tabs_render(self) -> None:
+    Archived is a destination and not a filter on Topics because it holds work the
+    CEO has already decided about: the candidates swept aside when he approved one
+    of their siblings. Keeping them on Topics is exactly the pile-up the tab
+    exists to end. Nothing else earns a tab.
+    """
+
+    def test_exactly_four_primary_tabs_render(self) -> None:
         tabs = re.findall(r'data-view="([a-z-]+)"', MARKUP)
-        self.assertEqual(tabs, ["topics", "blogs", "analytics"])
+        self.assertEqual(tabs, ["topics", "blogs", "analytics", "archived"])
 
     def test_every_tab_has_a_panel_and_every_panel_has_a_tab(self) -> None:
         tabs = set(re.findall(r'data-view="([a-z-]+)"', MARKUP))
@@ -50,19 +56,23 @@ class ThreeTabsAndNoFourth(unittest.TestCase):
         self.assertIn('id="trend-list"', topics_panel)
         self.assertIn('id="watchlist"', topics_panel)
 
-    def test_the_keyboard_map_covers_three_tabs_only(self) -> None:
-        self.assertIn("const VIEWS=['topics','blogs','analytics']", SCRIPT)
-        self.assertIn("/^[1-3]$/", SCRIPT)
-        self.assertNotIn("/^[1-4]$/", SCRIPT)
+    def test_the_keyboard_map_covers_four_tabs_only(self) -> None:
+        self.assertIn("const VIEWS=['topics','blogs','analytics','archived']", SCRIPT)
+        self.assertIn("/^[1-4]$/", SCRIPT)
+        self.assertNotIn("/^[1-5]$/", SCRIPT)
 
-    def test_the_rendered_page_exposes_no_fourth_view(self) -> None:
+    def test_the_rendered_page_exposes_no_fifth_view(self) -> None:
         page = render_page().decode("utf-8")
         nav = page.split('<nav class="primary"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(re.findall(r'data-view="([a-z-]+)"', nav), ["topics", "blogs", "analytics"])
-        # Nothing anywhere on the page — nav, script or empty-state action — may
-        # target a view outside the three.
         self.assertEqual(
-            set(re.findall(r'data-view="([a-z-]+)"', page)), {"analytics", "topics", "blogs"}
+            re.findall(r'data-view="([a-z-]+)"', nav),
+            ["topics", "blogs", "analytics", "archived"],
+        )
+        # Nothing anywhere on the page — nav, script or empty-state action — may
+        # target a view outside the four.
+        self.assertEqual(
+            set(re.findall(r'data-view="([a-z-]+)"', page)),
+            {"analytics", "topics", "blogs", "archived"},
         )
 
 
@@ -70,6 +80,15 @@ class TopicSubmissionIsNoLongerAWritingInstruction(unittest.TestCase):
     def test_the_console_offers_three_controls_per_candidate(self) -> None:
         for control in ("data-approve=", "data-suggest-open=", "data-reject-open="):
             self.assertIn(control, SCRIPT)
+
+    def test_approving_a_candidate_says_what_it_produces(self) -> None:
+        """A bare "Approve" beside Reject and Archive reads as a verdict on the idea.
+
+        It is not: it is the one control that mints a board card and sends the
+        topic to be written, and the label has to say which of the four it is.
+        """
+        self.assertIn(">Approve for blog<", SCRIPT)
+        self.assertNotIn(">Approve<", SCRIPT)
 
     def test_the_direct_topic_route_is_gone(self) -> None:
         self.assertNotIn("/ceo/api/topics", SCRIPT)
@@ -252,7 +271,7 @@ class ProductFinish(unittest.TestCase):
     def test_every_documented_shortcut_is_bound_and_shown(self) -> None:
         for binding in ("event.key==='j'", "event.key==='k'", "event.key==='Enter'", "event.key==='/'"):
             self.assertIn(binding, SCRIPT)
-        self.assertIn("/^[1-3]$/", SCRIPT)
+        self.assertIn("/^[1-4]$/", SCRIPT)
         self.assertIn("event.key==='Escape'", SCRIPT)
         for label in ("tabs", "search", "move", "open", "close"):
             self.assertIn(label, MARKUP.split('<footer class="shortcuts">', 1)[1])

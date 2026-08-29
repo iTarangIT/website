@@ -454,5 +454,144 @@ class ResearchPassAccounting(unittest.TestCase):
         self.assertEqual(research.source_kind(), "cache")
 
 
+SIBLING_ROWS = [
+    {"title": f"Sibling candidate {index}", "keywords": [f"keyword {index}"],
+     "outline": f"Outline for sibling candidate {index}."}
+    for index in (1, 2, 3, 4)
+]
+
+
+class ApprovingOneTopicSetsTheRestAside(ProposalFlowTestCase):
+    """One subject is one decision, so the losing candidates leave the screen.
+
+    They are set aside, not vetoed. That distinction is the whole design: a
+    rejection is remembered by norm_key and suppresses the idea for good, while an
+    archived candidate can be restored by hand and is resurfaced on its own when
+    research finds it again.
+    """
+
+    def fan_out(self):
+        service, root = self.make_service(proposer=FakeProposer(SIBLING_ROWS))
+        service.propose("three wheeler battery data", "sanchit@example.test")
+        proposals = service.database.proposals(statuses=["proposed"])
+        return service, root, proposals
+
+    def test_approving_archives_the_siblings_and_nothing_else(self) -> None:
+        service, _root, proposals = self.fan_out()
+        chosen = proposals[0]["id"]
+        siblings = sorted(item["id"] for item in proposals[1:])
+
+        outcome = service.approve(chosen, "sanchit@example.test")
+
+        self.assertEqual(sorted(item["id"] for item in outcome["archived"]), siblings)
+        self.assertEqual(service.database.proposal(chosen)["status"], "carded")
+        for sibling in siblings:
+            self.assertEqual(service.database.proposal(sibling)["status"], "archived")
+
+    def test_a_second_subject_is_untouched_by_the_first_ones_decision(self) -> None:
+        service, _root, proposals = self.fan_out()
+        service.proposer.rows = [
+            {"title": "Unrelated candidate", "keywords": ["unrelated"],
+             "outline": "An outline about something else entirely."}
+        ]
+        service.propose("charging habits", "sanchit@example.test")
+        other = service.database.proposals(statuses=["proposed"])
+        other_id = next(
+            item["id"] for item in other
+            if item["version"]["title"] == "Unrelated candidate"
+        )
+
+        service.approve(proposals[0]["id"], "sanchit@example.test")
+
+        self.assertEqual(service.database.proposal(other_id)["status"], "proposed")
+
+    def test_archiving_writes_nothing_to_the_rejection_memory(self) -> None:
+        service, _root, proposals = self.fan_out()
+        service.approve(proposals[0]["id"], "sanchit@example.test")
+
+        self.assertEqual(service.database.rejected_topics(), [])
+
+    def test_approving_twice_archives_once_and_mints_once(self) -> None:
+        service, root = self.make_service(proposer=FakeProposer(SIBLING_ROWS))
+        service.propose("three wheeler battery data", "sanchit@example.test")
+        proposals = service.database.proposals(statuses=["proposed"])
+        chosen = proposals[0]["id"]
+
+        first = service.approve(chosen, "sanchit@example.test")
+        second = service.approve(chosen, "sanchit@example.test")
+
+        self.assertEqual(first["task_id"], second["task_id"])
+        self.assertEqual(second["archived"], [])
+        board = (root / "tasks.md").read_text(encoding="utf-8")
+        self.assertEqual(board.count("### TASK-"), 1)
+
+    def test_the_archived_stay_off_the_pool_and_show_on_the_shelf(self) -> None:
+        service, _root, proposals = self.fan_out()
+        siblings = {item["id"] for item in proposals[1:]}
+        service.approve(proposals[0]["id"], "sanchit@example.test")
+
+        state = service.state()
+
+        self.assertEqual({item["id"] for item in state["proposals"]} & siblings, set())
+        self.assertEqual({item["id"] for item in state["archived"]}, siblings)
+
+    def test_restore_returns_one_to_the_pool_and_refuses_anything_else(self) -> None:
+        service, _root, proposals = self.fan_out()
+        chosen = proposals[0]["id"]
+        sibling = proposals[1]["id"]
+        service.approve(chosen, "sanchit@example.test")
+
+        service.restore(sibling, "sanchit@example.test")
+
+        self.assertEqual(service.database.proposal(sibling)["status"], "proposed")
+        with self.assertRaisesRegex(ConsoleDBError, "not archived"):
+            service.restore(chosen, "sanchit@example.test")
+
+    def test_archiving_by_hand_takes_one_off_the_screen(self) -> None:
+        service, _root, proposals = self.fan_out()
+        target = proposals[0]["id"]
+
+        service.archive(target, "sanchit@example.test")
+
+        self.assertEqual(service.database.proposal(target)["status"], "archived")
+        self.assertEqual(service.database.rejected_topics(), [])
+        with self.assertRaisesRegex(ConsoleDBError, "nothing to archive"):
+            service.archive(target, "sanchit@example.test")
+
+    def test_research_resurfaces_an_archived_topic_rather_than_dropping_it(self) -> None:
+        """An archived idea that becomes news again must come back.
+
+        If the archive behaved like a live proposal, `add_candidates` would report
+        the returning candidate as a duplicate and it would never be seen again —
+        a silent veto with none of a rejection's deliberateness.
+        """
+        service, _root, proposals = self.fan_out()
+        service.approve(proposals[0]["id"], "sanchit@example.test")
+        shelved = proposals[1]["version"]["title"]
+
+        service.proposer.rows = [
+            {"title": shelved, "keywords": ["keyword 2"], "outline": "Outline for sibling candidate 2."}
+        ]
+        run = service.propose("three wheeler battery data again", "sanchit@example.test")
+
+        self.assertEqual([item["title"] for item in run.resurfaced], [shelved])
+        self.assertEqual(run.duplicates, [])
+        self.assertEqual(service.database.proposal(proposals[1]["id"])["status"], "proposed")
+
+    def test_a_rejected_topic_is_still_suppressed_not_resurfaced(self) -> None:
+        service, _root, proposals = self.fan_out()
+        rejected = proposals[1]
+        service.reject(rejected["id"], "covered already", "sanchit@example.test")
+
+        service.proposer.rows = [
+            {"title": rejected["version"]["title"], "keywords": ["keyword 2"],
+             "outline": "Outline for sibling candidate 2."}
+        ]
+        run = service.propose("three wheeler battery data again", "sanchit@example.test")
+
+        self.assertEqual(run.resurfaced, [])
+        self.assertEqual(len(run.suppressed), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -128,6 +128,7 @@ def preflight(
     website_root: str | Path = DEFAULT_WEBSITE_ROOT,
     git: Git | None = None,
     today: date | None = None,
+    require_approval: bool = True,
 ) -> BlogPreflight:
     """Report whether a human may be offered the publish instruction, and why not.
 
@@ -150,24 +151,46 @@ def preflight(
 
     record = decisions.decision_record(profile_dir, task_id)
     approved = bool(record and record.get("decision") == "approve")
-    if not approved:
-        blockers.append("no Gate 1 approval is recorded for this card")
-
-    # What was approved, not merely that something was. An approval recorded
-    # before fingerprinting carries none, and guessing that nothing has changed
-    # since is exactly the guess this refuses to make.
-    if approved:
-        recorded = str(record.get("publish_fingerprint", "")).strip()
-        if not recorded:
-            blockers.append(
-                "this approval predates publish verification, so what was approved "
-                "cannot be confirmed; ask for a fresh Gate 1"
-            )
+    recorded = str(record.get("publish_fingerprint", "")).strip() if record else ""
+    predates_verification = (
+        "this approval predates publish verification, so what was approved "
+        "cannot be confirmed; ask for a fresh Gate 1"
+    )
+    if require_approval:
+        # Asked of a caller that must find Gate 1 already recorded — which is what
+        # `publish` re-checks after recording it, so this stays the executing guard.
+        if not approved:
+            blockers.append("no Gate 1 approval is recorded for this card")
+        # What was approved, not merely that something was. An approval recorded
+        # before fingerprinting carries none, and guessing that nothing has changed
+        # since is exactly the guess this refuses to make.
+        elif not recorded:
+            blockers.append(predates_verification)
         elif recorded != console_board.publish_fingerprint(task, profile_dir):
             blockers.append(
                 "the article or its category changed after this card was approved; "
                 "ask for a fresh Gate 1"
             )
+    else:
+        # Asked on behalf of the one button the console shows. Pressing it records
+        # Gate 1 over the article as it stands, so neither a missing approval nor
+        # an outdated one is a reason to grey the button out — the click is what
+        # resolves them.
+        #
+        # Two things it cannot resolve, and both stay refusals. An article that is
+        # not finished has nothing to approve, and `DecisionStore.decide` refuses
+        # the same card for the same reason — two guards, one rule. An approval
+        # recorded before fingerprinting cannot be shown to be stale, so it cannot
+        # be superseded either; no click clears it, and saying so is the honest
+        # answer rather than offering a button that fails.
+        section = str(task.get("board_section", task.get("status", ""))).strip()
+        if section != "Human Approval":
+            blockers.append(
+                f"this article is in {section or 'another lane'}, not Human Approval, "
+                "so it is not finished yet"
+            )
+        elif approved and not recorded:
+            blockers.append(predates_verification)
 
     card_category = str(task.get("category", "")).strip()
     artifact_category = _artifact_category(profile_dir, task)
@@ -254,6 +277,53 @@ def issue_request(profile_dir: str | Path, task_id: str, *, actor: str, head: st
     return request_id
 
 
+def _record_gate_one(profile_dir: Path, task_id: str, *, actor: str) -> None:
+    """Record this human's Gate 1 approval, unless one already covers this article."""
+    import console_board
+    from cmo_runtime import decisions
+    from cmo_runtime.decisions import DecisionStore
+
+    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
+    task = next((item for item in board["tasks"] if item["id"] == task_id), None)
+    if task is None:
+        raise PublicationRefused(f"no such task: {task_id}")
+
+    current = console_board.publish_fingerprint(task, profile_dir)
+    record = decisions.decision_record(profile_dir, task_id)
+    if (
+        record
+        and record.get("decision") == "approve"
+        and str(record.get("publish_fingerprint", "")).strip() == current
+    ):
+        return
+
+    commit = str(
+        task.get("commit_hash(es)", task.get("change_commit", task.get("commit", "")))
+    ).strip()
+    try:
+        DecisionStore(profile_dir).decide(
+            task_id,
+            "approve",
+            approver_id=actor,
+            surface="dashboard",
+            card_commit_sha=commit,
+            commit_sha=commit,
+            publish_fingerprint=current,
+            components=console_board.publish_component_record(task, profile_dir),
+        )
+    except decisions.DecisionConflict:
+        # A decision exists that cannot be shown to be stale, so it cannot be
+        # superseded — an approval written before fingerprinting is the one way
+        # this happens. Swallowed here so the re-check below refuses by name;
+        # "one decision per card" says nothing a reader can act on.
+        pass
+    except decisions.DecisionValidationError as error:
+        # The card is not where a decision can be recorded — the lane guard, from
+        # the other side of the button. Raised as a refusal so the route answers
+        # 400 with the reason on it rather than 500 with none.
+        raise PublicationRefused(str(error)) from error
+
+
 def publish(
     profile_dir: str | Path,
     task_id: str,
@@ -288,6 +358,22 @@ def publish(
         raise PublicationConflict("this publish instruction was issued for a different human or card")
 
     client = git or Git(website_root)
+
+    # Gate 1, recorded by the click that publishes.
+    #
+    # The console shows one button, so the human never presses Approve and then
+    # Publish — pressing Publish *is* the approval, and it is written down as one
+    # before anything reaches the working tree. `approvals.log`, the approvals
+    # file and the `Gate 1 approved by` trailer below are unchanged; only the
+    # second button is gone. `DecisionStore.decide` still refuses a card outside
+    # Human Approval, so the guard the preflight applies is applied again here —
+    # the button is not the guard.
+    #
+    # A recorded approval that still describes this exact article is left alone:
+    # re-deciding it raises `DecisionConflict`. One that no longer does is
+    # superseded, which is the same path a stale approval has always taken.
+    _record_gate_one(profile_dir, task_id, actor=actor)
+
     check = preflight(profile_dir, task_id, website_root=website_root, git=client, today=today)
     if not check.eligible:
         raise PublicationConflict("; ".join(check.blockers))

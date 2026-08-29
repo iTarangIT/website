@@ -328,123 +328,88 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertIn("Being rewritten", step["blogsHtml"])
         self.assertEqual(step["editorText"], "My unsaved sentence.")
 
-    # ---- the process tab draws rows, and only rows ---------------------------
+    # ---- a sweep is watched, not waited on ---------------------------------
+    # The triager alone may take ten minutes and the radar commits each subject's
+    # candidates before starting the next, so a page that stands still until the
+    # request comes back is a page that looks broken while it is working.
 
-    def process_body(self, stages: list[dict]) -> str:
-        card = _blog("TASK-9", "Battery repair costs")
-        card["process"] = stages
-        return self.steps({
-            "state": _state([], [card]),
-            "steps": [{"do": "detail", "task": "TASK-9", "tab": "process"}],
-        })[0]["detailBody"]
+    def test_candidates_land_while_the_sweep_is_still_running(self) -> None:
+        """The complaint, exactly: results needed a manual reload to appear."""
+        swept = _state([_proposal(n) for n in range(1, 6)], [_blog("TASK-1", "First article")])
+        step = self.steps({
+            "steps": [
+                # The sweep never answers. Everything below is what is on screen
+                # while its request is still out.
+                {"do": "scan", "hang": "/ceo/api/radar/scan"},
+                {"name": "mid-sweep", "do": "poll", "version": "v2", "state": swept},
+            ],
+        })[1]
 
-    @staticmethod
-    def _stage(stage: str, ordinal: int, **overrides: object) -> dict:
-        row = {
-            "stage": stage,
-            "label": stage.title(),
-            "ordinal": ordinal,
-            "attempt": 1,
-            "status": "completed",
-            "started_at": "2026-08-13T05:00:00Z",
-            "ended_at": "2026-08-13T05:00:04Z",
-            "duration_ms": 4200,
-            "summary": f"{stage} ran",
-            "detail": {},
-            "fetches": [],
-            "fetched": 0,
-            "failed": 0,
-        }
-        row.update(overrides)
-        return row
+        self.assertEqual(
+            [row["key"] for row in step["rowsAfter"]["proposals"]],
+            ["1", "2", "3", "4", "5"],
+            "the new candidates were not on screen until the sweep answered",
+        )
+        self.assertTrue(step["busy"], "the sweep is no longer running")
+        self.assertTrue(step["liveWhileBusy"], "the sweep did not ask to be watched")
 
-    def test_a_card_with_no_recorded_stages_says_so_rather_than_drawing_six(self) -> None:
-        body = self.process_body([])
+    def test_the_poller_fetches_state_while_the_sweep_runs(self) -> None:
+        """Every other action stands the poller down; this one must not.
 
-        self.assertIn("Nothing recorded yet", body)
-        self.assertNotIn("data-key=", body, "an empty process list still drew stage blocks")
+        `pollTimer` being set is not enough — the old code scheduled the next tick
+        and then returned without asking for anything, which is precisely how the
+        page stayed still for the length of a sweep.
+        """
+        swept = _state([_proposal(n) for n in range(1, 6)], [_blog("TASK-1", "First article")])
+        step = self.steps({
+            "steps": [
+                {"do": "scan", "hang": "/ceo/api/radar/scan"},
+                {"name": "mid-sweep", "do": "poll", "version": "v2", "state": swept},
+            ],
+        })[1]
 
-    def test_only_the_recorded_stages_are_drawn(self) -> None:
-        body = self.process_body([
-            self._stage("topic", 1),
-            self._stage("writing", 6),
-        ])
+        self.assertIn("/ceo/api/state", " ".join(step["requests"]),
+                      "the poller ticked but never asked for the new state")
+        self.assertTrue(step["pollActive"], "the poller was stood down for the sweep")
 
-        self.assertIn("1. Topic", body)
-        self.assertIn("6. Writing", body)
-        for absent in ("Keywords", "Summary", "Outline", "Research"):
-            self.assertNotIn(
-                f">{absent}<", body, f"a {absent} stage was drawn without a row to draw it from"
-            )
+    def test_a_sweep_that_fails_still_shows_what_it_recorded(self) -> None:
+        """A sweep writes as it goes, so a dead connection is not an empty result.
 
-    def test_a_running_stage_is_open_and_carries_a_ticking_elapsed_time(self) -> None:
-        body = self.process_body([
-            self._stage("research", 5, status="running", ended_at=None, duration_ms=None),
-        ])
+        This is the half that needed a reload even when the request did come back:
+        the failure path never refreshed at all.
+        """
+        step = self.steps({
+            "state": _state([], [_blog("TASK-1", "First article")]),
+            "steps": [{
+                "do": "scan",
+                "state": _state([_proposal(n) for n in range(1, 4)],
+                                [_blog("TASK-1", "First article")]),
+                "fail": {"path": "/ceo/api/radar/scan", "status": 504,
+                         "error": "the sweep did not answer in time"},
+            }],
+        })[0]
 
-        self.assertIn("data-elapsed=", body, "a running stage cannot show how long it has been going")
-        self.assertIn("in progress", body)
-        self.assertRegex(body, r"<details class=\"stage\"[^>]*\sopen>")
+        self.assertIn("/ceo/api/state", " ".join(step["requests"]),
+                      "a failed sweep never asked for the state it had written")
+        self.assertEqual(
+            [row["key"] for row in step["rowsAfter"]["proposals"]], ["1", "2", "3"],
+            "candidates the sweep recorded before it died were not shown",
+        )
+        self.assertIn("the sweep did not answer in time", step["proposeResult"])
+        self.assertFalse(step["liveWhileBusy"], "the sweep is still claiming to be watched")
 
-    def test_a_finished_stage_is_closed_and_shows_its_measured_duration(self) -> None:
-        body = self.process_body([self._stage("writing", 6)])
+    def test_a_finished_sweep_hands_the_screen_back(self) -> None:
+        """The exception is for the length of the sweep and no longer."""
+        step = self.steps({"steps": [{"do": "scan"}]})[0]
 
-        self.assertNotIn("data-elapsed=", body)
-        self.assertIn("4s", body)
-        self.assertNotRegex(body, r"<details class=\"stage\"[^>]*\sopen>")
+        self.assertFalse(step["busy"])
+        self.assertFalse(step["liveWhileBusy"])
+        self.assertTrue(step["pollActive"], "the poller was not restarted afterwards")
 
-    def test_a_repeated_stage_says_which_attempt_it_was(self) -> None:
-        body = self.process_body([
-            self._stage("writing", 6, attempt=1, status="failed", summary="writer article has 1806 words"),
-            self._stage("writing", 6, attempt=2),
-        ])
-
-        self.assertIn("attempt 2", body)
-        self.assertIn("failed", body)
-        self.assertIn("1806 words", body)
-
-    def test_a_failed_fetch_is_drawn_next_to_the_ones_that_worked(self) -> None:
-        body = self.process_body([
-            self._stage(
-                "research",
-                5,
-                fetched=1,
-                failed=1,
-                fetches=[
-                    {"kind": "scrape", "outcome": "fetched", "url": "https://really-fetched.test/a",
-                     "query": "", "title": "A", "published_date": "2026-07-01",
-                     "accessed_at": "2026-08-11", "message": ""},
-                    {"kind": "scrape", "outcome": "failed", "url": "https://really-fetched.test/b",
-                     "query": "", "title": "", "published_date": "", "accessed_at": "",
-                     "message": "HTTP 502"},
-                ],
-            ),
-        ])
-
-        self.assertIn("https://really-fetched.test/a", body)
-        self.assertIn("https://really-fetched.test/b", body)
-        self.assertIn("HTTP 502", body)
-        self.assertIn("1 retrieved, 1 failed", body)
-
-    def test_a_source_url_is_drawn_as_text_and_never_as_a_link(self) -> None:
-        """This page requests nothing from another host. An anchor here would be
-        the first thing to break that, and a source list is exactly where one
-        would feel natural to add."""
-        body = self.process_body([
-            self._stage(
-                "research",
-                5,
-                fetched=1,
-                fetches=[
-                    {"kind": "scrape", "outcome": "fetched", "url": "https://really-fetched.test/a",
-                     "query": "", "title": "A", "published_date": "", "accessed_at": "",
-                     "message": ""},
-                ],
-            ),
-        ])
-
-        self.assertIn("https://really-fetched.test/a", body)
-        self.assertNotIn("<a ", body, "a source was rendered as a clickable link")
+    # The Process tab and its renderer are gone. What the pipeline records is
+    # unchanged and still reaches the page — `tests/test_pipeline_stages.py` and
+    # `test_served_bytes.py` prove the rows over a real socket. There is simply no
+    # longer a renderer here to test.
 
     # ---- the decision controls appear only where a decision can be recorded --
 
@@ -454,18 +419,65 @@ class ConsoleStaysCurrent(unittest.TestCase):
         card["status"] = section
         return card
 
-    def discussion(self, card: dict) -> str:
+    def read_tab(self, card: dict) -> str:
+        """The whole Read tab: the article, the change request and the publish block.
+
+        There is nowhere else left to look. A control that is not in this string
+        is not on the console.
+        """
         return self.steps({
             "state": _state([], [card]),
-            "steps": [{"do": "detail", "task": "TASK-9", "tab": "discussion"}],
+            "steps": [{"do": "detail", "task": "TASK-9", "tab": "read"}],
         })[0]["detailBody"]
 
-    def test_a_card_in_human_approval_offers_approve_and_ask_for_changes(self) -> None:
-        body = self.discussion(self.decidable_card("Human Approval", "awaiting_you", "Awaiting you"))
+    def test_a_card_in_human_approval_offers_ask_for_changes_and_publish_on_read(self) -> None:
+        """Both things a human does, on the tab holding the thing they are doing it to.
 
-        self.assertIn('data-decision="approve"', body)
+        This used to be a three-tab errand: read on Read, approve on Discussion,
+        publish on Impact. One screen now, and no Approve button in front of the
+        publish — pressing Publish is the approval.
+        """
+        body = self.read_tab(self.decidable_card("Human Approval", "awaiting_you", "Awaiting you"))
+
+        self.assertIn("article-sheet", body, "the article is not on the tab the controls are on")
         self.assertIn('data-revision="1"', body)
         self.assertIn("revision-comment", body)
+        self.assertIn('data-blog-publish="1"', body)
+        self.assertNotIn('data-decision="approve"', body, "the Approve step is back")
+
+    def test_no_lane_offers_an_approve_button_any_more(self) -> None:
+        """The one control that was removed outright, checked in every state it had."""
+        lanes = [
+            ("Human Approval", "awaiting_you", "Awaiting you"),
+            ("Human Approval", "approved", "Approved"),
+            ("CMO Review", "checking", "Being checked"),
+            ("Backlog", "queued", "Queued to be written"),
+            ("In Progress", "writing", "Writing…"),
+        ]
+        for section, state, label in lanes:
+            with self.subTest(state=state):
+                card = self.decidable_card(section, state, label)
+                if state == "approved":
+                    card["decision_approved"] = True
+                    card["decision_stale"] = True
+                    card["decision_change"] = ["the article changed"]
+
+                self.assertNotIn('data-decision="approve"', self.read_tab(card))
+
+    def test_a_lane_that_cannot_publish_is_not_offered_a_publish_button(self) -> None:
+        """A button whose only possible outcome is a refusal is not a courtesy.
+
+        `preflight` and `DecisionStore.decide` both refuse a card outside Human
+        Approval; drawing the control anyway would be the same lie the Approve
+        button used to tell on the Discussion tab.
+        """
+        for section, state, label in (("CMO Review", "checking", "Being checked"),
+                                      ("Backlog", "queued", "Queued to be written")):
+            with self.subTest(state=state):
+                body = self.read_tab(self.decidable_card(section, state, label))
+
+                self.assertNotIn('data-blog-publish="1"', body, f"{state} offered Publish")
+                self.assertNotIn("blog-publish-block", body)
 
     def test_a_card_in_cmo_review_offers_neither_and_says_why(self) -> None:
         """Approve there is a button whose only outcome is "not recorded".
@@ -474,7 +486,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
         `revision requested` on a card its reader had never seen, which the
         content worker would then pick up and rewrite.
         """
-        body = self.discussion(self.decidable_card("CMO Review", "checking", "Being checked"))
+        body = self.read_tab(self.decidable_card("CMO Review", "checking", "Being checked"))
 
         self.assertNotIn('data-decision="approve"', body)
         self.assertNotIn('data-revision="1"', body)
@@ -491,17 +503,19 @@ class ConsoleStaysCurrent(unittest.TestCase):
         ]
         for section, state, label, promise in lanes:
             with self.subTest(state=state):
-                body = self.discussion(self.decidable_card(section, state, label))
+                body = self.read_tab(self.decidable_card(section, state, label))
 
                 self.assertNotIn('data-decision="approve"', body, f"{state} offered Approve")
                 self.assertNotIn('data-revision="1"', body, f"{state} offered Ask for changes")
                 self.assertIn(promise, body, f"{state} does not say when it will come to him")
 
-    def test_a_stale_approval_offers_approve_again_and_says_what_moved(self) -> None:
+    def test_a_stale_approval_says_what_moved_and_publishes_over_it(self) -> None:
         """The deadlock, from the seat it deadlocked in.
 
-        Approved, then the article changed. Publish refuses and asks for a fresh
-        Gate 1; without this control there is no click that gives one.
+        Approved, then the article changed. There is no Approve again button any
+        more because there is nothing to unblock: publishing records a fresh
+        decision over the article as it stands. He is still told the old approval
+        does not describe what he is reading.
         """
         card = self.decidable_card("Human Approval", "approved", "Approved")
         card["decision_approved"] = True
@@ -510,13 +524,13 @@ class ConsoleStaysCurrent(unittest.TestCase):
         card["decision_summary"] = {"approver_id": "ceo@itarang.com", "timestamp": "2026-08-12T09:58:01Z"}
         card["decision_change"] = ["the article changed"]
 
-        body = self.discussion(card)
+        body = self.read_tab(card)
 
-        self.assertIn("Approve again", body)
-        self.assertIn('data-decision="approve"', body)
         self.assertIn("the article has changed since", body)
         self.assertIn("the article changed", body)
         self.assertIn("keeps the old one", body)
+        self.assertIn('data-blog-publish="1"', body, "there is no click that resolves this")
+        self.assertNotIn('data-decision="approve"', body)
 
     def test_a_stale_approval_also_offers_ask_for_changes(self) -> None:
         """Approve-only would be a trap: find a fault, and the only button approves."""
@@ -526,7 +540,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
         card["decision_summary"] = {"approver_id": "ceo@itarang.com", "timestamp": "2026-08-12T09:58:01Z"}
         card["decision_change"] = ["the category changed from financing to safety"]
 
-        body = self.discussion(card)
+        body = self.read_tab(card)
 
         self.assertIn('data-revision="1"', body)
         self.assertIn("revision-comment", body)
@@ -538,7 +552,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
         card["decision_status"] = "approved"
         card["decision_summary"] = {"approver_id": "ceo@itarang.com", "timestamp": "2026-08-12T09:00:00Z"}
 
-        body = self.discussion(card)
+        body = self.read_tab(card)
 
         self.assertNotIn('data-decision="approve"', body)
         self.assertNotIn('data-revision="1"', body)
@@ -549,18 +563,18 @@ class ConsoleStaysCurrent(unittest.TestCase):
         for section, state, label in (("Human Approval", "awaiting_you", "Awaiting you"),
                                       ("CMO Review", "checking", "Being checked")):
             with self.subTest(section=section):
-                body = self.discussion(self.decidable_card(section, state, label))
+                body = self.read_tab(self.decidable_card(section, state, label))
 
                 self.assertIn('id="detail-pending"', body)
                 self.assertIn('id="detail-error"', body)
 
     # ---- a check that cannot answer says so --------------------------------
 
-    def impact(self, task: dict, **step: object) -> dict:
+    def publish_block(self, task: dict, **step: object) -> dict:
         """What the publish block itself says, not what the pane was painted with."""
         return self.steps({
             "state": _state([], [task]),
-            "steps": [{"do": "detail", "task": "TASK-9", "tab": "impact", **step}],
+            "steps": [{"do": "detail", "task": "TASK-9", "tab": "read", **step}],
         })[0]["blogPublish"]
 
     def approved_blog(self) -> dict:
@@ -575,7 +589,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
         A spinner that never resolves is indistinguishable from a broken console —
         there is nothing on screen to say whether to wait, retry, or give up.
         """
-        block = self.impact(self.approved_blog(),
+        block = self.publish_block(self.approved_blog(),
                             hang="/ceo/blog-publish-check", checkTimeout=30)
 
         self.assertNotIn("Checking whether this article can be published", block["state"])
@@ -584,14 +598,14 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertEqual(block["checked"], "1", "the block still claims a check is running")
 
     def test_a_check_that_gave_up_offers_a_way_to_try_again(self) -> None:
-        block = self.impact(self.approved_blog(),
+        block = self.publish_block(self.approved_blog(),
                             hang="/ceo/blog-publish-check", checkTimeout=30)
 
         self.assertIn('data-recheck="1"', block["state"])
         self.assertIn("Check again", block["state"])
 
     def test_a_check_that_fails_says_why_rather_than_spinning(self) -> None:
-        block = self.impact(self.approved_blog(), fail={
+        block = self.publish_block(self.approved_blog(), fail={
             "path": "/ceo/blog-publish-check", "status": 500,
             "error": "the git remote could not be reached",
         })
@@ -600,13 +614,13 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertIn("the git remote could not be reached", block["state"])
 
     def test_a_refused_check_lists_the_blockers_instead_of_spinning(self) -> None:
-        block = self.impact(self.approved_blog())
+        block = self.publish_block(self.approved_blog())
 
         self.assertNotIn("Checking whether this article can be published", block["state"])
         self.assertIn("Cannot publish yet", block["state"])
 
     def test_an_eligible_check_enables_the_button_and_names_the_slug(self) -> None:
-        block = self.impact(self.approved_blog(), publishCheck={
+        block = self.publish_block(self.approved_blog(), publishCheck={
             "eligible": True, "blockers": [], "slug": "battery-repair-costs",
             "category": "battery-selection", "files": ["src/data/blog-posts.ts"],
             "request_id": "single-use-token",
@@ -617,7 +631,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
 
     def test_an_answer_the_console_cannot_read_is_still_an_answer(self) -> None:
         """Malformed is a failure with a reason, not a spinner that never ends."""
-        block = self.impact(self.approved_blog(), publishCheck={"ok": True})
+        block = self.publish_block(self.approved_blog(), publishCheck={"ok": True})
 
         self.assertNotIn("Checking whether this article can be published", block["state"])
         self.assertIn("Could not check whether this can be published", block["state"])
@@ -627,7 +641,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
         for step in ({"hang": "/ceo/blog-publish-check", "checkTimeout": 30},
                      {"fail": {"path": "/ceo/blog-publish-check", "status": 500, "error": "boom"}}):
             with self.subTest(step=sorted(step)):
-                block = self.impact(self.approved_blog(), **step)
+                block = self.publish_block(self.approved_blog(), **step)
 
                 self.assertTrue(block["disabled"], "publish was clickable after a failed check")
 

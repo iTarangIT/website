@@ -258,7 +258,7 @@ class CeoStageBTests(unittest.TestCase):
         self.assertIsNone(value["previous"]["sessions"])
         self.assertIsNone(value["deltas"]["sessions"])
 
-    def test_gate_two_pipeline_state_is_rendered_for_the_human(self):
+    def test_the_pipeline_state_is_read_off_the_board_but_no_longer_offers_a_merge(self):
         extra = """- Change type: website
 - Branch: cmo-changes
 - Commit hash(es): abc123
@@ -274,18 +274,24 @@ class CeoStageBTests(unittest.TestCase):
         self.assertIn("human to merge", pipeline["waiting_on"])
         self.assertEqual(pipeline["branch"], "cmo-changes")
         self.assertEqual(pipeline["commit"], "abc123")
-        # SOUL.md section 12 clause 4 now permits a console publish control. The
-        # control is inert on its own: it carries no authority, and every refusal
-        # that guards it is proved separately in test_ceo_publish.py.
+        # SOUL.md section 12 clause 4 offers a human two ways to merge to main:
+        # directly on GitHub, or a console control. This console takes the first,
+        # so the control is gone from the page — while the board fields above,
+        # which `ceo_publish.py` and its tests still depend on, are untouched.
         page = render_page().decode("utf-8")
-        self.assertIn("data-publish", page)
+        self.assertNotIn("data-publish=", page)
+        self.assertNotIn('id="publish-block"', page)
+        # The one publish control that remains pushes to cmo-changes and no further.
+        self.assertIn("data-blog-publish=", page)
         self.assertIn("Publish to website", page)
 
-    def test_ceo_page_has_four_nested_tabs_pdf_and_one_login_key_set(self):
+    def test_ceo_page_has_two_nested_tabs_pdf_and_one_login_key_set(self):
         page = render_page().decode("utf-8")
-        for label in ("Read", "Impact", "Discussion", "Files", "Download Markdown",
-                      "Print or save as PDF"):
+        for label in ("Read", "Files", "Download Markdown", "Print or save as PDF"):
             self.assertIn(label, page)
+        nav = page.split('<nav class="nested"', 1)[1].split("</nav>", 1)[0]
+        for gone in ("Process", "Impact", "Discussion"):
+            self.assertNotIn(f">{gone}<", nav)
         for key in ("cmo_token", "cmo_email", "cmo_role"):
             self.assertIn(key, page)
         self.assertNotIn("login-form", page)
@@ -293,7 +299,11 @@ class CeoStageBTests(unittest.TestCase):
         # There is no blind reload left to hold. A background update is driven by
         # the version token, it stands down only for an action still in flight,
         # and what it must not disturb is proved in test_console_live.py.
-        self.assertIn("if(quiet&&busy)return", page)
+        # A background update still stands down for an action in flight — with one
+        # named exception, the news sweep, which asks to be watched rather than
+        # waited on because it commits results for minutes before it answers.
+        self.assertIn("if(quiet&&busy&&!liveWhileBusy)return", page)
+        self.assertIn("if(busy&&!liveWhileBusy){schedulePoll(POLL_LADDER[0]);return;}", page)
         self.assertIn("/ceo/api/version", page)
         self.assertNotIn("setInterval(()=>refresh(true),60000)", page)
 
@@ -318,6 +328,9 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/proposal/suggest", {"proposal_id": 1, "comment": "narrower"}, None, ""),
             ("/ceo/api/proposal/reject", {"proposal_id": 1, "reason": "covered"}, None, ""),
             ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/proposal/archive", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/proposal/restore", {"proposal_id": 1}, None, ""),
+            ("/ceo/api/radar/scan", {}, None, ""),
             ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
             ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
@@ -330,21 +343,10 @@ class CeoStageBTests(unittest.TestCase):
         ]
 
     def test_preview_forbids_every_ceo_write_route(self):
-        routes = [
-            ("/ceo/api/propose", {"subject": "battery data"}, None, ""),
-            ("/ceo/api/proposal/approve", {"proposal_id": 1}, None, ""),
-            ("/ceo/api/proposal/suggest", {"proposal_id": 1, "comment": "narrower"}, None, ""),
-            ("/ceo/api/proposal/reject", {"proposal_id": 1, "reason": "covered"}, None, ""),
-            ("/ceo/api/proposal/undo-rejection", {"proposal_id": 1}, None, ""),
-            ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
-            ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
-            ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
-            ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
-            ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
-            ("/ceo/api/research-queue", {"subject": "battery price", "action": "add"}, None, ""),
-            ("/ceo/api/article/edit", {"task_id": "TASK-001", "text": "# Edited\n"}, None, ""),
-            ("/ceo/api/article/preview", {"text": "# Draft\n"}, None, ""),
-        ]
+        # The same list the coverage test above measures against. Two lists drifted
+        # apart once already — /ceo/api/competitor was declared covered and never
+        # actually exercised — so there is now only one.
+        routes = self.preview_routes()
         with patch.dict(os.environ, {"CMO_DASHBOARD_PREVIEW": "1"}), patch.object(
             ceo_console.console_auth, "authorize", return_value=("ceo@test", "ceo")
         ):
