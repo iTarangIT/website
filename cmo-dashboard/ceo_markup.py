@@ -1,8 +1,12 @@
 """The console's document.
 
-Three tabs, in the order the work happens: find a subject, read what came back,
-check whether it landed. Every list carries a toolbar above it and a pager below
-it, because none of these lists is short.
+Tabs in the order the work happens: find a subject, read what came back, check
+whether it landed, then send it where the readers are. Every list carries a
+toolbar above it and a pager below it, because none of these lists is short.
+
+Social sits after Analytics rather than beside Blogs, so the three keys already
+in everyone's fingers — 1 Topics, 2 Blogs, 3 Analytics — keep meaning what they
+meant. Only Archived moves, from 4 to 5.
 """
 
 BODY = '''<main id="app">
@@ -11,7 +15,8 @@ BODY = '''<main id="app">
 <button class="active" data-view="topics" type="button"><kbd>1</kbd> Topics &amp; Research<span class="tab-badge" data-badge="topics" hidden></span></button>
 <button data-view="blogs" type="button"><kbd>2</kbd> Blogs<span class="tab-badge" data-badge="blogs" hidden></span></button>
 <button data-view="analytics" type="button"><kbd>3</kbd> Analytics</button>
-<button data-view="archived" type="button"><kbd>4</kbd> Archived<span class="tab-badge" data-badge="archived" hidden></span></button>
+<button data-view="social" type="button"><kbd>4</kbd> Social<span class="tab-badge" data-badge="social" hidden></span></button>
+<button data-view="archived" type="button"><kbd>5</kbd> Archived<span class="tab-badge" data-badge="archived" hidden></span></button>
 <span class="tab-indicator" aria-hidden="true"></span>
 </nav>
 <p id="notice" class="notice" role="status"></p>
@@ -114,16 +119,53 @@ BODY = '''<main id="app">
 </tr></thead><tbody></tbody></table></div>
 <nav class="pager" id="pages-pager" aria-label="Page table pages"></nav>
 
+<h3 class="rule">How each article is doing<span class="meta">One row per published article. Impressions, clicks, CTR and position come from Search Console; views come from Google Analytics. A blank is a number nobody measured, not a zero.</span></h3>
+<div class="table-scroll"><table class="data" id="posts-table"><thead><tr>
+<th data-sort="title" aria-sort="none"><button type="button">Article</button></th>
+<th class="n" data-sort="views" aria-sort="none"><button type="button">Views</button></th>
+<th class="n" data-sort="impressions" aria-sort="descending"><button type="button">Impressions</button></th>
+<th class="n" data-sort="clicks" aria-sort="none"><button type="button">Clicks</button></th>
+<th class="n" data-sort="ctr" aria-sort="none"><button type="button">CTR</button></th>
+<th class="n" data-sort="position" aria-sort="none"><button type="button">Position</button></th>
+</tr></thead><tbody></tbody></table></div>
+<nav class="pager" id="posts-pager" aria-label="Blog performance pages"></nav>
+
 <p class="footnote" id="analytics-footnote"></p>
 
 <h3 class="rule">Google Analytics 4<span class="meta">What visitors do after they reach the site.</span></h3>
 <div id="ga4-panel"></div>
+
+<h3 class="rule">Where the traffic came from<span class="meta">Sessions grouped by the channel that sent them. A share from the blog carries a UTM tag, so WhatsApp forwards land here rather than under Direct.</span></h3>
+<div id="sources-panel"></div>
+
+<h3 class="rule">Where visitors are<span class="meta">Countries first, then the cities inside them.</span></h3>
+<div id="places-panel"></div>
+
+<h3 class="rule">What they were using<span class="meta">Device, operating system and browser, for the same window.</span></h3>
+<div id="devices-panel"></div>
+
+<h3 class="rule">Where they came in<span class="meta">The page each session started on, and whether it held them. This is the front door, not the whole journey.</span></h3>
+<div id="journey-panel"></div>
 
 <h3 class="rule">Which website do you want to replicate?<span class="meta">Reads their sitemap free, then up to 10 of their pages, and scores each topic against our own Search Console position.</span></h3>
 <div class="subject-box"><label class="field">Competitor website<input id="competitor" type="text" maxlength="253" placeholder="example.com"></label><button id="analyse-competitor" type="button">Analyse</button></div>
 <p id="competitor-result" class="notice" hidden></p>
 <div id="competitor-panel"></div>
 <nav class="pager" id="competitor-pager" aria-label="Competitor finding pages"></nav>
+</section>
+
+<section id="panel-social" class="screen paper" hidden>
+<div class="section-head"><div><h2>Social</h2><p class="meta">Published articles, and the copy that promotes them on LinkedIn, X and Instagram. Approving here queues the post in Buffer, which publishes it in your own posting slots.</p></div><span id="buffer-state" class="meta"></span></div>
+<p class="meta">Only an article a reader can already open appears here. A social post is a link, and a link to something unpublished is a 404 for everyone who taps it.</p>
+<div class="toolbar">
+<label class="field search"><span class="visually-hidden">Search published articles</span><input id="social-search" type="search" placeholder="Search published articles" autocomplete="off"></label>
+<div class="chip-group"><span class="label">Show</span><div class="chips" id="social-filter"></div></div>
+<span class="count" id="social-count"></span>
+</div>
+<div id="social-pending" class="rows" aria-live="polite" hidden></div>
+<p id="social-new" class="new-line" role="status" hidden></p>
+<div id="social-list" class="rows" role="list"></div>
+<nav class="pager" id="social-pager" aria-label="Social article pages"></nav>
 </section>
 
 <section id="panel-archived" class="screen paper" hidden>
@@ -137,7 +179,7 @@ BODY = '''<main id="app">
 <nav class="pager" id="archived-pager" aria-label="Archived topic pages"></nav>
 </section>
 
-<footer class="shortcuts"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> tabs</span><span><kbd>/</kbd> search</span><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></footer>
+<footer class="shortcuts"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> tabs</span><span><kbd>/</kbd> search</span><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></footer>
 <!-- Rendered server-side, never by the script: it identifies the bytes that were
      served. Visible at every width, including the phone. -->
 <p class="build" id="build-stamp">@@CMO_BUILD_STAMP@@</p>

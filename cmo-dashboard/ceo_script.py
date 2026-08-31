@@ -3,7 +3,7 @@ const $$=selector=>[...document.querySelectorAll(selector)];
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 /* Tab order is the order the work happens, and it is fixed. The stored UI state
    below deliberately does not include the tab: every load opens on Topics. */
-const VIEWS=['topics','blogs','analytics','archived'];
+const VIEWS=['topics','blogs','analytics','social','archived'];
 const DEFAULT_VIEW='topics';
 let token=sessionStorage.getItem('cmo_token')||'';
 let email=sessionStorage.getItem('cmo_email')||'';
@@ -13,6 +13,10 @@ let currentView=DEFAULT_VIEW;
 let openTask=null;
 let detailTab='read';
 let blogPublishRequest='';
+/* One prepared send instruction per article, keyed by task id. Minted by
+   /ceo/social-check and spent by one press of Approve & schedule; a card that
+   is re-prepared replaces its own entry rather than accumulating tokens. */
+const socialPlans={};
 /* An action he started normally owns the screen until it finishes, and the
    poller stands down for the whole of it. The news sweep has to be the
    exception. Its triager alone is allowed ten minutes, it researches up to
@@ -50,10 +54,12 @@ const UI_DEFAULTS={
  topics:{page:1,size:10,search:'',filter:'all'},
  blogs:{page:1,size:10,search:'',filter:'all'},
  archived:{page:1,size:10,search:'',filter:'all'},
+ social:{page:1,size:10,search:'',filter:'all'},
  trends:{page:1,size:10},
  opportunities:{page:1,size:10},
  queries:{page:1,size:25,sort:'impressions',dir:'desc'},
  pages:{page:1,size:25,sort:'impressions',dir:'desc'},
+ posts:{page:1,size:25,sort:'impressions',dir:'desc'},
  competitor:{page:1,size:10},
  analytics:{range:'28',device:'all',start:'',end:'',metric:'traffic'}
 };
@@ -207,25 +213,38 @@ const STATUS={
  rejected:{glyph:'✗',label:'rejected',tone:'tone-stop'},
  archived:{glyph:'▤',label:'archived',tone:'tone-mute'},
  'awaiting decision':{glyph:'●',label:'awaiting you',tone:'tone-wait'},
- /* The blog chain, start to finish. Every content card carries one of these, so
-    the minutes between approving a topic and reading the article are no longer
-    a blank tab. */
- queued:{glyph:'○',label:'queued to be written',tone:'tone-mute'},
- researching:{glyph:'◐',label:'researching',tone:'tone-wait'},
- writing:{glyph:'◑',label:'writing',tone:'tone-wait'},
+ /* The blog chain, start to finish, in one editorial vocabulary: draft, being
+    edited, waiting for review, approved, scheduled, published. Three of these
+    keys are drafts at different depths and two are waiting for a reader at
+    different desks; the key stays as it was so the tones and the filter chips
+    keep working, and only the words a human reads were unified.
+
+    `published` is a Gate 2 merge. `in_preview` is the branch it sits on until
+    then -- the two used to be one word, and it was the wrong one. */
+ queued:{glyph:'○',label:'draft — queued to be written',tone:'tone-mute'},
+ researching:{glyph:'◐',label:'draft — researching',tone:'tone-wait'},
+ writing:{glyph:'◑',label:'draft — writing',tone:'tone-wait'},
  failed:{glyph:'✗',label:'could not be written',tone:'tone-stop'},
  held:{glyph:'‖',label:'on hold',tone:'tone-mute'},
- checking:{glyph:'◇',label:'being checked',tone:'tone-wait'},
- awaiting_you:{glyph:'●',label:'awaiting you',tone:'tone-wait'},
- rewriting:{glyph:'↻',label:'being rewritten',tone:'tone-wait'},
- published:{glyph:'▲',label:'live on the site',tone:''},
+ checking:{glyph:'◇',label:'waiting for review',tone:'tone-wait'},
+ awaiting_you:{glyph:'●',label:'waiting for review',tone:'tone-wait'},
+ rewriting:{glyph:'↻',label:'being edited',tone:'tone-wait'},
+ scheduled:{glyph:'◷',label:'scheduled',tone:''},
+ in_preview:{glyph:'◎',label:'in preview',tone:'tone-wait'},
+ published:{glyph:'▲',label:'published',tone:''},
  uncontested:{glyph:'◆',label:'uncontested',tone:''},
  weak_position:{glyph:'▲',label:'we rank weakly',tone:'tone-wait'},
  covered:{glyph:'✓',label:'we hold this',tone:'tone-mute'},
  unclicked:{glyph:'◆',label:'seen, never clicked',tone:'tone-wait'},
  page_two:{glyph:'▲',label:'page two',tone:'tone-wait'},
  weak_title:{glyph:'○',label:'ranks but loses the click',tone:'tone-mute'},
- rising:{glyph:'↑',label:'rising',tone:''}
+ rising:{glyph:'↑',label:'rising',tone:''},
+ /* A cross-post's life. `draft` is copy nobody has sent; `queued` means Buffer
+    holds a post id for it and it will go out in a scheduled slot; `failed` is a
+    refusal Buffer gave, kept on the row with its reason. */
+ draft:{glyph:'○',label:'not sent',tone:'tone-mute'},
+ queued:{glyph:'◷',label:'queued in Buffer',tone:''},
+ failed_send:{glyph:'✗',label:'Buffer refused it',tone:'tone-stop'}
 };
 function pill(key,override){const item=STATUS[key]||{glyph:'●',label:key||'unknown',tone:'tone-mute'};
  return `<span class="pill ${item.tone}" data-glyph="${item.glyph}">${esc(override||item.label)}</span>`;}
@@ -342,6 +361,7 @@ function showView(name){
  if(state&&name==='topics')renderProposals();
  if(state&&name==='blogs')renderBlogs();
  if(state&&name==='archived')renderArchived();
+ if(state&&name==='social')renderSocial();
  paintArrivals();
  if(name==='analytics')drawChart();
 }
@@ -370,9 +390,15 @@ function openFocused(){
 const BEAT_LABELS={
  'ev-industry':'EV industry',
  policy:'Government policy',
+ competitors:'Competitors',
  'battery-tech':'Battery technology',
  market:'Market trends',
- competitors:'Competitors',
+ solar:'Solar',
+ bess:'Battery storage (BESS)',
+ ess:'Grid storage',
+ 'inverter-batteries':'Inverter batteries',
+ 'energy-transition':'Energy transition',
+ 'deep-tech':'Deep tech',
  watchlist:'Watchlist'
 };
 function beatLabel(slug){return BEAT_LABELS[slug]||slug;}
@@ -393,6 +419,19 @@ function sourceLine(proposal){
  if(!refs.length)return '<p class="meta source-missing">This candidate names no source.</p>';
  return `<p class="meta">Source: <span class="source">${esc(kind)}</span> — ${refs.join(' · ')}</p>`;
 }
+/* What Search Console measured for this subject, or the fact that it measured
+   nothing. Never a zero: "we have no data for solar" and "solar gets no
+   impressions" are opposite facts, and printing the second when we mean the
+   first is an invented figure. A beat the radar has only just started sweeping
+   is exactly the case that hits this. */
+function demandLine(proposal){
+ const demand=proposal.demand||{};
+ if(!demand.impressions)return '<p class="meta demand-none">No Search Console data for this subject yet</p>';
+ const parts=[`${demand.impressions.toLocaleString()} impressions`,
+              `CTR ${(demand.ctr*100).toFixed(1)}%`];
+ if(demand.position)parts.push(`avg position ${demand.position}`);
+ return `<p class="meta demand">${esc(parts.join(' \u00b7 '))}</p>`;
+}
 function proposalCard(proposal){
  const keywords=(proposal.keywords||[]).map(word=>`<span class="pill">${esc(word)}</span>`).join(' ')||'<span class="meta">no keywords recorded</span>';
  const round=proposal.round>1?`<span class="meta">revised ${proposal.round-1}×</span>`:'';
@@ -403,6 +442,7 @@ function proposalCard(proposal){
 <h3>${esc(proposal.title)}</h3>
 <p class="meta">${proposal.beat?`From the ${esc(beatLabel(proposal.beat))} beat`:'From your subject'}: ${esc(proposal.subject)}</p>
 <div class="keywords">${keywords}</div>
+${demandLine(proposal)}
 <p class="outline">${esc(proposal.outline)}</p>
 ${sourceLine(proposal)}${busyNote}${history}</div></div>
 <div class="actions">
@@ -805,7 +845,7 @@ function blogCard(task){
   ?`<p class="meta blog-reason${blog.state==='failed'?' is-failure':''}">${esc(blog.reason)}</p>`:'';
  const actions=[];
  if(blog.retryable)actions.push(`<button class="ghost small" data-retry="${esc(task.id)}" type="button">Retry</button>`);
- if(blog.state==='published'&&blog.url)
+ if((blog.state==='in_preview'||blog.state==='published')&&blog.url)
   actions.push(`<a class="ghost small" href="${esc(blog.url)}" target="_blank" rel="noopener">Open preview</a>`);
  const aside=actions.length?`<div class="blog-actions">${actions.join('')}</div>`:'';
  return `<article class="card" role="listitem" data-key="${esc(task.id)}" data-row="${esc(task.id)}"><div class="card-row">
@@ -818,11 +858,14 @@ ${figures}
 /* Grouped for the chips, because "is it moving" and "is it stuck" are the two
    questions actually being asked of this tab. */
 const BLOG_GROUPS={
- 'awaiting you':new Set(['awaiting_you']),
- 'in progress':new Set(['queued','researching','writing','rewriting','checking']),
- failed:new Set(['failed']),
+ draft:new Set(['queued','researching','writing']),
+ 'being edited':new Set(['rewriting']),
+ 'waiting for review':new Set(['checking','awaiting_you']),
  approved:new Set(['approved']),
- published:new Set(['published'])
+ scheduled:new Set(['scheduled']),
+ 'in preview':new Set(['in_preview']),
+ published:new Set(['published']),
+ failed:new Set(['failed'])
 };
 function blogGroup(task){
  const state=blogStatus(task);
@@ -834,11 +877,14 @@ function renderBlogs(){
  const counts=all.reduce((total,item)=>{const key=blogGroup(item);total[key]=(total[key]||0)+1;return total;},{});
  chipRow('#blogs-filter',[
   {value:'all',label:'All',count:all.length},
-  {value:'awaiting you',label:'Awaiting you',count:counts['awaiting you']||0},
-  {value:'in progress',label:'Being written',count:counts['in progress']||0},
-  {value:'failed',label:'Could not be written',count:counts.failed||0},
+  {value:'draft',label:'Draft',count:counts.draft||0},
+  {value:'being edited',label:'Being edited',count:counts['being edited']||0},
+  {value:'waiting for review',label:'Waiting for review',count:counts['waiting for review']||0},
   {value:'approved',label:'Approved',count:counts.approved||0},
-  {value:'published',label:'Published',count:counts.published||0}
+  {value:'scheduled',label:'Scheduled',count:counts.scheduled||0},
+  {value:'in preview',label:'In preview',count:counts['in preview']||0},
+  {value:'published',label:'Published',count:counts.published||0},
+  {value:'failed',label:'Could not be written',count:counts.failed||0}
  ],ui.blogs.filter,'blogs-filter');
  const filtered=all.filter(task=>{
   if(ui.blogs.filter!=='all'&&blogGroup(task)!==ui.blogs.filter)return false;
@@ -1089,6 +1135,393 @@ function renderGa4(){
   return `<article class="tile"><span class="tile-label">${esc(labels[key])}</span><span class="tile-figure${shown===null?' absent':''}">${shown===null?'not yet':esc(shown)}</span>${deltaHtml(data.deltas?.[key])}</article>`;
  }).join('')}</div>`);
 }
+/* ---------------------------------------------------------- blog performance */
+/* One row per published article, joined server-side from Search Console and
+   Google Analytics. Six columns rather than the five the query and page tables
+   carry, so this does not reuse `renderDataTable` -- and `views` sorts on its
+   own key, which a shared function would have had to branch on anyway. */
+function renderPosts(){
+ const table=$('#posts-table');if(!table)return;
+ const data=state.analytics?.posts||{};
+ const all=data.posts||[];
+ const config=ui.posts;
+ const sorted=[...all].sort((left,right)=>{
+  const a=left[config.sort],b=right[config.sort];
+  if(a===b)return 0;
+  if(a===null||a===undefined)return 1;
+  if(b===null||b===undefined)return -1;
+  const result=typeof a==='string'?a.localeCompare(b):a-b;
+  return config.dir==='asc'?result:-result;
+ });
+ const view=page(sorted,'posts');
+ [...table.querySelectorAll('th[data-sort]')].forEach(header=>{
+  header.setAttribute('aria-sort',header.dataset.sort===config.sort?(config.dir==='asc'?'ascending':'descending'):'none');
+ });
+ setHtml(table.querySelector('tbody'),view.items.map(row=>{
+  /* Which system saw it. A post with views and no impressions was shared, not
+     found; one with impressions and no views was shown, not opened. Saying so
+     on the row is the difference between a surprising number and a wrong one. */
+  const seen=(row.sources||[]).length===2?''
+   :(row.sources||[]).includes('ga4')?'<span class="meta"> · analytics only</span>'
+   :'<span class="meta"> · search only</span>';
+  const label=row.url
+   ?`<a href="${esc(row.url)}" target="_blank" rel="noopener">${esc(row.title||row.slug)}</a>`
+   :esc(row.title||row.slug);
+  return `<tr>
+<td class="subject">${label}${seen}</td>
+<td class="n">${cell(row.views)}</td>
+<td class="n">${cell(row.impressions)}</td>
+<td class="n">${cell(row.clicks)}</td>
+<td class="n">${cell(row.ctr,'ctr')}</td>
+<td class="n">${cell(row.position,'position')}</td></tr>`;
+ }).join('')
+  ||`<tr><td colspan="6" class="meta">No published article has been measured in this window yet.</td></tr>`);
+ renderPager('#posts-pager','posts',view,'articles');
+}
+
+/* --------------------------------------------------------- audience panels */
+/* Four panels off one payload. Each renders its own "not connected" state from
+   the same status, because four independent empty states saying four different
+   things about one missing tag is how a console stops being believed. */
+function audience(){return state.analytics?.ga4_audience||{};}
+function audienceEmpty(host,title){
+ const data=audience();
+ const vars=(data.required_variables||[]).join(', ');
+ setHtml($(host),emptyState(title,
+  (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
+}
+function shareCell(value){
+ const width=Math.max(0,Math.min(100,Number(value)||0));
+ return `<div class="share-cell"><span class="share-bar"><i style="width:${width}%"></i></span><span class="num">${value===null||value===undefined?'—':esc(Number(value).toFixed(1))+'%'}</span></div>`;
+}
+function renderSources(){
+ const data=audience();
+ if(data.status!=='ready'&&data.status!=='collecting'){audienceEmpty('#sources-panel','Traffic sources need Google Analytics');return;}
+ const rows=data.traffic_sources||[];
+ if(!rows.length){
+  setHtml($('#sources-panel'),emptyState('No session recorded yet',
+   'Once Google Analytics has recorded sessions in this window, the channels that sent them will be listed here.'));
+  return;
+ }
+ setHtml($('#sources-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Source</th><th class="n">Sessions</th><th class="n">Visitors</th><th>Share</th><th>Seen as</th>
+</tr></thead><tbody>${rows.map(row=>`<tr>
+<td class="subject">${esc(row.source)}</td>
+<td class="n">${cell(row.sessions)}</td>
+<td class="n">${cell(row.active_users)}</td>
+<td>${shareCell(row.share)}</td>
+<td class="source-examples">${esc((row.examples||[]).join(', ')||'—')}</td></tr>`).join('')}</tbody></table></div>`);
+}
+function renderPlaces(){
+ const data=audience();
+ if(data.status!=='ready'&&data.status!=='collecting'){audienceEmpty('#places-panel','Visitor locations need Google Analytics');return;}
+ const countries=data.countries||[],cities=data.cities||[];
+ if(!countries.length&&!cities.length){
+  setHtml($('#places-panel'),emptyState('No location recorded yet',
+   'Google Analytics reports a country once it has sessions to report. Nothing has arrived in this window.'));
+  return;
+ }
+ setHtml($('#places-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Country</th><th class="n">Sessions</th><th class="n">Visitors</th>
+</tr></thead><tbody>${countries.map(row=>`<tr>
+<td class="subject">${esc(row.country)}</td><td class="n">${cell(row.sessions)}</td><td class="n">${cell(row.active_users)}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No country recorded yet.</td></tr>'}</tbody></table></div>
+<h4>Cities</h4>
+<div class="table-scroll"><table class="data"><thead><tr>
+<th>City</th><th>Country</th><th class="n">Sessions</th>
+</tr></thead><tbody>${cities.map(row=>`<tr>
+<td class="subject">${esc(row.city)}</td><td>${esc(row.country)}</td><td class="n">${cell(row.sessions)}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No city recorded yet.</td></tr>'}</tbody></table></div>`);
+}
+function renderDevices(){
+ const data=audience();
+ if(data.status!=='ready'&&data.status!=='collecting'){audienceEmpty('#devices-panel','Device information needs Google Analytics');return;}
+ const devices=data.devices||[],browsers=data.browsers||[];
+ if(!devices.length&&!browsers.length){
+  setHtml($('#devices-panel'),emptyState('No device recorded yet',
+   'Device category arrives with the first session Google Analytics records in this window.'));
+  return;
+ }
+ setHtml($('#devices-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Device</th><th class="n">Sessions</th><th class="n">Engagement</th>
+</tr></thead><tbody>${devices.map(row=>`<tr>
+<td class="subject">${esc(row.device)}</td><td class="n">${cell(row.sessions)}</td>
+<td class="n">${row.engagement_rate===null||row.engagement_rate===undefined?'—':esc((Number(row.engagement_rate)*100).toFixed(1)+'%')}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No device recorded yet.</td></tr>'}</tbody></table></div>
+<h4>Browser and operating system</h4>
+<div class="table-scroll"><table class="data"><thead><tr>
+<th>Browser</th><th>Operating system</th><th class="n">Sessions</th>
+</tr></thead><tbody>${browsers.map(row=>`<tr>
+<td class="subject">${esc(row.browser)}</td><td>${esc(row.operating_system)}</td><td class="n">${cell(row.sessions)}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No browser recorded yet.</td></tr>'}</tbody></table></div>`);
+}
+function renderJourney(){
+ const data=audience();
+ if(data.status!=='ready'&&data.status!=='collecting'){audienceEmpty('#journey-panel','Landing pages need Google Analytics');return;}
+ const rows=data.landing_pages||[];
+ if(!rows.length){
+  setHtml($('#journey-panel'),emptyState('No landing page recorded yet',
+   'The page a session starts on is recorded with that session. None has arrived in this window.'));
+  return;
+ }
+ setHtml($('#journey-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Landing page</th><th class="n">Sessions</th><th class="n">Engagement</th><th class="n">Bounce</th>
+</tr></thead><tbody>${rows.map(row=>`<tr>
+<td class="subject">${esc(row.page)}</td>
+<td class="n">${cell(row.sessions)}</td>
+<td class="n">${row.engagement_rate===null||row.engagement_rate===undefined?'—':esc((Number(row.engagement_rate)*100).toFixed(1)+'%')}</td>
+<td class="n">${row.bounces===null||row.bounces===undefined?'—':esc((Number(row.bounces)*100).toFixed(1)+'%')}</td></tr>`).join('')}</tbody></table></div>
+<p class="footnote">This is the entry point, not a full path. Google Analytics reports the page a session began on; a step-by-step journey needs an exploration in GA itself.</p>`);
+}
+/* --------------------------------------------------------------- social */
+/* Published articles and the copy that promotes them. Everything here is a read
+   of state except the three actions, and each of those goes through runAction
+   like every other slow thing on this console. */
+const PLATFORMS=[
+ {key:'linkedin',label:'LinkedIn',mark:'in',limit:3000},
+ {key:'x',label:'X',mark:'X',limit:280},
+ {key:'instagram',label:'Instagram',mark:'IG',limit:2200}
+];
+/* An X thread is edited as one textarea, with items separated by a line
+   containing only three dashes. One box per item would be a nicer form and a
+   worse edit: reordering a thread is the commonest change and dragging boxes is
+   harder than moving a line. */
+const THREAD_SEPARATOR='---';
+function splitThread(text){
+ return String(text||'').split(/\n\s*---\s*\n/).map(part=>part.trim()).filter(Boolean);
+}
+function joinThread(items){return (items||[]).join('\n'+THREAD_SEPARATOR+'\n');}
+function socialArticles(){return state.social?.articles||[];}
+function draftText(draft){
+ return draft.platform==='x'&&(draft.thread||[]).length
+  ?joinThread(draft.thread)
+  :String(draft.body||'');
+}
+function draftLength(draft,text){
+ if(draft.platform!=='x')return {count:text.length,note:''};
+ const items=splitThread(text);
+ const longest=items.reduce((most,item)=>Math.max(most,item.length),0);
+ return {count:longest,note:`${items.length} post${items.length===1?'':'s'} · longest `};
+}
+function draftBlock(article,platform,draft){
+ const meta=PLATFORMS.find(item=>item.key===platform);
+ const head=`<div class="draft-head"><span class="draft-name">
+<span class="draft-mark ${esc(platform)}" aria-hidden="true">${esc(meta.mark)}</span>${esc(meta.label)}</span>`;
+ if(!draft){
+  return `<div class="draft" data-draft="${esc(article.task_id)}:${esc(platform)}">${head}
+${pill('draft','no copy written yet')}</div>
+<p class="draft-note">Write the copy below and this becomes editable.</p></div>`;
+ }
+ const status=draft.status==='queued'?'queued':draft.status==='failed'?'failed_send':'draft';
+ const text=draftText(draft);
+ const measured=draftLength(draft,text);
+ const over=measured.count>meta.limit;
+ const producer=draft.producer==='writer'
+  ?'written by the writer'
+  :'assembled from the article — read it before sending';
+ const tail=draft.status==='queued'
+  ? `<p class="draft-note">Queued in Buffer${draft.scheduled_at?` for ${esc(draft.scheduled_at)}`:''}, sent by ${esc(draft.sent_by||'someone')}. Edit it in Buffer, not here.</p>
+<div class="thread-text">${esc(text)}</div>`
+  : `<textarea data-draft-body="${esc(article.task_id)}:${esc(platform)}" spellcheck="true"
+aria-label="${esc(meta.label)} copy">${esc(text)}</textarea>
+${platform==='x'?`<p class="draft-note">Separate thread posts with a line containing only ${THREAD_SEPARATOR}.</p>`:''}
+${platform==='instagram'?'<p class="draft-note">Instagram needs the cover image, and captions carry no live link — say the article is linked in bio.</p>':''}
+<div class="draft-foot"><span class="counter${over?' over':''}">${esc(measured.note)}${grouped.format(measured.count)} / ${grouped.format(meta.limit)}</span>
+<button class="ghost small" data-draft-save="${esc(article.task_id)}:${esc(platform)}" type="button">Save copy</button></div>`;
+ return `<div class="draft ${draft.status==='queued'?'is-queued':draft.status==='failed'?'is-failed':''}"
+data-draft="${esc(article.task_id)}:${esc(platform)}">${head}
+<span class="meta">${pill(status)} ${esc(producer)}</span></div>
+${draft.error?`<p class="draft-note">${esc(draft.error)}</p>`:''}
+${tail}</div>`;
+}
+function socialCard(article){
+ const drafts={};
+ for(const draft of article.drafts||[])drafts[draft.platform]=draft;
+ const written=Object.keys(drafts).length;
+ const queued=(article.drafts||[]).filter(draft=>draft.status==='queued').length;
+ /* What is left to send. A card whose three posts are all in Buffer has nothing
+    to prepare, and offering it anyway is a button that can only ever fail. A
+    refused draft still counts: retrying it is exactly what the button is for. */
+ const pending=(article.drafts||[]).filter(draft=>draft.status!=='queued').length;
+ const plan=socialPlans[article.task_id];
+ const planned=plan?`<div class="inline-form" data-social-plan="${esc(article.task_id)}">
+<p class="meta">This will queue ${grouped.format(plan.platforms.length)} post${plan.platforms.length===1?'':'s'} in Buffer — ${esc(plan.platforms.map(key=>(PLATFORMS.find(item=>item.key===key)||{}).label||key).join(', '))} — to publish in your own posting slots.</p>
+${(plan.notes||[]).map(note=>`<p class="meta">${esc(note)}</p>`).join('')}
+<div class="actions"><button data-social-send="${esc(article.task_id)}" type="button">Approve &amp; schedule</button>
+<button class="ghost" data-social-cancel="${esc(article.task_id)}" type="button">Not now</button></div></div>`:'';
+ /* The key is the article and nothing else. `patchRows` matches a rendered row
+    to its entry by this exact attribute and removes any child whose key is not
+    in the incoming set -- so a key carrying the card's own state matches nothing
+    and the whole list disappears on the first background repaint. State does not
+    belong here: patchRows already compares the markup byte for byte, which is
+    what decides whether the row is rebuilt. */
+ return `<article class="card" role="listitem" data-key="social-${esc(article.task_id)}" data-row="social-${esc(article.task_id)}">
+<div class="card-row"><div class="card-main">
+<h3>${esc(article.title||article.task_id)}</h3>
+<p class="meta">${esc(article.task_id)}${article.url?` · <a href="${esc(article.url)}" target="_blank" rel="noopener">${esc(String(article.url).replace(/^https?:\/\//,''))}</a>`:''}</p>
+</div><div class="card-figures">
+<span><span class="stat">${grouped.format(queued)}</span><span class="label">queued</span></span>
+<span><span class="stat">${grouped.format(written)}</span><span class="label">drafts</span></span>
+</div></div>
+<div class="drafts">${PLATFORMS.map(meta=>draftBlock(article,meta.key,drafts[meta.key])).join('')}</div>
+${planned}
+<div class="send-bar">
+<button class="ghost" data-social-generate="${esc(article.task_id)}" type="button">${written?'Rewrite the copy':'Write the copy'}</button>
+${pending&&!plan?`<button data-social-prepare="${esc(article.task_id)}" type="button">Prepare send</button>`:''}
+<span class="meta">${queued===3?'Every platform has been queued.':'Nothing is sent until you approve it.'}</span>
+</div>
+<p class="row-error" data-card-error hidden></p></article>`;
+}
+function renderSocial(){
+ const social=state.social||{};
+ const all=socialArticles();
+ const search=(ui.social.search||'').trim().toLowerCase();
+ const filter=ui.social.filter||'all';
+ const status=article=>{
+  const drafts=article.drafts||[];
+  if(!drafts.length)return 'none';
+  if(drafts.some(draft=>draft.status==='failed'))return 'failed';
+  if(drafts.every(draft=>draft.status==='queued'))return 'queued';
+  return 'ready';
+ };
+ const counts={all:all.length,none:0,ready:0,queued:0,failed:0};
+ for(const article of all)counts[status(article)]+=1;
+ chipRow('#social-filter',[
+  {value:'all',label:'All',count:counts.all},
+  {value:'none',label:'No copy yet',count:counts.none},
+  {value:'ready',label:'Ready to send',count:counts.ready},
+  {value:'queued',label:'Queued',count:counts.queued},
+  {value:'failed',label:'Refused',count:counts.failed}
+ ],filter,'social-filter');
+ const matched=all.filter(article=>{
+  if(filter!=='all'&&status(article)!==filter)return false;
+  if(!search)return true;
+  return `${article.title} ${article.task_id} ${article.slug}`.toLowerCase().includes(search);
+ });
+ const view=page(matched,'social');
+ $('#social-count').textContent=`${grouped.format(matched.length)} of ${grouped.format(all.length)}`;
+ $('#buffer-state').textContent=social.connected
+  ?'Buffer is connected.'
+  :'Buffer is not connected — set BUFFER_ACCESS_TOKEN and BUFFER_ORGANIZATION_ID.';
+ /* The badge counts work waiting on him, not arrivals: articles that are live
+    and have something still to send. An article with nothing written is one of
+    them, because writing the copy is the outstanding thing. */
+ const badge=document.querySelector('[data-badge="social"]');
+ if(badge){
+  const waiting=counts.none+counts.ready+counts.failed;
+  badge.hidden=!waiting||currentView==='social';
+  badge.textContent=waiting?String(waiting):'';
+ }
+ patchRows($('#social-list'),view.items.map(article=>({key:`social-${article.task_id}`,html:socialCard(article)})),
+  emptyState(all.length?'Nothing matches that':'No article is live yet',
+   all.length
+    ?'Clear the search or choose a different filter.'
+    :'An article appears here once Gate 2 merges it and a reader can open it. Until then a social post would link to a page that is not there.'));
+ renderPager('#social-pager','social',view,'articles');
+}
+/* The live character count, updated as he types. It reads the same limits the
+   server checks against, so a draft that looks acceptable here is one the send
+   will accept -- and one that does not is refused before Buffer is asked. */
+function updateCounter(box){
+ const [,platform]=String(box.dataset.draftBody||'').split(':');
+ const meta=PLATFORMS.find(item=>item.key===platform);
+ const node=box.closest('.draft')?.querySelector('.counter');
+ if(!meta||!node)return;
+ const measured=draftLength({platform},box.value);
+ node.textContent=`${measured.note}${grouped.format(measured.count)} / ${grouped.format(meta.limit)}`;
+ node.classList.toggle('over',measured.count>meta.limit);
+}
+async function generateSocial(taskId){
+ if(busy)return;
+ const card=document.querySelector(`[data-row="social-${taskId}"]`);
+ const action=runAction({
+  button:document.querySelector(`[data-social-generate="${taskId}"]`),
+  label:'Writing…',
+  surface:card?.querySelector('[data-card-error]'),
+  failTitle:'The copy was not written.'
+ });
+ try{
+  await post('/ceo/api/social/generate',{task:taskId});
+  delete socialPlans[taskId];
+  toast('Three drafts written. Read them before sending.');
+  await refresh();
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
+}
+async function saveSocialDraft(key){
+ if(busy)return;
+ const [taskId,platform]=key.split(':');
+ const box=document.querySelector(`[data-draft-body="${key}"]`);
+ if(!box)return;
+ const card=document.querySelector(`[data-row="social-${taskId}"]`);
+ const text=box.value;
+ const action=runAction({
+  button:document.querySelector(`[data-draft-save="${key}"]`),
+  label:'Saving…',
+  surface:card?.querySelector('[data-card-error]'),
+  shape:'row-h',
+  failTitle:'That edit was not saved.'
+ });
+ try{
+  const thread=platform==='x'?splitThread(text):[];
+  await post('/ceo/api/social/draft',{
+   task:taskId,platform,
+   body:platform==='x'?(thread[0]||''):text,
+   thread
+  });
+  /* Editing copy invalidates a prepared send: the instruction was minted
+     against the article as it stood, and the server checks that. */
+  delete socialPlans[taskId];
+  toast('Saved.');
+  await refresh();
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
+}
+async function prepareSocial(taskId){
+ if(busy)return;
+ const card=document.querySelector(`[data-row="social-${taskId}"]`);
+ const action=runAction({
+  button:document.querySelector(`[data-social-prepare="${taskId}"]`),
+  label:'Checking…',
+  surface:card?.querySelector('[data-card-error]'),
+  shape:'row-h',
+  failTitle:'Buffer could not be asked.'
+ });
+ try{
+  const check=await api(`/ceo/social-check?task=${encodeURIComponent(taskId)}`);
+  if(!check.eligible||!check.request_id){
+   action.fail((check.blockers||[]).concat(check.notes||[]).join(' · ')||'Nothing can be sent for this article right now.');
+   return;
+  }
+  socialPlans[taskId]={request_id:check.request_id,platforms:check.sendable||[],notes:check.notes||[]};
+  renderSocial();
+ }catch(error){action.fail(error.message);}
+ finally{action.done();}
+}
+async function sendSocial(taskId){
+ if(busy)return;
+ const plan=socialPlans[taskId];
+ const card=document.querySelector(`[data-row="social-${taskId}"]`);
+ if(!plan){notice('Prepare the send again — that instruction is gone.',true);return;}
+ const action=runAction({
+  button:document.querySelector(`[data-social-send="${taskId}"]`),
+  label:'Scheduling…',
+  surface:card?.querySelector('[data-card-error]'),
+  failTitle:'Buffer did not take the posts.'
+ });
+ try{
+  const result=await post('/ceo/api/social/send',
+   {task:taskId,request_id:plan.request_id,platforms:plan.platforms});
+  /* An instruction is single use whatever happened to it, so it goes either way. */
+  delete socialPlans[taskId];
+  const queued=(result.queued||[]).length;
+  if((result.failed||[]).length){
+   /* A partial send is reported as one, on screen, naming both halves. A toast
+      saying "done" over two posts that went and one that did not is a lie. */
+   action.fail(`Queued ${queued}. Refused: ${(result.failed||[]).map(item=>`${item.platform} — ${item.error}`).join(' · ')}`);
+  }else{
+   toast(`Queued ${queued} post${queued===1?'':'s'} in Buffer.`);
+  }
+  await refresh();
+ }catch(error){delete socialPlans[taskId];action.fail(error.message);}
+ finally{action.done();}
+}
 function gapRow(finding){
  const position=finding.our_position==null?'no Search Console data for this topic'
   :`we average position ${Number(finding.our_position).toFixed(1)}${finding.our_impressions!=null?` on ${finding.our_impressions} impressions`:''}`;
@@ -1153,9 +1586,16 @@ function renderSkeletons(){
  setHtml($('#trend-list'),skeleton(3,'row-h'));
  setHtml($('#competitor-panel'),skeleton(2,'card-h'));
  setHtml($('#archived-list'),skeleton(2,'card-h'));
+ setHtml($('#social-list'),skeleton(2,'card-h'));
+ setHtml($('#sources-panel'),skeleton(1,'card-h'));
+ setHtml($('#places-panel'),skeleton(1,'card-h'));
+ setHtml($('#devices-panel'),skeleton(1,'card-h'));
+ setHtml($('#journey-panel'),skeleton(1,'card-h'));
 }
 function renderAll(){
- renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderGa4();renderCompetitor();applyFocus();
+ renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderPosts();
+ renderGa4();renderSources();renderPlaces();renderDevices();renderJourney();renderSocial();
+ renderCompetitor();applyFocus();
 }
 
 /* ------------------------------------------------------------- blog reading */
@@ -1274,8 +1714,19 @@ ${open}
 ${impact}
 <p class="meta" id="blog-publish-state">Checking whether this article can be published…</p>
 <div id="blog-publish-files"></div>
+${publishDateHtml(task)}
 <div class="actions"><button data-blog-publish="1" type="button" disabled>Publish to website</button></div>
 <p class="meta">This records your approval in <span class="num">approvals.log</span>, then writes the blog page, its index entry and its diagram and pushes them to <span class="num">cmo-changes</span>. It does not touch <span class="num">main</span> — a human merges the pull request on GitHub after seeing the preview. Your name is recorded in the commit trailer.</p></div>`;
+}
+/* A day, written down. Nothing on this box fires on it — there is no cron here
+   and no scheduler — so this says "planned", never "will publish". Saying the
+   second would be promising an unattended publish that no code performs, and
+   that publish is a human press by design. */
+function publishDateHtml(task){
+ const planned=(task.publish_at||'').trim();
+ return `<div class="publish-date"><label class="field"><span>Planned publish date</span>
+<input type="date" data-publish-date="${esc(task.id)}" value="${esc(planned)}"></label>
+<p class="meta">A note to yourself, shown on the Blogs list as <em>Scheduled</em>. Nothing publishes on its own — the button below is still the press that ships it.</p></div>`;
 }
 function blogPublishFilesHtml(check){
  if(!check.files||!check.files.length)return '';
@@ -1358,11 +1809,12 @@ const NOT_YET_DECIDABLE={
  queued:'Queued to be written. It will come to you once the article exists.',
  researching:'Being written now. It will come to you when it is finished.',
  writing:'Being written now. It will come to you when it is finished.',
- rewriting:'Being rewritten. The new version will come to you when it is done.',
- checking:'Being checked. It will come to you when review finishes.',
+ rewriting:'Being edited. The new version will come to you when it is done.',
+ checking:'Waiting for review. It will come to you when review finishes.',
  failed:'This could not be written, so there is nothing to decide yet. Retry it from the Blogs list.',
  held:'On hold. It will come to you once it is released.',
- published:'Published to cmo-changes. The decision on it is already recorded.'
+ in_preview:'Published to cmo-changes and waiting on a merge to main. The decision on it is already recorded.',
+ published:'Published. The decision on it is already recorded.'
 };
 /* The change request, on the tab that holds the article.
 
@@ -1677,6 +2129,18 @@ async function generateImage(task,slot){
  }catch(error){action.fail(error.message);}
  finally{action.done();}
 }
+/* Writes the planned day, or clears it when the field is emptied. Not an action
+   that ships anything, so it does not take over the screen the way runAction does
+   -- a toast is the whole feedback a note deserves. */
+async function savePublishDate(taskId,value){
+ try{
+  const result=await post('/ceo/api/publish-date',{task_id:taskId,publish_at:value});
+  toast(result.publish_at?`Publish planned for ${result.publish_at}.`:'Publish date cleared.');
+  await refresh();
+ }catch(error){
+  toast(error.message);
+ }
+}
 async function upload(task,slot,file){
  if(busy)return;
  const action=runAction({
@@ -1696,11 +2160,15 @@ document.addEventListener('click',event=>{
  /* A sortable header is a click target in its own right, padding included. */
  const header=event.target.closest('th[data-sort]');
  if(header){
-  const key=header.closest('table').id==='queries-table'?'queries':'pages';
+  /* Three sortable tables now, so the key comes from the table rather than from
+     a two-way guess -- adding the third to that ternary is exactly how it would
+     have started sorting the wrong list. */
+  const key={'queries-table':'queries','pages-table':'pages','posts-table':'posts'}[header.closest('table').id];
+  if(!key)return;
   const field=header.dataset.sort;
   const same=ui[key].sort===field;
   setUi(key,{sort:field,dir:same&&ui[key].dir==='desc'?'asc':'desc',page:1});
-  renderSearchConsole();
+  if(key==='posts')renderPosts();else renderSearchConsole();
   return;
  }
  const button=event.target.closest('button');
@@ -1749,10 +2217,17 @@ document.addEventListener('click',event=>{
  if(data.revision)revise(findTask(openTask));
  if(data.blogPublish)publishBlog(findTask(openTask));
  if(data.recheck)refreshBlogPublish(findTask(openTask));
+ if(data.socialFilter){setUi('social',{filter:data.socialFilter});renderSocial();}
+ if(data.socialGenerate)generateSocial(data.socialGenerate);
+ if(data.draftSave)saveSocialDraft(data.draftSave);
+ if(data.socialPrepare)prepareSocial(data.socialPrepare);
+ if(data.socialSend)sendSocial(data.socialSend);
+ if(data.socialCancel){delete socialPlans[data.socialCancel];renderSocial();}
 });
 document.addEventListener('change',event=>{
  const target=event.target;
  if(target.matches('[data-upload]')&&target.files[0])upload(findTask(openTask),target.dataset.upload,target.files[0]);
+ if(target.matches('[data-publish-date]'))savePublishDate(target.dataset.publishDate,target.value);
  if(target.matches('[data-size]')){setUi(target.dataset.size,{size:Number(target.value),page:1});renderAll();}
 });
 document.addEventListener('input',event=>{
@@ -1760,6 +2235,10 @@ document.addEventListener('input',event=>{
  if(target.id==='topics-search'){setUi('topics',{search:target.value});renderProposals();}
  if(target.id==='blogs-search'){setUi('blogs',{search:target.value});renderBlogs();}
  if(target.id==='archived-search'){setUi('archived',{search:target.value});renderArchived();}
+ if(target.id==='social-search'){setUi('social',{search:target.value});renderSocial();}
+ /* The counter is the one thing that must not wait for a save: a limit
+    discovered on submit is a limit discovered too late. */
+ if(target.matches('[data-draft-body]'))updateCounter(target);
  if(target.id==='trend-keyword'){setUi('trends',{page:1},false);renderTrends();}
  if(target.id==='editor-input'){editorText=target.value;schedulePreview();}
 });
@@ -1787,7 +2266,7 @@ document.addEventListener('keydown',event=>{
   if(box){event.preventDefault();box.focus();box.select();}
   return;
  }
- if(/^[1-4]$/.test(event.key)){showView(VIEWS[Number(event.key)-1]);return;}
+ if(/^[1-5]$/.test(event.key)){showView(VIEWS[Number(event.key)-1]);return;}
  if(openTask)return;
  if(event.key==='j'){event.preventDefault();moveFocus(1);}
  if(event.key==='k'){event.preventDefault();moveFocus(-1);}
@@ -1832,6 +2311,7 @@ async function boot(){
  $('#topics-search').value=ui.topics.search;
  $('#blogs-search').value=ui.blogs.search;
  $('#archived-search').value=ui.archived.search;
+ $('#social-search').value=ui.social.search;
  showView(DEFAULT_VIEW);
  renderSkeletons();moveIndicator();
  try{

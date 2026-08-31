@@ -11,6 +11,7 @@ the two to the same answer.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -110,7 +111,28 @@ class BlogsTab(unittest.TestCase):
     def build(self, *cards: str) -> list[dict]:
         return console_board.read_board(self.write_board(*cards), self.root)["blogs"]
 
-    def state(self, *cards: str) -> dict:
+    def state(self, *cards: str, approved: str = "") -> dict:
+        """`approved` records a Gate 1 approval the way `DecisionStore` would.
+
+        Written straight to the file `decisions.decision_record` reads, because
+        `DecisionStore.decide` also enforces the lane and the fingerprint -- rules
+        of its own that these cases are not about.
+        """
+        if approved:
+            state_dir = self.root / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "human-approvals.json").write_text(
+                json.dumps({approved: {
+                    "task_id": approved,
+                    "decision": "approve",
+                    "approver_id": "ceo@itarang.com",
+                    "surface": "dashboard",
+                    "timestamp": "2026-08-11T00:00:00Z",
+                    "commit_sha": "",
+                    "send_back_text": "",
+                }}),
+                encoding="utf-8",
+            )
         blogs = self.build(*cards)
         return {task["id"]: task["blog"] for task in blogs}
 
@@ -158,7 +180,7 @@ class BlogsTab(unittest.TestCase):
 
         self.assertEqual([task["id"] for task in blogs], ["TASK-084"])
         self.assertEqual(blogs[0]["blog"]["state"], "queued")
-        self.assertEqual(blogs[0]["blog"]["label"], "Queued to be written")
+        self.assertEqual(blogs[0]["blog"]["label"], "Draft — queued to be written")
 
     def test_a_card_from_another_skill_does_not_reach_the_tab(self) -> None:
         blogs = self.build(
@@ -190,7 +212,7 @@ class WhatEachStateSays(BlogsTab):
     def test_an_approved_topic_waiting_its_turn(self) -> None:
         blog = self.state(_card("TASK-088", "Queued behind another", section="Backlog"))["TASK-088"]
 
-        self.assertEqual(blog["label"], "Queued to be written")
+        self.assertEqual(blog["label"], "Draft — queued to be written")
         self.assertFalse(blog["retryable"])
 
     def test_a_run_that_is_still_gathering_sources(self) -> None:
@@ -199,7 +221,7 @@ class WhatEachStateSays(BlogsTab):
         )["TASK-084"]
 
         self.assertEqual(blog["state"], "researching")
-        self.assertEqual(blog["label"], "Researching…")
+        self.assertEqual(blog["label"], "Draft — researching…")
 
     def test_a_run_that_has_its_sources_and_is_writing(self) -> None:
         (self.root / "artifacts" / "TASK-084-research.md").write_text("# brief\n", encoding="utf-8")
@@ -209,7 +231,7 @@ class WhatEachStateSays(BlogsTab):
         )["TASK-084"]
 
         self.assertEqual(blog["state"], "writing")
-        self.assertEqual(blog["label"], "Writing…")
+        self.assertEqual(blog["label"], "Draft — writing…")
 
     def test_the_elapsed_clock_starts_from_the_worker_heartbeat(self) -> None:
         (self.root / "state" / "content-worker.json").write_text(
@@ -250,7 +272,7 @@ class WhatEachStateSays(BlogsTab):
         )["TASK-066"]
 
         self.assertEqual(blog["state"], "held")
-        self.assertNotEqual(blog["label"], "Queued to be written")
+        self.assertNotEqual(blog["label"], "Draft — queued to be written")
 
     def test_a_backlog_card_with_no_approved_topic_is_not_queued(self) -> None:
         blog = self.state(
@@ -299,14 +321,14 @@ class WhatEachStateSays(BlogsTab):
                   attachment=self.article("TASK-084"), change_status="pending CMO review")
         )["TASK-084"]
 
-        self.assertEqual(blog["label"], "Being checked")
+        self.assertEqual(blog["label"], "Waiting for review")
 
     def test_a_card_in_human_approval_is_awaiting_him(self) -> None:
         blog = self.state(
             _card("TASK-084", "Ready to read", attachment=self.article("TASK-084"))
         )["TASK-084"]
 
-        self.assertEqual(blog["label"], "Awaiting you")
+        self.assertEqual(blog["label"], "Waiting for review")
 
     def test_a_card_he_asked_changes_on_is_being_rewritten(self) -> None:
         blog = self.state(
@@ -316,7 +338,7 @@ class WhatEachStateSays(BlogsTab):
         )["TASK-084"]
 
         self.assertEqual(blog["state"], "rewriting")
-        self.assertEqual(blog["label"], "Being rewritten")
+        self.assertEqual(blog["label"], "Being edited")
 
     def test_a_legacy_revision_marker_does_not_promise_a_rewrite(self) -> None:
         """`revision requested` with no round is the word for a request, not one.
@@ -331,7 +353,7 @@ class WhatEachStateSays(BlogsTab):
         )["TASK-037"]
 
         self.assertNotEqual(blog["state"], "rewriting")
-        self.assertEqual(blog["label"], "Being checked")
+        self.assertEqual(blog["label"], "Waiting for review")
 
     def test_a_running_revision_still_reads_as_being_rewritten(self) -> None:
         blog = self.state(
@@ -339,18 +361,84 @@ class WhatEachStateSays(BlogsTab):
                   attachment=self.article("TASK-084"), change_status="executing revision")
         )["TASK-084"]
 
-        self.assertEqual(blog["label"], "Being rewritten")
+        self.assertEqual(blog["label"], "Being edited")
 
-    def test_a_published_card_carries_its_preview_url(self) -> None:
+    def test_an_approved_card_with_a_future_date_is_scheduled(self) -> None:
+        """A day a human wrote down. Nothing fires on it -- there is no scheduler
+        on this box -- so the label is a plan, and Publish is still a press."""
+        blog = self.state(
+            _card("TASK-084", "Planned", attachment=self.article("TASK-084"),
+                  extra="- Publish at: 2099-09-02"),
+            approved="TASK-084",
+        )["TASK-084"]
+
+        self.assertEqual(blog["state"], "scheduled")
+        self.assertEqual(blog["label"], "Scheduled — 2099-09-02")
+
+    def test_a_date_that_has_passed_is_not_still_scheduled(self) -> None:
+        """Nothing published it, because nothing publishes on its own. Saying
+        "Scheduled" would claim a plan that is still running."""
+        blog = self.state(
+            _card("TASK-084", "Missed", attachment=self.article("TASK-084"),
+                  extra="- Publish at: 2020-01-02"),
+            approved="TASK-084",
+        )["TASK-084"]
+
+        self.assertEqual(blog["state"], "approved")
+        self.assertIn("2020-01-02", blog["reason"])
+
+    def test_an_unreadable_publish_date_is_not_a_state(self) -> None:
+        """Scheduled with no day behind it promises something nobody wrote down."""
+        blog = self.state(
+            _card("TASK-084", "Cleared", attachment=self.article("TASK-084"),
+                  extra="- Publish at: not scheduled"),
+            approved="TASK-084",
+        )["TASK-084"]
+
+        self.assertEqual(blog["state"], "approved")
+
+    def test_a_publish_date_on_an_unapproved_card_is_not_scheduled(self) -> None:
+        """A publish date on something nobody agreed to publish is not a plan."""
+        blog = self.state(
+            _card("TASK-084", "Premature", section="CMO Review",
+                  attachment=self.article("TASK-084"),
+                  extra="- Publish at: 2099-09-02")
+        )["TASK-084"]
+
+        self.assertEqual(blog["state"], "checking")
+
+    def test_a_card_on_the_branch_is_in_preview_not_live(self) -> None:
+        """`published to cmo-changes` is the preview branch, and it read "Live on
+        the site" -- a merge nobody had done yet, asserted on the screen."""
         blog = self.state(
             _card("TASK-084", "On cmo-changes", attachment=self.article("TASK-084"),
                   change_status="published to cmo-changes",
                   extra="- Preview URL: https://itarangwebsite.vercel.app/blog/battery-replacement")
         )["TASK-084"]
 
-        self.assertEqual(blog["state"], "published")
-        self.assertEqual(blog["label"], "Live on the site")
+        self.assertEqual(blog["state"], "in_preview")
+        self.assertEqual(blog["label"], "In preview")
         self.assertEqual(blog["url"], "https://itarangwebsite.vercel.app/blog/battery-replacement")
+
+    def test_only_a_merge_to_main_reads_as_published(self) -> None:
+        """The other half of the same bug: a genuinely live article read
+        "Approved", because nothing recognised the status Gate 2 writes."""
+        blog = self.state(
+            _card("TASK-084", "Merged", attachment=self.article("TASK-084"),
+                  change_status="merged to main")
+        )["TASK-084"]
+
+        self.assertEqual(blog["state"], "published")
+        self.assertEqual(blog["label"], "Published")
+
+    def test_a_completed_card_is_published_not_awaiting_him(self) -> None:
+        """`Completed` fell through to the default and read "Awaiting you"."""
+        blog = self.state(
+            _card("TASK-084", "Done", section="Completed",
+                  attachment=self.article("TASK-084"))
+        )["TASK-084"]
+
+        self.assertEqual(blog["state"], "published")
 
 
 class PublishFingerprint(BlogsTab):

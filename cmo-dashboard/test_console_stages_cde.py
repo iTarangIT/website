@@ -413,6 +413,52 @@ class ConsoleStagesCDETests(unittest.TestCase):
             payload["files"],
         )
 
+    def test_an_unbound_diagram_slot_is_not_offered_a_generate_button(self):
+        """The kind used to be inferred from the bound file's suffix, so a slot
+        with no file yet always reported `illustration` -- and the console offered
+        to buy a picture for the one the writer is meant to draw."""
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            article = artifacts / "TASK-901-content.md"
+            article.write_text(
+                "---\ntitle: Test article\n---\n\n"
+                "{{image:flow|A diagram nobody has drawn yet}}\n\n"
+                "{{image:depot|A scene nobody has generated yet}}\n",
+                encoding="utf-8",
+            )
+            payload = ceo_artifacts.artifact_payload(
+                {"id": "TASK-901", "image_kind_flow": "diagram"}, article, root
+            )
+
+        kinds = {slot["id"]: slot["kind"] for slot in payload["image_slots"]}
+        self.assertEqual(kinds, {"flow": "diagram", "depot": "illustration"})
+        self.assertFalse(any(slot["bound"] for slot in payload["image_slots"]))
+
+    def test_four_declared_slots_all_reach_the_files_tab(self):
+        """Positioning is the marker's position, and the payload is what the Files
+        tab renders a row from -- so every declared slot has to arrive."""
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            article = artifacts / "TASK-902-content.md"
+            article.write_text(
+                "---\ntitle: Test article\n---\n\nOpening paragraph.\n\n"
+                "{{image:one|First}}\n\nSecond paragraph.\n\n"
+                "{{image:two|Second}}\n\nThird paragraph.\n\n"
+                "{{image:three|Third}}\n\nFourth paragraph.\n\n"
+                "{{image:four|Fourth}}\n",
+                encoding="utf-8",
+            )
+            payload = ceo_artifacts.artifact_payload({"id": "TASK-902"}, article, root)
+
+        self.assertEqual(
+            [slot["id"] for slot in payload["image_slots"]], ["one", "two", "three", "four"]
+        )
+        self.assertEqual([slot["caption"] for slot in payload["image_slots"]][:2], ["First", "Second"])
+
     def test_content_skill_output_keeps_path_ceiling_and_concept_standard(self):
         path = _tracked("cmo_skills/content.skill")
         output = next(

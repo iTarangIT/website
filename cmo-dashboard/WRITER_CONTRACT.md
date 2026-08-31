@@ -34,7 +34,9 @@ title: <reader-facing title>
 meta_title: <search title>
 meta_description: <search description>
 slug: <proposed-slug>
-category: <financing | battery-selection | charging-maintenance | safety | lifecycle-recycling | partners-industry>
+category: <financing | battery-selection | charging-maintenance | safety |
+          lifecycle-recycling | partners-industry | energy-storage |
+          energy-transition>
 audience: <intended reader>
 source_urls: <comma-separated dated source URLs>
 ---
@@ -75,27 +77,34 @@ Declare each intended visual at its exact reading position in the Markdown body:
 {{image:<slot-id>|<reader-facing caption>}}
 ```
 
-An article declares **two** slots, of two different kinds:
+An article declares **one to four** slots, in any mix of the two kinds:
 
 | Kind | Who makes it | File | Belongs to |
 | --- | --- | --- | --- |
 | Diagram | the writer, as SVG | `artifacts/<TASK-ID>-<slot-id>.svg` | labels, numbers, steps, comparisons |
 | Illustration | the image model, from a scene the writer describes | `artifacts/<TASK-ID>-<slot-id>.webp` | atmosphere, place, the human situation |
 
+The marker's position in the body **is** the image's position on the page. An
+article of 4–6 sections rarely needs four pictures; declare the ones that carry
+something the prose cannot, and stop.
+
 Rules:
 
 - `<slot-id>` uses letters, numbers, hyphens, or underscores, starts with a letter or number, and is at most 41 characters.
+- The caption is required. The publisher renders it into the `<figcaption>`, and a marker without one is not recognised as a slot at all.
 - A repeated slot ID is rendered once.
 - An unbound slot remains a captioned placeholder; it is not silently removed.
-- One diagram slot and one illustration slot is the most an article may publish. Two of either kind is refused rather than numbered.
+- Four slots is the cap. A fifth is refused, naming the number.
+- Two slots of the same kind are fine: files are named `<slug>-<slot-id>`, so they cannot collide. (They once could, which is why one of each used to be the rule.)
 - Bind a committed diagram with board field `Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.svg`.
+- Declare each slot's kind with `Image kind <slot-id>: diagram | illustration`. Without it an unbound slot is assumed to be an illustration and is offered a Generate button — wrong for one the writer means to draw.
 - An illustration also needs `Image alt <slot-id>`. A picture with no alt text is refused at publish, because a screen reader would reach it and find nothing.
 - Browser uploads remain limited to PNG, JPG/JPEG, WEBP, or GIF and 5 MB. SVG is never accepted through the upload route.
 
 ## Describing an image the writer does not draw
 
-Two scenes are written per article: one for the illustration, one for the cover that
-goes on the blog card and the social preview. Both are one or two sentences describing
+One scene is written per illustration slot, plus one for the cover that goes on the
+blog card and the social preview. Each is one or two sentences describing
 **what is visible** — not what it means, not what it proves.
 
 Nothing measurable goes in a picture. Every number, label, brand, document, screen and
@@ -118,15 +127,17 @@ Category: <the exact allowed category slug emitted in front matter>
 Description: <one-line functional description of the completed article>
 Metric: <the approved content KPI and its measurement method>
 Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.svg   # one per committed diagram, when present
+Image kind <slot-id>: diagram                             # one per declared slot
 ```
 
 The generated imagery is bound by the pipeline rather than by the writer, in the same
 `set_board_fields()` call:
 
 ```text
-Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.webp   # the illustration
+Image slot <slot-id>: artifacts/<TASK-ID>-<slot-id>.webp   # one per illustration
 Image alt <slot-id>: <one line of alt text>
 Image prompt <slot-id>: <the scene it was drawn from>
+Image kind <slot-id>: illustration
 Cover image: artifacts/<TASK-ID>-cover.webp
 Cover prompt: <the scene it was drawn from>
 ```

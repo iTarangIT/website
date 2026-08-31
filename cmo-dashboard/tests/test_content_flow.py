@@ -16,6 +16,8 @@ from cmo_runtime.content_flow import (
     ContentRunRefused,
     ContentRuntime,
     FirecrawlResearcher,
+    MAX_IMAGE_SLOTS,
+    PhotoScene,
     ResearchBundle,
     ResearchSource,
     _frontmatter,
@@ -295,7 +297,8 @@ class ContentFlowTest(unittest.TestCase):
             # rather than completion. A blog post adds a route, a registry entry
             # and a sitemap URL; a card left unclassified was approved straight
             # into Completed, past the publish step entirely.
-            {"Attachment", "Category", "Change type", "Description", "Metric", "Image slot heat-flow"},
+            {"Attachment", "Category", "Change type", "Description", "Metric",
+             "Image slot heat-flow", "Image kind heat-flow"},
         )
         self.assertEqual(
             self.task_file.move_calls,
@@ -464,9 +467,13 @@ def illustrated_package() -> ArticlePackage:
         base,
         markdown=markdown,
         cover_scene="A charged e-rickshaw at a kerbside charging point at dusk.",
-        photo_slot_id="depot-evening",
-        photo_scene="A small fleet depot with vehicles parked in a row after dark.",
-        photo_alt="E-rickshaws parked in a row at a depot after dark",
+        photos=(
+            PhotoScene(
+                slot_id="depot-evening",
+                scene="A small fleet depot with vehicles parked in a row after dark.",
+                alt="E-rickshaws parked in a row at a depot after dark",
+            ),
+        ),
     )
 
 
@@ -600,7 +607,8 @@ class GeneratedImageryTest(unittest.TestCase):
         # The publisher refuses a raster slot with no alt text, so paying for one
         # would buy a picture that can never be published.
         client = FakeImageClient()
-        directed = replace(illustrated_package(), photo_alt="")
+        base = illustrated_package()
+        directed = replace(base, photos=(replace(base.photos[0], alt=""),))
 
         self.runtime(client=client, package_=directed).execute()
 
@@ -611,8 +619,78 @@ class GeneratedImageryTest(unittest.TestCase):
         normalised = _normalise_package_slot(illustrated_package())
 
         self.assertEqual(normalised.slot_id, "heat-flow")
-        self.assertEqual(normalised.photo_slot_id, "depot-evening")
+        self.assertEqual([photo.slot_id for photo in normalised.photos], ["depot-evening"])
         self.assertEqual(normalised.cover_scene, illustrated_package().cover_scene)
+
+
+class TheWriterCanAskForSeveralPictures(unittest.TestCase):
+    """Scenes arrive as one JSON array, the way every other list here does.
+
+    A repeated delimited section cannot be parsed unambiguously, and the older
+    single-scene shape still has to work -- a model answering the old way should
+    produce one picture, not none.
+    """
+
+    def scenes(self, stdout: str):
+        from cmo_runtime.content_flow import HermesContentWriter
+
+        return HermesContentWriter.__dict__["_photo_scenes"](
+            HermesContentWriter.__new__(HermesContentWriter), stdout
+        )
+
+    def test_several_scenes_are_read_from_the_json_array(self) -> None:
+        photos = self.scenes(
+            "<<<BEGIN_PHOTOS>>>\n"
+            '[{"slot_id": "depot", "scene": "A depot after dark.", "alt": "A depot"},'
+            ' {"slot_id": "kerb", "scene": "A kerbside charger.", "alt": "A charger"}]\n'
+            "<<<END_PHOTOS>>>"
+        )
+
+        self.assertEqual([photo.slot_id for photo in photos], ["depot", "kerb"])
+
+    def test_the_older_single_scene_shape_still_produces_one_picture(self) -> None:
+        photos = self.scenes(
+            "<<<BEGIN_PHOTO_SLOT_ID>>>\ndepot\n<<<END_PHOTO_SLOT_ID>>>\n"
+            "<<<BEGIN_PHOTO_SCENE>>>\nA depot after dark.\n<<<END_PHOTO_SCENE>>>\n"
+            "<<<BEGIN_PHOTO_ALT>>>\nA depot\n<<<END_PHOTO_ALT>>>"
+        )
+
+        self.assertEqual([photo.slot_id for photo in photos], ["depot"])
+
+    def test_a_scene_with_no_alt_text_is_dropped_before_it_is_paid_for(self) -> None:
+        photos = self.scenes(
+            '<<<BEGIN_PHOTOS>>>\n[{"slot_id": "depot", "scene": "A depot.", "alt": ""}]\n<<<END_PHOTOS>>>'
+        )
+
+        self.assertEqual(photos, ())
+
+    def test_more_scenes_than_the_cap_cost_the_cap(self) -> None:
+        """A model asked for three and returning nine must cost three images."""
+        rows = ", ".join(
+            f'{{"slot_id": "s{index}", "scene": "A scene.", "alt": "Alt"}}' for index in range(9)
+        )
+        photos = self.scenes(f"<<<BEGIN_PHOTOS>>>\n[{rows}]\n<<<END_PHOTOS>>>")
+
+        self.assertEqual(len(photos), MAX_IMAGE_SLOTS)
+
+    def test_unreadable_json_loses_the_pictures_not_the_article(self) -> None:
+        photos = self.scenes("<<<BEGIN_PHOTOS>>>\nnot json at all\n<<<END_PHOTOS>>>")
+
+        self.assertEqual(photos, ())
+
+    def test_a_scene_whose_slot_is_not_in_the_body_is_dropped(self) -> None:
+        """There is nowhere to put it, so generating it would buy an orphan."""
+        base = illustrated_package()
+        package = replace(
+            base,
+            photos=base.photos + (
+                PhotoScene(slot_id="nowhere", scene="A scene.", alt="Alt"),
+            ),
+        )
+
+        normalised = _normalise_package_slot(package)
+
+        self.assertEqual([photo.slot_id for photo in normalised.photos], ["depot-evening"])
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from cmo_runtime.topic_proposals import (  # noqa: E402
     ResearchPass,
     SourcePage,
     TopicProposalService,
+    demand_summary,
     hold_legacy_cards,
 )
 
@@ -591,6 +592,103 @@ class ApprovingOneTopicSetsTheRestAside(ProposalFlowTestCase):
 
         self.assertEqual(run.resurfaced, [])
         self.assertEqual(len(run.suppressed), 1)
+
+
+class DemandIsMeasuredOrAbsent(ProposalFlowTestCase):
+    """A figure on a candidate card has to trace to a Search Console row.
+
+    The whole point of scoring demand is to answer "which of these hundred is
+    worth writing" without reading all of them. That only works if the number is
+    trustworthy, and the one way to lose that is to render an absence as a zero.
+    """
+
+    def test_ctr_is_derived_from_the_totals_not_averaged_per_row(self) -> None:
+        """Averaging per-row CTR weights a 3-impression query like a 3,000 one."""
+        summary = demand_summary([
+            {"query": "big", "impressions": 1000, "clicks": 10, "position": 20.0},
+            {"query": "tiny", "impressions": 10, "clicks": 5, "position": 2.0},
+        ])
+
+        # 15 clicks over 1010 impressions, not the mean of 1% and 50%.
+        self.assertEqual(summary["impressions"], 1010)
+        self.assertEqual(summary["clicks"], 15)
+        self.assertAlmostEqual(summary["ctr"], 15 / 1010, places=4)
+
+    def test_position_is_weighted_by_impressions(self) -> None:
+        summary = demand_summary([
+            {"query": "big", "impressions": 1000, "clicks": 0, "position": 20.0},
+            {"query": "tiny", "impressions": 10, "clicks": 0, "position": 1.0},
+        ])
+
+        self.assertGreater(summary["position"], 19.0)
+
+    def test_no_rows_is_no_summary_rather_than_a_zero(self) -> None:
+        """The case every new vertical hits: we do not rank for solar yet."""
+        self.assertEqual(demand_summary([]), {})
+
+    def test_rows_with_no_impressions_are_not_a_zero_score(self) -> None:
+        self.assertEqual(
+            demand_summary([{"query": "x", "impressions": 0, "clicks": 0}]), {}
+        )
+
+    def test_unreadable_row_values_do_not_fabricate_a_figure(self) -> None:
+        """Search Console has returned nulls; a crash or a 0 would both be wrong."""
+        summary = demand_summary([
+            {"query": "good", "impressions": 100, "clicks": 4, "position": 12.0},
+            {"query": "bad", "impressions": None, "clicks": None, "position": None},
+            {"query": "worse", "impressions": "many", "clicks": "some"},
+        ])
+
+        self.assertEqual(summary["impressions"], 100)
+        self.assertEqual(summary["clicks"], 4)
+
+    def test_a_measured_pass_carries_its_demand_to_the_console(self) -> None:
+        service, _root = self.make_service(
+            search_console=FakeSearchConsole(rows=[
+                {"query": "e rickshaw battery price", "impressions": 900,
+                 "clicks": 18, "position": 14.0},
+                {"query": "e rickshaw battery", "impressions": 100,
+                 "clicks": 2, "position": 30.0},
+            ])
+        )
+        service.propose("e rickshaw battery price", actor="ceo@itarang.com")
+
+        proposal = service.state()["proposals"][0]
+
+        self.assertEqual(proposal["demand"]["impressions"], 1000)
+        self.assertEqual(proposal["demand"]["clicks"], 20)
+        self.assertAlmostEqual(proposal["demand"]["ctr"], 0.02, places=4)
+
+    def test_a_subject_with_no_demand_data_carries_none(self) -> None:
+        """Not `{"impressions": 0}` -- the console must be able to tell them apart."""
+        service, _root = self.make_service(
+            search_console=FakeSearchConsole(rows=[], message="no matching query data")
+        )
+        service.propose("India BESS tender news", actor="ceo@itarang.com")
+
+        self.assertEqual(service.state()["proposals"][0]["demand"], {})
+
+    def test_the_demand_column_is_added_to_an_existing_database(self) -> None:
+        """Schema 5 lands on a live database with 600 KB of history in it."""
+        import sqlite3
+        from cmo_runtime.console_db import ConsoleDB
+
+        service, root = self.make_service()
+        service.database.close()
+
+        # Simulate a pre-schema-5 database by dropping the column back off.
+        path = root / "state" / "console.db"
+        with sqlite3.connect(path) as raw:
+            raw.execute("ALTER TABLE research_runs DROP COLUMN demand_json")
+            raw.execute("PRAGMA user_version=4")
+
+        reopened = ConsoleDB(root)
+        self.addCleanup(reopened.close)
+        columns = {
+            row["name"] for row in reopened._query("PRAGMA table_info(research_runs)")
+        }
+
+        self.assertIn("demand_json", columns)
 
 
 if __name__ == "__main__":

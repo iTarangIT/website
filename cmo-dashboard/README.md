@@ -36,8 +36,13 @@ on the blog card and the Open Graph tag. Neither replaces the other.
 | Cost | $0.067 per 1K image, standard tier. **No free tier** — an unbilled key fails on the first call. |
 | Output | 16:9 WebP, long edge capped at 1600px, quality stepped down toward 250 KB |
 
-At up to three articles a day and two images each, that is roughly **$12 a month**
-against the profile's $50 budget. Every call is recorded through
+An article declares **one to four** image slots, in any mix of diagram and
+illustration, each at its own reading position in the body. Files are named
+`<slug>-<slot-id>`, so two of a kind cannot collide — that collision is the whole
+reason one of each used to be the rule. At up to three articles a day and up to
+four images each, the ceiling is roughly **$24 a month** against the profile's
+$50 budget; the writer is asked to declare a second illustration only where it
+carries something the prose cannot, so the typical bill stays near half that. Every call is recorded through
 `scripts/spend-tracker.py` as `provider: gemini`, and a generation that would cross the
 $40 warning is refused *before* the request goes out rather than discovered afterwards.
 
@@ -50,7 +55,10 @@ Where it runs:
   store.
 - **By hand**, from the console's Files tab. Each slot carries the description it was
   drawn from, editable, with a Generate button beside the existing upload. A diagram
-  slot says so and offers no button: the writer draws that one.
+  slot says so and offers no button: the writer draws that one. Which kind a slot is
+  comes from the card's `Image kind <slot-id>` field, not from the suffix of whatever
+  is bound — an *unbound* diagram has no suffix to read, so before that field existed
+  every empty slot offered to buy a picture for a drawing.
 
 A failed generation never fails a run. The article has already cost Firecrawl credits
 and a writer call; a missing picture leaves the slot unbound, which the console renders
@@ -398,15 +406,39 @@ recording unchanged.
 
 One sweep:
 
-**Five standing beats, one per kind of development it promises to watch:**
+**Three standing beats, plus two off a rotating roster.** Five searches a sweep, as
+before — the roster is larger than the sweep and takes turns through it:
 
 ```text
-ev-industry   India electric three-wheeler e-rickshaw battery swapping news
-policy        India EV policy news
-battery-tech  EV battery technology news sodium-ion solid-state
-market        India EV sales funding investment news
-competitors   built from the console's competitor list, or a general query
+standing, every sweep
+  ev-industry         India electric three-wheeler e-rickshaw battery swapping news
+  policy              India EV policy news
+  competitors         built from the console's competitor list, or a general query
+
+rotating, two per sweep, advancing by day
+  battery-tech        EV battery technology news sodium-ion solid-state
+  market              India EV sales funding investment news
+  solar               India solar power project news
+  bess                India battery energy storage system BESS tender news
+  ess                 India grid energy storage news
+  inverter-batteries  India inverter battery home backup power news
+  energy-transition   India energy transition renewable news
+  deep-tech           India deep tech energy startup news
 ```
+
+The company sells into the energy ecosystem, not only into EVs — stationary storage,
+solar and inverter batteries are the same cells and the same buyers. Watching all
+eleven every day would be 22 credits of discovery a sweep at a flat 2 a beat, most of
+the day's budget spent before researching anything. **The roster rotates instead, so
+the bill does not move:** two slots a day walks the eight-beat roster in four days, and
+`RADAR_RECENCY` is a week wide, so nothing falls between two sweeps. The trade is
+latency, not coverage.
+
+Precedence is load-bearing and is the order above: standing beats first, then the
+roster, then the watchlist. A rotating beat can lose its turn; a standing one cannot.
+The triage prompt was widened to match — it used to say *"stay inside the EV
+ecosystem … reject anything outside it"*, which would have rejected every solar and
+BESS subject the new beats find.
 
 `competitors` used to be a leftover — appended after the watchlist and kept only if a
 slot survived under `RADAR_MAX_BEATS`. That made it silently conditional on the
@@ -418,7 +450,7 @@ are covered over a few days at the same flat 2 credits.
 
 **A candidate says which beat found it.** The triager returns a beat with each subject;
 that used to be dropped between the triager and the pipeline, so a candidate could not
-say which of the five produced it. It is recorded on the `subjects` row (schema 4) and
+say which of them produced it. It is recorded on the `subjects` row (schema 4) and
 shown as a pill on the card. A subject typed into the box carries no beat rather than
 an invented one.
 
@@ -431,11 +463,11 @@ candidates, and only one of them is a reason to change a query.
    are below `RADAR_CREDIT_FLOOR` — an unattended daily job must never be why the CEO
    cannot research a subject by hand. Refusals are recorded, because a sweep that left
    no trace reads as one that never ran.
-2. **Discovery** across every beat — `DEFAULT_BEATS` (EV industry including
-   swapping, policy, battery technology, market), plus watchlist entries from
-   `state/ceo-watchlist.json` and rows from `competitors` filling whatever slots
-   `RADAR_MAX_BEATS` leaves, so the beat is steerable from surfaces the CEO
-   already controls without a redeploy.
+2. **Discovery** across every beat — `CORE_BEATS` (EV industry including swapping,
+   and policy), the `competitors` beat built from the console's list, then
+   `RADAR_ROTATING_SLOTS` off `ROTATING_BEATS`, then watchlist entries from
+   `state/ceo-watchlist.json` filling whatever slots `RADAR_MAX_BEATS` leaves, so
+   the beat is steerable from surfaces the CEO already controls without a redeploy.
    `/v2/search` without `scrapeOptions` returns titles, narrowed to
    `RADAR_RECENCY` (`qdr:w`). One dead beat does not end the sweep. **This is
    billed** — see the costs below — so the balance is read after it and the spend
@@ -472,8 +504,9 @@ as at limit 3, so asking for more headlines per beat costs nothing and gives the
 triage prompt more to work with. Cutting it saves nothing.
 
 **The beat count is the entire discovery bill.** At 2 credits a beat it is the only
-lever, which is why `RADAR_MAX_BEATS` caps defaults and dynamic additions
-*together*. The watchlist and competitor list used to take up to five slots each,
+lever, which is why `RADAR_MAX_BEATS` caps standing beats, the rotating roster and
+dynamic additions *together* — and why widening the beat to six new verticals was
+done by rotating the roster through the existing five slots rather than adding slots. The watchlist and competitor list used to take up to five slots each,
 so a filled watchlist could put fifteen searches — 30 credits — in front of a
 sweep that had not researched anything yet. Defaults are placed first and the
 additions fill what is left, so the standing beat can never be crowded out.
@@ -556,6 +589,216 @@ install -o hermes -g hermes -m 0755 bin/run-news-radar "$CMO_DASHBOARD_PROFILE_D
 Everything under the profile is hermes-owned. Running the radar as any other user leaves
 a lock nobody else can take — that happened, so `main()` now names the cause instead of
 raising a `PermissionError` from `touch`, which reads as a missing file.
+
+## One status, in editorial words
+
+A card's state was spread across five vocabularies: the board section, a `Status`
+field, a free-text `Change status` (twelve distinct values on the live board), the
+SQLite proposal status, and the derived `blog_state()`. Only the last one is on the
+screen, and it read the blog chain in the pipeline's words — `queued`, `checking`,
+`awaiting you`. `console_board.blog_state()` now answers in one vocabulary:
+
+```text
+Draft               queued to be written, researching, or writing
+Being edited        a revision the writer is serving
+Waiting for review  in CMO Review, or waiting on a human decision
+Approved            a Gate 1 decision is recorded
+Scheduled — <day>   approved, with a publish date still ahead
+In preview          pushed to cmo-changes, awaiting a merge
+Published           merged to main
+On hold             a human parked it, with the reason
+Could not be written the writer failed, and this one is retryable
+```
+
+Nothing new is written to `tasks.md` for these: every one is derived from fields
+that already existed, so `SOUL.md` section 4's five lanes and its mirror pairs are
+untouched and no card needed backfilling.
+
+**Two of them were wrong, in opposite directions.** `published to cmo-changes` — the
+*preview* branch — rendered as "Live on the site", asserting a merge nobody had
+done; and `merged to main`, which is what Gate 2 actually writes, was recognised
+nowhere, so a genuinely live article read "Approved". A card in `Completed` fell
+through to the default and read "Awaiting you". Published now means a reader can
+reach it, and `In preview` is its own state with the preview link on it.
+
+**Scheduled is a date, not a trigger.** `Publish at: <YYYY-MM-DD>` is written from a
+date field beside the Publish button (`POST /ceo/api/publish-date` →
+`ceo_actions.set_publish_date`). **Nothing fires on it.** There is no cron on this
+box, and an unattended publish would also be an agent reaching a publish path that
+`SOUL.md` section 12 keeps in a human's hands. A date that has passed stops reading
+as Scheduled and falls back to Approved carrying the day it was meant to go out,
+because a plan nothing is still working on is not a plan. Clearing it writes
+`not scheduled` rather than a blank, because the board writer refuses an empty value.
+
+## Demand, measured or absent
+
+Search Console demand was already fetched free on every research pass, sorted by
+impressions, and flattened into prose for the proposer. No figure reached the human
+choosing between a hundred pending candidates. `topic_proposals.demand_summary()`
+now rolls those rows into one line on the card:
+
+```text
+1,240 impressions · CTR 1.8% · avg position 18.4
+```
+
+Every number is a sum or a ratio of rows Search Console measured for this property.
+CTR is derived from the totals rather than averaged per row — averaging weights a
+3-impression query the same as a 3,000-impression one — and position is
+impression-weighted for the same reason.
+
+**A subject with no rows renders "No Search Console data for this subject yet", never
+a zero.** "We have no data for solar" and "solar gets no impressions" are opposite
+facts, and every newly-swept vertical hits the first one. `demand_summary` returns
+`{}` rather than zeros so the two cannot be confused downstream.
+
+Stored on `research_runs.demand_json` (schema 5, added idempotently by
+`ConsoleDB._add_column`) and read through the version's `research_run_id`, so six
+candidates off one subject share one measurement rather than six copies of it.
+
+## Cross-posting: the Social tab
+
+A published article used to end at the blog. Distribution was a Markdown post pack
+`social.skill` wrote and nobody read: it said in its own OUTPUT line that "nothing is
+posted or scheduled", and nothing was.
+
+The **Social** tab (hotkey `4`; Archived moved to `5`) is the path from this box to
+LinkedIn, X and Instagram, through one Buffer connection rather than three OAuth apps.
+
+**One article, three pieces of writing.** `cmo_runtime/social_copy.py` produces a
+LinkedIn professional summary that opens on the audience and closes on the link, an X
+thread whose first post earns the second, and an Instagram caption written to sit
+under the cover. They are different pieces, not one reformatted three times, and a
+test asserts the three bodies are not equal — a suite that only counted three drafts
+would pass on exactly the copy-paste this replaces.
+
+Two producers, and the console always says which:
+
+| Producer | What it is | How it reads on screen |
+| --- | --- | --- |
+| `writer` | one tool-restricted Hermes call given the article and `social.skill` | *written by the writer* |
+| `composed` | assembled from the article's own front matter and opening sentences | *assembled from the article — read it before sending* |
+
+A writer failure costs the drafts their authorship, not their existence. It is never
+dressed up as authorship: `crosspost_drafts.producer` carries it and the card prints it.
+
+**Nothing is offered before the article is live.** A social post is a link, and a link
+to an unmerged branch is a 404 for every follower who taps it. `ceo_social.preflight`
+refuses until the card reads `merged to main` **and** a `HEAD` on the live URL answers
+— `merged to main` is a git fact, a reader opening the page is a different one, and
+the VPS deploy sits between them. Instagram makes it literal: Buffer fetches the cover
+over the public internet, so a post for an unpublished article cannot even be built.
+
+**The send is two presses, and the first one only shows the plan.** *Prepare send*
+runs the preflight, which is the one call that reaches Buffer — a page load never does,
+so the three-second poller cannot hammer someone's API quota. It names the platforms,
+then mints a single-use instruction. *Approve & schedule* spends it. Same shape as the
+publish gates, one step further along.
+
+**A partial send is reported as one.** Three platforms are three independent
+`createPost` calls with no transaction across them. When X fails, LinkedIn and
+Instagram stay queued, the X row keeps Buffer's own wording in `crosspost_drafts.error`,
+and the result says which went and which did not. A single "failed" would have a human
+re-sending two posts that already went out.
+
+Per-platform shape is not cosmetic — Buffer rejects the wrong one, minutes after the
+press, and `tests/test_buffer_client.py` asserts on the variables rather than on "it
+did not raise":
+
+- **Instagram** needs an asset plus `type`/`shouldShareToFeed`. A caption alone is a
+  400, so it is refused here with a sentence naming the missing cover.
+- **X** carries the thread in `metadata.twitter.thread`, and the outer `text` must
+  repeat the first item or the pair is rejected. Both come from one string.
+- **LinkedIn** takes the link as a `linkAttachment`; in the body it is a bare URL
+  rather than a preview card.
+
+Every post goes out as `mode: addToQueue`, `schedulingType: automatic`,
+`needsApproval: false` — approval happened in the console, scheduling belongs to
+Buffer's own slots. `shareNow` exists in the schema and is deliberately unreachable
+from here; a test proves it.
+
+**Facebook is absent on purpose.** The organisation has three Buffer channels and all
+three are used (X, Instagram, LinkedIn). A platform with no channel is a row that can
+only ever say "not connected", so `CROSSPOST_PLATFORMS` is `("linkedin", "x",
+"instagram")`. Connecting a Facebook channel is not enough on its own — the platform
+tuple and `social_copy` would both need it.
+
+Configuration, read through `read_env_value` so the profile `.env` works like the
+process environment:
+
+| Variable | What it is |
+| --- | --- |
+| `BUFFER_ACCESS_TOKEN` | from publish.buffer.com/settings/api. Header only, never a query parameter |
+| `BUFFER_ORGANIZATION_ID` | the 24-hex organization id, validated before any call |
+| `BUFFER_API_URL` | optional; defaults to `https://api.buffer.com/graphql` |
+
+Storage is `crosspost_drafts` (schema 6). The table existed and nothing called it;
+the send columns — `status`, `channel_id`, `buffer_post_id`, `scheduled_at`,
+`sent_by`, `error` — were added idempotently through `ConsoleDB._add_column`.
+**Regenerating copy never resets a queued row**: Buffer holds that post either way,
+and a console that forgot would offer to publish it twice.
+
+## Analytics: per article, and where the traffic came from
+
+Three additions, all on the Analytics tab, all built on readers that already existed.
+
+**How each article is doing.** One row per published post — views, impressions,
+clicks, CTR, average position. The two halves come from two systems and neither is
+authoritative about the other: Search Console knows what Google showed and what was
+tapped, GA4 knows what a browser actually loaded. The join key is the slug, and
+`ceo_analytics.blog_slug()` folds all three URL shapes onto one row — Search Console's
+absolute URL, GA4's path, and a shared link still carrying its UTM parameters. A
+category archive is deliberately not an article; folding it in would credit every
+post's impressions to a listing page.
+
+A post with views and no impressions was shared, not found. One with impressions and
+no views was shown, not opened. Both are real rows, the missing half stays `None`
+rather than becoming a zero, and the row says which system saw it — the difference
+between a surprising number and a wrong one.
+
+The join is done server-side in `state_payload`, once. In the browser the two caches
+would expire independently and the table would disagree with the tiles above it.
+
+**Where the traffic came from.** `analytics_readers.ga4_audience()` reads
+`sessionSource`/`sessionMedium` and folds them into named channels through
+`classify_source()`: Google, LinkedIn, X, Facebook, Instagram, WhatsApp, Direct,
+Other search, Other. Matching is on substring so a referral host and one of our own
+UTM tags land in the same bucket — "LinkedIn sent 40 sessions" is the answer, not
+"lnkd.in sent 22 and linkedin.com sent 18". Each row keeps the raw values that
+matched it, because when a channel looks wrong the first question is always what
+actually matched.
+
+This needs the website half to work. **WhatsApp's in-app browser sends no referrer**,
+so an untagged forward arrives as Direct and the channel that earned the visit gets
+no credit. `src/components/blog/ShareBar.tsx` now stamps every share with
+`utm_source`/`utm_medium`/`utm_campaign` (`withUtm` in `src/lib/analytics.ts`) and
+fires a GA4 `share` event carrying the slug.
+
+**Who they were.** Countries and the cities inside them, device category, browser and
+operating system, and the page each session landed on. The landing-page panel says on
+its own face that it is the entry point and not a full path — claiming a user journey
+from a landing-page report would be a lie, and a real one needs an exploration in GA.
+
+*Search terms* are deliberately Search Console's queries, which the tab already shows,
+not GA4's `searchTerm` — that reports on-site search this website does not have.
+
+### The tag that was never installed
+
+`analytics_readers.ga4_summary` has refused to report unless `GA4_TAG_INSTALLED` is
+truthy since it was written, and it was right to: **the Next.js site shipped no
+analytics at all.** No `gtag`, no GTM, no `@vercel/analytics`, nothing in either
+layout. Every GA4 panel on this console was reading a property nothing wrote to.
+
+`src/components/analytics/GoogleAnalytics.tsx` mounts the tag in the root layout via
+`next/script` at `afterInteractive` — the tag is not needed to paint the page, and
+`beforeInteractive` would put a third-party request ahead of our own JavaScript on a
+Lighthouse run `preview_metrics.py` records every cycle. It renders **nothing** unless
+`NEXT_PUBLIC_GA4_MEASUREMENT_ID` is set, so a local checkout and a preview deploy stay
+out of the production property.
+
+To finish the connection: set `NEXT_PUBLIC_GA4_MEASUREMENT_ID` in the website's
+environment, and `GA4_PROPERTY_ID`, `GA4_CREDENTIALS_PATH`, `GA4_MEASUREMENT_ID` and
+`GA4_TAG_INSTALLED=1` in the dashboard's. Until all five are present every GA4 panel
+says so and names the ones that are missing, which is the honest reading.
 
 ## Competitor analytics
 

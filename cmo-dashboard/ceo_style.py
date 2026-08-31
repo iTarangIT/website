@@ -155,6 +155,12 @@ letter-spacing:.01em;vertical-align:middle}
 .pill.tone-mute{background:#eceeec;color:var(--muted)}
 .source{font-weight:700;color:var(--green)}
 .source-missing{color:var(--amber)}
+/* A measured figure reads as normal meta; the absence of one is dimmed, so a
+   glance down the list separates "we know" from "we have nothing yet". */
+.demand{font-variant-numeric:tabular-nums}
+.demand-none{color:var(--muted);font-style:italic}
+.publish-date{margin:.75rem 0}
+.publish-date input[type=date]{font:inherit;padding:.35rem .5rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:inherit}
 .keywords{display:flex;flex-wrap:wrap;gap:4px;margin:7px 0}
 .keywords .pill{background:#f1f4f1;color:var(--muted);font-weight:600}
 .outline{margin:6px 0 0;max-width:70ch;color:var(--ink)}
@@ -416,6 +422,51 @@ padding-top:9px;border-top:1px solid var(--line-soft);color:var(--faint);font-si
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
 clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
+/* ---- share bars ---------------------------------------------------------- */
+/* One channel's share of sessions, drawn in the cell rather than in a legend.
+   The number is still there in mono beside it -- the bar is for the ranking at a
+   glance, never instead of the figure. */
+.share-cell{display:flex;align-items:center;gap:9px;min-width:132px}
+.share-bar{flex:1 1 auto;height:6px;border-radius:999px;background:var(--line-soft);overflow:hidden}
+.share-bar i{display:block;height:100%;border-radius:999px;background:var(--green);
+transition:width .18s ease}
+.share-cell .num{flex:0 0 auto;min-width:44px;text-align:right}
+.source-examples{color:var(--faint);font-size:var(--f-xs);font-family:var(--mono)}
+
+/* ---- social drafts ------------------------------------------------------- */
+/* A draft is a card inside a card: it carries its own status pill, its own
+   error strip and its own textarea, because the three platforms fail
+   independently and a shared error line would say the wrong thing about two of
+   them. Spacing and borders are the `.inline-form` grammar, not a new one. */
+.drafts{display:flex;flex-direction:column;gap:10px;margin-top:11px}
+.draft{border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;
+padding:11px 13px}
+.draft.is-queued{border-color:#cfe0d6;background:var(--green-soft)}
+.draft.is-failed{border-color:#e6cccc;background:var(--red-soft)}
+.draft-head{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.draft-name{display:flex;align-items:center;gap:8px;font-weight:700;font-size:var(--f-sm)}
+.draft-mark{width:20px;height:20px;border-radius:var(--radius-xs);flex:0 0 auto;
+display:inline-flex;align-items:center;justify-content:center;color:#fff;
+font-size:10px;font-weight:800;letter-spacing:0}
+.draft-mark.linkedin{background:#0a66c2}
+.draft-mark.x{background:#101418}
+.draft-mark.instagram{background:linear-gradient(135deg,#c13584,#e1306c 55%,#f56040)}
+.draft textarea{margin-top:8px;min-height:104px;font-size:var(--f-sm);line-height:1.55;resize:vertical}
+.draft-foot{display:flex;align-items:center;justify-content:space-between;gap:9px;
+flex-wrap:wrap;margin-top:8px}
+.counter{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--faint);
+font-size:var(--f-xs)}
+.counter.over{color:var(--red);font-weight:700}
+.thread-item{display:flex;gap:8px;align-items:flex-start;padding:6px 0;
+border-top:1px solid var(--line-soft)}
+.thread-index{font-family:var(--mono);color:var(--faint);font-size:var(--f-xs);
+padding-top:2px;flex:0 0 auto}
+.thread-text{flex:1 1 auto;font-size:var(--f-sm);line-height:1.55;white-space:pre-wrap}
+.draft-note{margin:7px 0 0;color:var(--muted);font-size:var(--f-xs)}
+.send-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:11px;
+padding-top:10px;border-top:1px solid var(--line)}
+.send-bar .meta{margin-left:auto}
+
 /* ---- print --------------------------------------------------------------- */
 @media print{
 body{background:#fff}body>*{display:none}
@@ -459,6 +510,10 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .legend{margin-left:0;flex-basis:100%}
 .pager{gap:8px}.pager .spacer{margin-left:0;flex-basis:100%;height:0}
 .list-row{display:block}.list-row button{width:100%;margin-top:8px}
+.draft-head{align-items:flex-start}
+.send-bar{display:block}.send-bar button{width:100%;margin-top:8px}
+.send-bar .meta{display:block;margin:8px 0 0}
+.share-cell{min-width:0}
 .pipeline dl{display:block}.pipeline dt{margin-top:8px}
 .shortcuts{display:none}
 .build{margin-top:16px;gap:6px}

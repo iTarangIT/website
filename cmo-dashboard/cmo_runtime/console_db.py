@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 DATABASE_NAME = "console.db"
 
 #: `archived` is not a soft rejection. A rejection is remembered by norm_key and
@@ -67,7 +67,16 @@ STAGE_STATUSES = ("running", "completed", "failed")
 FETCH_KINDS = ("search", "scrape", "gsc", "leader")
 FETCH_OUTCOMES = ("fetched", "failed", "skipped", "cached")
 LEADER_KINDS = ("organisation", "person")
-CROSSPOST_PLATFORMS = ("x", "linkedin", "medium", "reddit")
+#: The platforms a published article is cross-posted to, in console order.
+#: Facebook is absent because the organisation has no Facebook channel connected
+#: in Buffer, and a platform with no channel is a row that can only say so.
+#: Buffer calls X `twitter`; the mapping lives in `buffer_client`.
+CROSSPOST_PLATFORMS = ("linkedin", "x", "instagram")
+
+#: A draft's life. `draft` is written the moment copy exists; `queued` means
+#: Buffer accepted it and holds a post id; `failed` keeps the reason on the row
+#: so the console can show it beside a Retry rather than losing it to a log.
+CROSSPOST_STATUSES = ("draft", "queued", "failed")
 
 _STOPWORDS = frozenset(
     """
@@ -160,6 +169,11 @@ CREATE TABLE IF NOT EXISTS research_runs (
     credits_used     INTEGER NOT NULL DEFAULT 0,
     credits_remaining INTEGER,
     gsc_rows_used    INTEGER NOT NULL DEFAULT 0,
+    -- The measured demand behind this pass, as JSON: impressions, clicks, the
+    -- derived CTR and the impression-weighted position. Empty string means no
+    -- rows matched, which is a different fact from zero demand and is rendered
+    -- as such. Added in schema 5; `_add_column` backfills existing databases.
+    demand_json      TEXT NOT NULL DEFAULT '',
     cache_hit_of     INTEGER REFERENCES research_runs(id),
     status           TEXT NOT NULL,
     message          TEXT NOT NULL DEFAULT '',
@@ -284,7 +298,18 @@ CREATE TABLE IF NOT EXISTS crosspost_drafts (
     body                TEXT NOT NULL,
     link                TEXT NOT NULL,
     article_fingerprint TEXT NOT NULL,
-    created_at          TEXT NOT NULL
+    created_at          TEXT NOT NULL,
+    thread_json         TEXT NOT NULL DEFAULT '[]',
+    image_alt           TEXT NOT NULL DEFAULT '',
+    producer            TEXT NOT NULL DEFAULT 'composed',  -- writer|composed
+    status              TEXT NOT NULL DEFAULT 'draft',     -- draft|queued|failed
+    channel_id          TEXT NOT NULL DEFAULT '',
+    buffer_post_id      TEXT NOT NULL DEFAULT '',
+    scheduled_at        TEXT NOT NULL DEFAULT '',
+    sent_by             TEXT NOT NULL DEFAULT '',
+    sent_at             TEXT NOT NULL DEFAULT '',
+    error               TEXT NOT NULL DEFAULT '',
+    updated_at          TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS crosspost_drafts_key
     ON crosspost_drafts(task_id, platform);
@@ -332,6 +357,21 @@ class ConsoleDB:
         # column needs a line here as well, and both must agree.
         self._add_column("subjects", "beat", "TEXT NOT NULL DEFAULT ''")
         self._add_column("radar_runs", "empty_beats_json", "TEXT NOT NULL DEFAULT '[]'")
+        self._add_column("research_runs", "demand_json", "TEXT NOT NULL DEFAULT ''")
+        for column, declaration in (
+            ("thread_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("image_alt", "TEXT NOT NULL DEFAULT ''"),
+            ("producer", "TEXT NOT NULL DEFAULT 'composed'"),
+            ("status", "TEXT NOT NULL DEFAULT 'draft'"),
+            ("channel_id", "TEXT NOT NULL DEFAULT ''"),
+            ("buffer_post_id", "TEXT NOT NULL DEFAULT ''"),
+            ("scheduled_at", "TEXT NOT NULL DEFAULT ''"),
+            ("sent_by", "TEXT NOT NULL DEFAULT ''"),
+            ("sent_at", "TEXT NOT NULL DEFAULT ''"),
+            ("error", "TEXT NOT NULL DEFAULT ''"),
+            ("updated_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            self._add_column("crosspost_drafts", column, declaration)
         self._connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         try:
             self.path.chmod(0o600)
@@ -440,6 +480,7 @@ class ConsoleDB:
         credits_used: int = 0,
         credits_remaining: int | None = None,
         gsc_rows_used: int = 0,
+        demand: Mapping[str, Any] | None = None,
         cache_hit_of: int | None = None,
         message: str = "",
     ) -> int:
@@ -447,8 +488,8 @@ class ConsoleDB:
             cursor = connection.execute(
                 "INSERT INTO research_runs (subject_id, kind, pages_requested, pages_fetched,"
                 " credits_before, credits_after, credits_used, credits_remaining, gsc_rows_used,"
-                " cache_hit_of, status, message, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " demand_json, cache_hit_of, status, message, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     subject_id,
                     kind,
@@ -459,6 +500,7 @@ class ConsoleDB:
                     credits_used,
                     credits_remaining,
                     gsc_rows_used,
+                    json.dumps(dict(demand), sort_keys=True) if demand else "",
                     cache_hit_of,
                     status,
                     _single_line(message, limit=600),
@@ -779,29 +821,112 @@ class ConsoleDB:
         body: str,
         link: str,
         article_fingerprint: str,
+        thread: Sequence[str] = (),
+        image_alt: str = "",
+        producer: str = "composed",
     ) -> int:
+        """Write or replace one platform's draft, without disturbing a sent post.
+
+        Regenerating copy for an article whose LinkedIn post has already been
+        queued must not quietly reset that row to `draft` — the post exists on
+        LinkedIn either way, and a console that forgot would offer to send it
+        again. So the send columns are left exactly as they are and only the copy
+        is replaced.
+        """
         if platform not in CROSSPOST_PLATFORMS:
             raise ConsoleDBError(f"unknown cross-post platform: {platform!r}")
+        if producer not in ("writer", "composed"):
+            raise ConsoleDBError(f"unknown cross-post producer: {producer!r}")
+        now = utc_timestamp()
         with self.write() as connection:
             cursor = connection.execute(
                 "INSERT INTO crosspost_drafts (task_id, platform, body, link,"
-                " article_fingerprint, created_at) VALUES (?,?,?,?,?,?)"
+                " article_fingerprint, created_at, thread_json, image_alt, producer,"
+                " status, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,'draft',?)"
                 " ON CONFLICT(task_id, platform) DO UPDATE SET body = excluded.body,"
                 " link = excluded.link, article_fingerprint = excluded.article_fingerprint,"
-                " created_at = excluded.created_at",
-                (task_id, platform, body, link, article_fingerprint, utc_timestamp()),
+                " thread_json = excluded.thread_json, image_alt = excluded.image_alt,"
+                " producer = excluded.producer, updated_at = excluded.updated_at",
+                (
+                    task_id,
+                    platform,
+                    body,
+                    link,
+                    article_fingerprint,
+                    now,
+                    json.dumps(list(thread)),
+                    image_alt,
+                    producer,
+                    now,
+                ),
             )
             return int(cursor.lastrowid or 0)
 
+    def mark_crosspost_queued(
+        self,
+        *,
+        task_id: str,
+        platform: str,
+        channel_id: str,
+        buffer_post_id: str,
+        scheduled_at: str,
+        actor: str,
+    ) -> None:
+        """Record that Buffer took the post, and who pressed the button."""
+        with self.write() as connection:
+            connection.execute(
+                "UPDATE crosspost_drafts SET status = 'queued', channel_id = ?,"
+                " buffer_post_id = ?, scheduled_at = ?, sent_by = ?, sent_at = ?,"
+                " error = '', updated_at = ? WHERE task_id = ? AND platform = ?",
+                (
+                    channel_id,
+                    buffer_post_id,
+                    scheduled_at,
+                    actor,
+                    utc_timestamp(),
+                    utc_timestamp(),
+                    task_id,
+                    platform,
+                ),
+            )
+
+    def mark_crosspost_failed(self, *, task_id: str, platform: str, error: str) -> None:
+        """Keep the refusal on the row. A reason in a log file is a reason nobody reads."""
+        now = utc_timestamp()
+        with self.write() as connection:
+            connection.execute(
+                "UPDATE crosspost_drafts SET status = 'failed', error = ?, updated_at = ?"
+                " WHERE task_id = ? AND platform = ?",
+                (_single_line(error, limit=600), now, task_id, platform),
+            )
+
     def crosspost_drafts(self, task_id: str) -> list[dict[str, Any]]:
+        """Every draft for one article, in console platform order with the thread parsed."""
         if not task_id:
             return []
-        return [
-            dict(row)
-            for row in self._query(
-                "SELECT * FROM crosspost_drafts WHERE task_id = ? ORDER BY platform", (task_id,)
-            )
-        ]
+        order = {platform: index for index, platform in enumerate(CROSSPOST_PLATFORMS)}
+        rows = []
+        for row in self._query("SELECT * FROM crosspost_drafts WHERE task_id = ?", (task_id,)):
+            item = dict(row)
+            try:
+                thread = json.loads(item.get("thread_json") or "[]")
+            except json.JSONDecodeError:
+                thread = []
+            item["thread"] = [str(part) for part in thread] if isinstance(thread, list) else []
+            item.pop("thread_json", None)
+            rows.append(item)
+        rows.sort(key=lambda item: order.get(str(item.get("platform")), 99))
+        return rows
+
+    def crosspost_summary(self) -> dict[str, int]:
+        """How many drafts sit in each status, for the tab badge."""
+        counts = {status: 0 for status in CROSSPOST_STATUSES}
+        for row in self._query(
+            "SELECT status, COUNT(*) AS n FROM crosspost_drafts GROUP BY status", ()
+        ):
+            counts[str(row["status"])] = int(row["n"])
+        return counts
 
     # --------------------------------------------------------------- rejection
 
@@ -979,6 +1104,12 @@ class ConsoleDB:
             "SELECT * FROM proposal_versions WHERE id = ?", (record["current_version_id"],)
         )
         record["version"] = self._version_payload(version) if version else None
+        # The demand figures belong to the research pass the current version came
+        # out of, so they are read through that join rather than copied onto every
+        # candidate the pass produced. A version from before schema 5, or one whose
+        # pass matched no Search Console rows, carries `{}` -- which the console
+        # renders as "no data", never as zero.
+        record["demand"] = self._demand_for(record["version"])
         record["history"] = [
             self._version_payload(item)
             for item in self._query(
@@ -995,6 +1126,20 @@ class ConsoleDB:
         subject = self._one("SELECT * FROM subjects WHERE id = ?", (record["subject_id"],))
         record["subject"] = dict(subject) if subject else None
         return record
+
+    def _demand_for(self, version: dict[str, Any] | None) -> dict[str, Any]:
+        if not version or not version.get("research_run_id"):
+            return {}
+        run = self._one(
+            "SELECT demand_json FROM research_runs WHERE id = ?", (version["research_run_id"],)
+        )
+        if run is None:
+            return {}
+        try:
+            decoded = json.loads(run["demand_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
 
     @staticmethod
     def _version_payload(row: sqlite3.Row) -> dict[str, Any]:

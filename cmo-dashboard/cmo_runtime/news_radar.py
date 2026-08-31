@@ -60,10 +60,16 @@ from cmo_runtime.topic_proposals import (
 
 IST = ZoneInfo("Asia/Kolkata")
 
-#: The standing beat. Each entry is one free search; together they are the EV
-#: ecosystem this company actually sells into — vehicles, the batteries in them,
-#: the rules that govern both, and the money moving around them. Editing this
-#: tuple is how the beat changes; it is not read from anywhere else.
+#: The beat, split into what is swept every day and what takes its turn.
+#:
+#: The company sells into the energy ecosystem, not only into EVs: stationary
+#: storage, solar, inverter batteries and the transition around them are the same
+#: cells and the same buyers. Watching all of it would cost 22 credits of
+#: discovery a sweep at a flat 2 a beat, which is most of a day's budget spent
+#: before a single subject is researched. So the roster is larger than the sweep
+#: and rotates through it — the trade is latency, not coverage: a development in
+#: any one beat is seen within a few days rather than the same morning, and
+#: `RADAR_RECENCY` is a week wide, so nothing falls between two sweeps.
 #:
 #: Keep each query short and readable. A measured comparison against the live
 #: index: "India EV policy news" returned state EV policies, the manufacturing
@@ -71,22 +77,34 @@ IST = ZoneInfo("Asia/Kolkata")
 #: "India EV policy notification government battery waste management rules CAQM
 #: PM E-DRIVE FAME state EV policy" returned a European Parliament paper on fine
 #: particles, an ethanol story and a J.P. Morgan art-fair page. Naming every
-#: sub-topic dilutes the query rather than covering more ground.
-#: Four fixed queries, not five: at a flat 2 credits a beat, every one spent on
-#: discovery is one not spent researching a subject, and three researched subjects
-#: a day is worth more than a fifth angle on the same week's news. `charging-infra`
-#: was folded into `ev-industry` rather than dropped — query text is free, and
-#: swapping is where a battery company's news actually lands. `market` earns its
-#: own beat because funding and sales stories surface nowhere else.
-#:
-#: The fifth beat, `competitors`, is standing too but is not written here: its
-#: query is built from the console's competitor list, so it lives in `beats()`.
-DEFAULT_BEATS: tuple[tuple[str, str], ...] = (
+#: sub-topic dilutes the query rather than covering more ground — which is also
+#: why the six verticals below are six beats and not one long query.
+
+#: Swept every sweep. The core business, the rules that govern it, and — added by
+#: `beats()` rather than written here, because its query comes from the console's
+#: competitor list — who else is selling into it.
+CORE_BEATS: tuple[tuple[str, str], ...] = (
     ("ev-industry", "India electric three-wheeler e-rickshaw battery swapping news"),
     ("policy", "India EV policy news"),
+)
+
+#: Swept in turn, `RADAR_ROTATING_SLOTS` at a time, advancing by day. `battery-tech`
+#: and `market` were standing beats before the roster existed and are first in it,
+#: so the order below is also the order they lose their guaranteed slot in.
+ROTATING_BEATS: tuple[tuple[str, str], ...] = (
     ("battery-tech", "EV battery technology news sodium-ion solid-state"),
     ("market", "India EV sales funding investment news"),
+    ("solar", "India solar power project news"),
+    ("bess", "India battery energy storage system BESS tender news"),
+    ("ess", "India grid energy storage news"),
+    ("inverter-batteries", "India inverter battery home backup power news"),
+    ("energy-transition", "India energy transition renewable news"),
+    ("deep-tech", "India deep tech energy startup news"),
 )
+
+#: Kept as the name the tests and any caller passing `beats=` already use: the
+#: standing beats, in sweep order. The rotation is applied in `beats()`.
+DEFAULT_BEATS: tuple[tuple[str, str], ...] = CORE_BEATS
 
 #: Results kept per beat. Measured flat at 2 credits for limits 3, 5 and 8, so
 #: this costs nothing to raise and is sized for the triage prompt: a headline
@@ -99,6 +117,13 @@ RADAR_DISCOVERY_LIMIT = 8
 #: credits a beat, and without it the watchlist and competitor list could push a
 #: sweep to fifteen searches — 30 credits before researching anything.
 RADAR_MAX_BEATS = 5
+
+#: How many of `RADAR_MAX_BEATS` the rotating roster may take. The rest go to the
+#: core beats and `competitors`, which are standing and cannot be crowded out —
+#: that was the bug where one watchlist keyword silently stopped competitor news
+#: being swept, and a rotating roster is exactly the shape that could repeat it.
+#: At 2 core beats plus competitors, this leaves the watchlist whatever is spare.
+RADAR_ROTATING_SLOTS = 2
 
 #: What the competitor beat asks when no competitor has been analysed yet. The
 #: beat is standing either way: "nobody is in the competitor list" is a reason to
@@ -266,9 +291,16 @@ dealers and financiers in India. For each, write one rough SUBJECT line: what
 happened and why it matters to them, in at most 25 words. A subject is a starting
 point for research, not a headline and not an article title.
 
-Stay inside the EV ecosystem: vehicles, batteries and cells, charging and swapping,
+Stay inside the energy ecosystem this company sells into: vehicles, batteries and
+cells, charging and swapping, stationary and grid storage, inverter and backup
+batteries, solar, the wider energy transition, deep-tech energy startups,
 government policy and regulation, competitors, and market or funding developments.
 Reject anything outside it, and reject a development that is only a rumour.
+
+Prefer a development that changes a decision this reader has to make — a cost, a
+rule they must comply with, a failure they can avoid, money moving into the sector,
+or a technology that changes what they can buy. A development that only reports
+someone else's announcement is weaker.
 
 Prefer what is genuinely new. These subjects have already been researched, so do not
 repeat one or a close rewording of it:
@@ -353,42 +385,74 @@ class NewsRadar:
         database: ConsoleDB | None = None,
         triager: Triager | None = None,
         beats: Sequence[tuple[str, str]] | None = None,
+        rotating: Sequence[tuple[str, str]] | None = None,
     ) -> None:
         self.profile_dir = Path(profile_dir)
         self.database = database or ConsoleDB(self.profile_dir)
         self.service = service or TopicProposalService(self.profile_dir, database=self.database)
         self.triager = triager or HermesTriager(self.profile_dir)
-        self._beats = tuple(beats) if beats is not None else DEFAULT_BEATS
+        # `beats` is the standing set, `rotating` the roster that takes turns.
+        # Two parameters rather than one because a caller overriding the standing
+        # beats almost never means "and drop the whole roster silently".
+        self._beats = tuple(beats) if beats is not None else CORE_BEATS
+        self._rotating = tuple(rotating) if rotating is not None else ROTATING_BEATS
 
     # ------------------------------------------------------------------ beats
 
     def beats(self, *, today: date | None = None) -> list[tuple[str, str]]:
-        """The five standing beats, plus the watchlist if anything is left over.
+        """What this sweep searches: the standing beats, then a turn of the roster.
 
-        Capped at `RADAR_MAX_BEATS` in total. The dynamic additions used to take
-        up to five slots each, so a filled watchlist and a handful of competitors
-        could put fifteen searches — 30 credits — in front of a sweep that had not
-        researched anything yet.
+        Capped at `RADAR_MAX_BEATS` in total, which is the only lever on discovery
+        spend at a flat 2 credits a beat. The order is the precedence, and it is
+        load-bearing:
 
-        `competitors` used to be one of those leftovers, appended after the
-        watchlist and kept only if a slot survived. That made it silently
-        conditional on the watchlist being empty: one keyword added on the
-        Analytics tab and competitor news stopped being swept, with nothing
-        anywhere saying so. It is a standing beat now, in the four defaults'
-        company, and the watchlist takes whatever is left instead.
+        1. `CORE_BEATS` — the business and the rules over it, every sweep;
+        2. `competitors` — standing, its query built from the console's list;
+        3. `ROTATING_BEATS` — `RADAR_ROTATING_SLOTS` of them, advancing by day;
+        4. the watchlist — whatever is left, which today is nothing.
+
+        The dynamic additions used to take up to five slots *each*, so a filled
+        watchlist and a handful of competitors could put fifteen searches — 30
+        credits — in front of a sweep that had not researched anything yet. And
+        `competitors` used to be appended after the watchlist and kept only if a
+        slot survived, so one keyword added on the Analytics tab silently stopped
+        competitor news being swept. The roster is a third thing that could crowd
+        the standing beats out, so it is placed after them and bounded the same
+        way: a rotating beat can lose its turn, a standing beat cannot.
         """
         beats = list(self._beats)[:RADAR_MAX_BEATS]
         if len(beats) < RADAR_MAX_BEATS:
             beats.append(("competitors", self._competitor_query(today=today)))
+
         room = RADAR_MAX_BEATS - len(beats)
         if room <= 0:
             return beats
+        beats += self._rotating_beats(min(room, RADAR_ROTATING_SLOTS), today=today)
 
+        room = RADAR_MAX_BEATS - len(beats)
+        if room <= 0:
+            return beats
         extra = [
-            ("watchlist", f"{keyword} India EV news")
+            ("watchlist", f"{keyword} India energy news")
             for keyword in _read_watchlist(self.profile_dir)
         ]
         return beats + extra[:room]
+
+    def _rotating_beats(self, slots: int, *, today: date | None = None) -> list[tuple[str, str]]:
+        """`slots` beats off the roster, walking it by day.
+
+        The window advances by its own width, so consecutive days do not re-ask
+        the same question and the whole roster is covered in
+        `ceil(len(roster) / slots)` days — four, at eight beats and two slots.
+        Wrapping is deliberate: the roster length and the slot count need not
+        divide, and a beat that lands twice in one cycle is cheaper than a gap.
+        """
+        roster = self._rotating
+        if slots <= 0 or not roster:
+            return []
+        day = (today or datetime.now(IST).date()).toordinal()
+        start = (day * slots) % len(roster)
+        return [roster[(start + step) % len(roster)] for step in range(min(slots, len(roster)))]
 
     def _competitor_query(self, *, today: date | None = None) -> str:
         """One competitor per sweep, rotating by date, or the general question.

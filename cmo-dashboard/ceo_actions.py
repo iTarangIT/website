@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 
@@ -114,6 +115,63 @@ def retry_write(profile_dir: Path, task_id: str, requester: str) -> dict[str, ob
         },
     )
     return {"ok": True, "task_id": task_id, "change_status": "queued", "requeued_at": timestamp}
+
+
+#: What a cleared publish date is written as. The board writer refuses an empty
+#: field value, and any non-date reads as "no plan" -- so this is a word a human
+#: can read rather than a blank nobody can tell from a field that was never set.
+NOT_SCHEDULED = "not scheduled"
+
+
+def set_publish_date(profile_dir: Path, task_id: str, day: str, requester: str) -> dict[str, object]:
+    """Write down the day an approved article is meant to go out.
+
+    This is a plan, not a trigger. **Nothing on this box fires on it** — there is
+    no cron here, and the watchdog that used to stand in for one was
+    decommissioned; a date that published an article by itself would also be an
+    agent reaching a publish path, which `SOUL.md` section 12 keeps in a human's
+    hands. So the field is read by the console to say "Scheduled — 2 Sep", and
+    the Publish button is still a press.
+
+    Passing an empty day clears it, because a plan you cannot cancel is not a
+    plan. `set_board_fields` refuses an empty value, so clearing writes
+    `NOT_SCHEDULED` rather than a blank: `_scheduled_for` reads anything that is
+    not a date as no plan, and a card that says "not scheduled" reads correctly
+    to a human opening `tasks.md`. It records no decision and touches no
+    lifecycle field.
+    """
+    from cmo_runtime.task_file import TaskFile, TaskFileError, utc_timestamp
+
+    requester = requester.strip()
+    if not requester:
+        raise TaskFileError("a publish date requires an authenticated human")
+    task = _task(profile_dir / "tasks.md", task_id)
+
+    day = str(day or "").strip()
+    if day:
+        try:
+            parsed = date.fromisoformat(day)
+        except ValueError:
+            raise TaskFileError("a publish date must be written as YYYY-MM-DD") from None
+        if parsed < datetime.now(UTC).date():
+            # A date already gone is not a schedule, and silently accepting one
+            # would put a card in a state that reads as planned and is not.
+            raise TaskFileError(f"{day} has already passed; pick a day from today onwards")
+        day = parsed.isoformat()
+
+    timestamp = utc_timestamp()
+    TaskFile(profile_dir / "tasks.md", lock_path=profile_dir / "state" / "tasks.lock").set_board_fields(
+        task_id,
+        {
+            "Publish at": day or NOT_SCHEDULED,
+            "Latest summary": (
+                f"Publish planned for {day} by {requester} at {timestamp}."
+                if day
+                else f"Publish date cleared by {requester} at {timestamp}."
+            ),
+        },
+    )
+    return {"ok": True, "task_id": task_id, "publish_at": day}
 
 
 MAX_ARTICLE_BYTES = 512 * 1024

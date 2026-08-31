@@ -153,6 +153,20 @@ BOARD = """# iTarang CMO Task Board
 - Last updated: 2026-08-11T00:00:00Z
 - Updated: 2026-08-11T00:00:00Z
 
+### TASK-784 — A card the publish-date test consumes
+- ID: TASK-784
+- Title: A card the publish-date test consumes
+- Owner: content
+- Skill: content
+- Priority: medium
+- Status: Human Approval
+- Attachment: artifacts/TASK-784-content.md
+- Metric: Organic sessions to the article
+- Tag: action to be taken by: human
+- Revision round: 0
+- Last updated: 2026-08-11T00:00:00Z
+- Updated: 2026-08-11T00:00:00Z
+
 ### TASK-783 — A card the rename test consumes
 - ID: TASK-783
 - Title: A card the rename test consumes
@@ -343,6 +357,7 @@ class ServedPageTests(unittest.TestCase):
         (root / "artifacts" / "TASK-777-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-779-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-783-content.md").write_text(ARTICLE, encoding="utf-8")
+        (root / "artifacts" / "TASK-784-content.md").write_text(ARTICLE, encoding="utf-8")
         (root / "artifacts" / "TASK-777-cover.webp").write_bytes(cover_webp())
         seed_recorded_stages(root)
         cls.proposal_fixtures = seed_proposals(root)
@@ -601,13 +616,19 @@ class ServedPageTests(unittest.TestCase):
 
     # ---- marker: tab order ------------------------------------------------
 
-    def test_the_served_page_orders_the_tabs_topics_blogs_analytics_archived(self) -> None:
+    def test_the_served_page_orders_the_tabs_topics_blogs_analytics_social_archived(self) -> None:
+        """Social sits fourth, so 1-2-3 keep meaning what they meant.
+
+        Distribution follows measurement here rather than sitting beside Blogs,
+        because three of these keys are already in two people's fingers and the
+        cost of moving them is paid every day. Only Archived moves.
+        """
         page = self.text("/ceo")
         nav = page.split('<nav class="primary"', 1)[1].split("</nav>", 1)[0]
 
         self.assertEqual(
             re.findall(r'data-view="([a-z-]+)"', nav),
-            ["topics", "blogs", "analytics", "archived"],
+            ["topics", "blogs", "analytics", "social", "archived"],
         )
         self.assertRegex(nav, r'class="active" data-view="topics"')
         self.assertEqual(
@@ -616,7 +637,8 @@ class ServedPageTests(unittest.TestCase):
                 ("1", "Topics &amp; Research"),
                 ("2", "Blogs"),
                 ("3", "Analytics"),
-                ("4", "Archived"),
+                ("4", "Social"),
+                ("5", "Archived"),
             ],
         )
 
@@ -626,7 +648,78 @@ class ServedPageTests(unittest.TestCase):
         self.assertIn('<section id="panel-topics" class="screen paper">', page)
         self.assertIn('<section id="panel-blogs" class="screen paper" hidden>', page)
         self.assertIn('<section id="panel-analytics" class="screen paper" hidden>', page)
+        self.assertIn('<section id="panel-social" class="screen paper" hidden>', page)
         self.assertIn('<section id="panel-archived" class="screen paper" hidden>', page)
+
+    def test_the_social_tab_is_wired_end_to_end_in_the_served_bytes(self) -> None:
+        """Every control the Social tab needs, present *and* connected.
+
+        A panel whose markup shipped and whose renderer did not is the exact
+        failure this file exists for, so this asserts on the handlers and the
+        route strings rather than on a heading.
+        """
+        page = self.text("/ceo")
+
+        # The shell.
+        self.assertIn('<section id="panel-social" class="screen paper" hidden>', page)
+        for anchor in ('id="social-list"', 'id="social-search"', 'id="social-filter"',
+                       'id="social-pager"', 'id="buffer-state"', 'data-badge="social"'):
+            self.assertIn(anchor, page, anchor)
+
+        # The renderer, and the three actions, wired to their routes.
+        self.assertIn("function renderSocial(", page)
+        self.assertIn("renderSocial();", page)
+        for route in ("/ceo/api/social/generate", "/ceo/api/social/draft",
+                      "/ceo/api/social/send", "/ceo/social-check"):
+            self.assertIn(route, page, route)
+        for handler in ("if(data.socialGenerate)generateSocial(data.socialGenerate);",
+                        "if(data.draftSave)saveSocialDraft(data.draftSave);",
+                        "if(data.socialPrepare)prepareSocial(data.socialPrepare);",
+                        "if(data.socialSend)sendSocial(data.socialSend);"):
+            self.assertIn(handler, page, handler)
+
+        # Sending goes through the one busy mechanism, like every other slow action.
+        send = page.split("async function sendSocial(", 1)[1].split("\n}", 1)[0]
+        self.assertIn("runAction(", send)
+        self.assertIn("await refresh();", send)
+
+    def test_the_send_button_is_never_the_first_press(self) -> None:
+        """Posting to three networks is outward-facing, so the console shows the
+        plan before it offers the button — the same shape as listing the three
+        files a publish will write before it writes them."""
+        page = self.text("/ceo")
+
+        self.assertIn("data-social-prepare=", page)
+        self.assertIn("data-social-send=", page)
+        # The send button is emitted only inside the block a prepared plan renders.
+        card = page.split("function socialCard(", 1)[1].split("\nfunction ", 1)[0]
+        planned = card.split("const planned=plan?", 1)[1].split("`:''", 1)[0]
+        self.assertIn("data-social-send=", planned)
+        self.assertNotIn("data-social-send=", card.split("const planned=plan?", 1)[0])
+
+    def test_the_analytics_tab_carries_the_per_post_table_and_the_audience_panels(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn('id="posts-table"', page)
+        self.assertIn('id="posts-pager"', page)
+        for panel in ('id="sources-panel"', 'id="places-panel"',
+                      'id="devices-panel"', 'id="journey-panel"'):
+            self.assertIn(panel, page, panel)
+        for renderer in ("function renderPosts(", "function renderSources(",
+                         "function renderPlaces(", "function renderDevices(",
+                         "function renderJourney("):
+            self.assertIn(renderer, page, renderer)
+        # Sorting has three tables now; the key must come from the table, not a guess.
+        self.assertIn("'posts-table':'posts'", page)
+
+    def test_the_per_post_table_offers_views_beside_the_search_columns(self) -> None:
+        """The whole point of the join: what Google showed, and what a browser loaded."""
+        page = self.text("/ceo")
+        header = page.split('<table class="data" id="posts-table"', 1)[1].split("</thead>", 1)[0]
+        self.assertEqual(
+            re.findall(r'data-sort="([a-z_]+)"', header),
+            ["title", "views", "impressions", "clicks", "ctr", "position"],
+        )
 
     def test_the_served_page_opens_on_the_tabs_with_no_band_above_them(self) -> None:
         """The Needs-you band is removed, markup and renderer both.
@@ -913,10 +1006,11 @@ class ServedPageTests(unittest.TestCase):
                 "TASK-781",
                 "TASK-782",
                 "TASK-783",
+                "TASK-784",
             ],
         )
         self.assertIsNone(served["TASK-780"]["article"])
-        self.assertEqual(served["TASK-780"]["blog"]["label"], "Queued to be written")
+        self.assertEqual(served["TASK-780"]["blog"]["label"], "Draft — queued to be written")
         # Every one of them says something. None of them is silently absent.
         self.assertTrue(all(task["blog"]["label"] for task in served.values()))
 
@@ -995,7 +1089,7 @@ class ServedPageTests(unittest.TestCase):
     def test_a_published_card_is_served_with_its_preview_url(self) -> None:
         card = self.blogs()["TASK-779"]["blog"]
 
-        self.assertEqual(card["label"], "Live on the site")
+        self.assertEqual(card["label"], "In preview")
         self.assertEqual(card["url"], "https://itarangwebsite.vercel.app/blog/charging-habits")
 
     def test_the_served_page_can_draw_every_state_and_the_retry_control(self) -> None:
@@ -1003,10 +1097,16 @@ class ServedPageTests(unittest.TestCase):
         page = self.text("/ceo")
 
         for state in ("queued", "researching", "writing", "failed", "held",
-                      "checking", "awaiting_you", "rewriting", "published"):
+                      "checking", "awaiting_you", "rewriting", "scheduled",
+                      "in_preview", "published"):
             self.assertIn(f"{state}:{{glyph:", page, f"the served page has no vocabulary for {state}")
-        for chip in ("Awaiting you", "Being written", "Could not be written", "Published"):
+        # The editorial vocabulary the reader actually filters by. `In preview` and
+        # `Published` are two chips because they are two facts -- on the branch, and
+        # merged -- and they used to be one word that meant the wrong one.
+        for chip in ("Draft", "Being edited", "Waiting for review", "Approved",
+                     "Scheduled", "In preview", "Published", "Could not be written"):
             self.assertIn(chip, page, f"the served page cannot filter by {chip!r}")
+        self.assertIn("data-publish-date=", page, "no control writes a planned publish date")
         self.assertIn("data-retry=", page, "the served page carries no retry control")
         self.assertIn("data-elapsed=", page, "a running write has no elapsed clock")
 
@@ -1016,6 +1116,67 @@ class ServedPageTests(unittest.TestCase):
         self.assertEqual(card["state"], "held")
         self.assertEqual(card["label"], "On hold")
         self.assertFalse(card["retryable"])
+
+    def test_a_planned_publish_date_reaches_the_board_over_the_wire(self) -> None:
+        """The date has to land on the card, or Scheduled is a label with no fact.
+
+        What the date then *means* is `blog_state`'s job and is asserted in
+        `test_console_board`; this is the round trip. Uses its own card, because
+        it mutates the board and a suite whose assertions depend on which test
+        ran first is a suite that will lie later.
+        """
+        self.assertEqual(self.blogs()["TASK-784"].get("publish_at", ""), "")
+
+        status, _headers, body = self.fetch(
+            "/ceo/api/publish-date",
+            auth=True,
+            payload={"task_id": "TASK-784", "publish_at": "2099-09-02"},
+        )
+        self.assertEqual(status, 200, body)
+
+        after = self.blogs()["TASK-784"]
+        self.assertEqual(after["publish_at"], "2099-09-02")
+        self.assertIn(CEO_EMAIL, after["latest_summary"])
+
+    def test_clearing_the_publish_date_is_possible(self) -> None:
+        """A plan you cannot cancel is not a plan."""
+        self.fetch(
+            "/ceo/api/publish-date",
+            auth=True,
+            payload={"task_id": "TASK-784", "publish_at": "2099-09-02"},
+        )
+
+        status, _headers, body = self.fetch(
+            "/ceo/api/publish-date", auth=True, payload={"task_id": "TASK-784", "publish_at": ""}
+        )
+
+        self.assertEqual(status, 200, body)
+        after = self.blogs()["TASK-784"]
+        # The board writer refuses an empty field value, so a cleared date is a
+        # word rather than a blank. What matters over the wire is that it is not
+        # a date any more, so nothing downstream reads it as a plan.
+        self.assertEqual(after["publish_at"], "not scheduled")
+        self.assertNotEqual(after["blog"]["state"], "scheduled")
+
+    def test_a_publish_date_in_the_past_is_refused_rather_than_shown_as_planned(self) -> None:
+        status, _headers, body = self.fetch(
+            "/ceo/api/publish-date",
+            auth=True,
+            payload={"task_id": "TASK-784", "publish_at": "2020-01-01"},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("already passed", json.loads(body)["error"])
+
+    def test_an_unreadable_publish_date_is_refused_not_stored(self) -> None:
+        status, _headers, body = self.fetch(
+            "/ceo/api/publish-date",
+            auth=True,
+            payload={"task_id": "TASK-784", "publish_at": "next tuesday"},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("YYYY-MM-DD", json.loads(body)["error"])
 
     def test_a_retry_is_refused_on_a_card_a_human_put_on_hold(self) -> None:
         """Clearing somebody's hold is not a retry, and the console will not do it."""
@@ -1042,7 +1203,7 @@ class ServedPageTests(unittest.TestCase):
 
         after = self.blogs()["TASK-782"]
         self.assertEqual(after["blog"]["state"], "queued")
-        self.assertEqual(after["blog"]["label"], "Queued to be written")
+        self.assertEqual(after["blog"]["label"], "Draft — queued to be written")
         self.assertFalse(after["blog"]["retryable"])
         # And the board says who asked for it, not just that something happened.
         self.assertIn(CEO_EMAIL, after["latest_summary"])

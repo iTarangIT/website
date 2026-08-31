@@ -199,7 +199,7 @@ def preflight(
             blockers.append(f"no category is recorded on the {name}")
         elif value not in BLOG_CATEGORY_SLUGS:
             blockers.append(
-                f"the {name} category {value!r} is not one of the six allowed: "
+                f"the {name} category {value!r} is not one of the {len(BLOG_CATEGORY_SLUGS)} allowed: "
                 + ", ".join(sorted(BLOG_CATEGORY_SLUGS))
             )
     if card_category and artifact_category and card_category != artifact_category:

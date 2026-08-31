@@ -6,7 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 from urllib import error, request
 
 PROFILE_DIR = Path(os.getenv("CMO_DASHBOARD_PROFILE_DIR", Path(__file__).resolve().parent.parent)).resolve()
@@ -22,6 +22,7 @@ CACHE_SECONDS = 300
 _ga4_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _ga4_detail_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _gsc_trend_cache: dict[tuple[str, ...], tuple[float, tuple[list[dict[str, Any]], str]]] = {}
+_ga4_audience_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -459,3 +460,254 @@ def trending_rows(days: int = 7) -> tuple[list[dict[str, Any]], list[str]]:
     ):
         messages.append("Facebook is not connected.")
     return google_rows + x_rows + facebook_rows, messages
+
+
+# --------------------------------------------------------------- traffic sources
+
+#: How a raw GA4 `sessionSource` becomes a channel a human recognises.
+#:
+#: Two kinds of value arrive here and both matter. A referral carries the host
+#: that sent it (`lnkd.in`, `t.co`, `l.instagram.com`), and a share from our own
+#: ShareBar carries the `utm_source` we stamped on it (`linkedin`, `x`,
+#: `whatsapp`). Matching is on substring so both land in the same bucket, which
+#: is the whole point: "LinkedIn sent 40 sessions" is the answer, not "lnkd.in
+#: sent 22 and linkedin.com sent 18".
+TRAFFIC_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Google", ("google", "googlesyndication", "googleads")),
+    ("LinkedIn", ("linkedin", "lnkd.in")),
+    ("X", ("twitter", "t.co", "x.com", "utm_source=x")),
+    ("Facebook", ("facebook", "fb.com", "fb.me", "m.facebook")),
+    ("Instagram", ("instagram", "ig.me")),
+    ("WhatsApp", ("whatsapp", "wa.me", "chat.whatsapp")),
+    # One row rather than five: at this volume "Bing 3, DuckDuckGo 2, Ecosia 1"
+    # is noise, and the decision it informs is the same for all of them.
+    ("Other search", ("bing", "msn", "duckduckgo", "yahoo", "ecosia", "brave")),
+)
+
+#: GA4 reports an unattributed session as `(direct)`. It is a real answer, not a
+#: gap, and gets its own row rather than being folded into Other.
+DIRECT_SOURCES = frozenset({"(direct)", "(none)", "direct", ""})
+
+
+def classify_source(source: str, medium: str = "") -> str:
+    """Bucket one GA4 session source into a channel name.
+
+    `Direct` is checked first because `(direct)` would otherwise never match a
+    substring rule, and `Other` is returned rather than guessed at — an unmapped
+    referrer named honestly is more useful than one filed under the wrong logo.
+    """
+    value = (source or "").strip().casefold()
+    if value in DIRECT_SOURCES:
+        return "Direct"
+    for label, needles in TRAFFIC_SOURCES:
+        if any(needle in value for needle in needles):
+            return label
+    if (medium or "").strip().casefold() == "organic":
+        return "Organic search"
+    return "Other"
+
+
+def _ga4_rows(
+    report: dict[str, Any], dimensions: Sequence[str], metrics: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Read a GA4 report into plain dicts, skipping anything malformed.
+
+    Unmeasured stays None rather than becoming 0, the same rule the rest of this
+    module follows: a metric GA4 did not return and a metric that is genuinely
+    zero are different answers and the console renders them differently.
+    """
+    output: list[dict[str, Any]] = []
+    rows = report.get("rows") if isinstance(report, dict) else None
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        dimension_values = row.get("dimensionValues")
+        metric_values = row.get("metricValues")
+        if not isinstance(dimension_values, list) or len(dimension_values) < len(dimensions):
+            continue
+        item: dict[str, Any] = {}
+        for index, name in enumerate(dimensions):
+            cell = dimension_values[index]
+            item[name] = str(cell.get("value") or "").strip() if isinstance(cell, dict) else ""
+        values = metric_values if isinstance(metric_values, list) else []
+        for index, name in enumerate(metrics):
+            cell = values[index] if index < len(values) else None
+            item[name] = _number(cell.get("value")) if isinstance(cell, dict) else None
+        output.append(item)
+    return output
+
+
+def _audience_payload(
+    days: int,
+    device: str,
+    dimensions: Sequence[str],
+    metrics: Sequence[str],
+    *,
+    limit: int = 25,
+    order_by: str = "sessions",
+) -> dict[str, Any]:
+    end = dt.date.today() - dt.timedelta(days=1)
+    start = end - dt.timedelta(days=days - 1)
+    payload: dict[str, Any] = {
+        "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
+        "dimensions": [{"name": name} for name in dimensions],
+        "metrics": [{"name": name} for name in metrics],
+        "orderBys": [{"metric": {"metricName": order_by}, "desc": True}],
+        "limit": str(limit),
+    }
+    if device != "all":
+        payload["dimensionFilter"] = {
+            "filter": {
+                "fieldName": "deviceCategory",
+                "stringFilter": {"matchType": "EXACT", "value": device},
+            }
+        }
+    return payload
+
+
+def _empty_audience(days: int, device: str, base: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": base.get("status", "not_connected"),
+        "message": base.get("message", ""),
+        "required_variables": list(GA4_REQUIRED_VARIABLES),
+        "missing_variables": base.get("missing_variables", []),
+        "range_days": days,
+        "device": device,
+        "traffic_sources": [],
+        "countries": [],
+        "cities": [],
+        "devices": [],
+        "browsers": [],
+        "landing_pages": [],
+        "search_terms": [],
+    }
+
+
+def _fold_sources(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse raw sources into channels, keeping the referrers behind each one.
+
+    `examples` is not decoration. When a channel looks wrong the first question
+    is always "what actually matched", and the answer has to be on the row rather
+    than in someone's re-run of the query.
+    """
+    folded: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        label = classify_source(str(row.get("sessionSource", "")), str(row.get("sessionMedium", "")))
+        bucket = folded.setdefault(
+            label,
+            {"source": label, "sessions": 0, "active_users": 0, "examples": []},
+        )
+        bucket["sessions"] += int(row.get("sessions") or 0)
+        bucket["active_users"] += int(row.get("activeUsers") or 0)
+        raw = str(row.get("sessionSource", "")).strip()
+        if raw and raw not in bucket["examples"] and len(bucket["examples"]) < 4:
+            bucket["examples"].append(raw)
+    total = sum(bucket["sessions"] for bucket in folded.values())
+    ordered = sorted(folded.values(), key=lambda bucket: -bucket["sessions"])
+    for bucket in ordered:
+        bucket["share"] = round(bucket["sessions"] * 100 / total, 1) if total else None
+    return ordered
+
+
+def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
+    """Who arrived, from where, on what — the four questions the tiles cannot answer.
+
+    Five reports in one call, cached together for `CACHE_SECONDS`, because they
+    are always read together and five independent caches would let the panels
+    disagree about which window they are describing.
+
+    `search_terms` is deliberately not GA4's `searchTerm`, which reports on-site
+    search this website does not have. The search terms a marketer means are the
+    Google queries that produced impressions, and those come from Search Console
+    — `ceo_analytics` already has them and the console renders them there.
+    """
+    if days not in {7, 28, 90}:
+        days = 28
+    if device not in {"all", "desktop", "mobile", "tablet"}:
+        device = "all"
+    base = ga4_summary(days, device)
+    if base.get("status") not in {"ready", "collecting"}:
+        return _empty_audience(days, device, base)
+
+    config = {name: os.getenv(name, "").strip() for name in GA4_REQUIRED_VARIABLES}
+    key = tuple(config[name] for name in GA4_REQUIRED_VARIABLES) + (str(days), device, "audience")
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _ga4_audience_cache.get(key)
+        if cached and cached[0] > now:
+            return dict(cached[1])
+
+    credentials_path = config["GA4_CREDENTIALS_PATH"]
+    property_id = config["GA4_PROPERTY_ID"]
+    result = _empty_audience(days, device, base)
+    result["status"] = base.get("status", "ready")
+
+    def read(dimensions: Sequence[str], metrics: Sequence[str], *, limit: int = 25) -> list[dict[str, Any]]:
+        report = _ga4_request(
+            credentials_path,
+            property_id,
+            _audience_payload(days, device, dimensions, metrics, limit=limit),
+        )
+        return _ga4_rows(report, dimensions, metrics)
+
+    try:
+        result["traffic_sources"] = _fold_sources(
+            read(("sessionSource", "sessionMedium"), ("sessions", "activeUsers"), limit=50)
+        )
+        result["countries"] = [
+            {
+                "country": row["country"],
+                "sessions": row["sessions"],
+                "active_users": row["activeUsers"],
+            }
+            for row in read(("country",), ("sessions", "activeUsers"), limit=12)
+            if row["country"]
+        ]
+        result["cities"] = [
+            {
+                "city": row["city"],
+                "country": row["country"],
+                "sessions": row["sessions"],
+            }
+            for row in read(("city", "country"), ("sessions",), limit=12)
+            if row["city"] and row["city"] != "(not set)"
+        ]
+        result["devices"] = [
+            {
+                "device": row["deviceCategory"],
+                "sessions": row["sessions"],
+                "engagement_rate": row["engagementRate"],
+            }
+            for row in read(("deviceCategory",), ("sessions", "engagementRate"), limit=8)
+            if row["deviceCategory"]
+        ]
+        result["browsers"] = [
+            {
+                "browser": row["browser"],
+                "operating_system": row["operatingSystem"],
+                "sessions": row["sessions"],
+            }
+            for row in read(("browser", "operatingSystem"), ("sessions",), limit=10)
+            if row["browser"]
+        ]
+        result["landing_pages"] = [
+            {
+                "page": row["landingPage"],
+                "sessions": row["sessions"],
+                "engagement_rate": row["engagementRate"],
+                "bounces": row["bounceRate"],
+            }
+            for row in read(
+                ("landingPage",), ("sessions", "engagementRate", "bounceRate"), limit=15
+            )
+            if row["landingPage"]
+        ]
+    except Exception as exc:  # a detail failure must not blank the summary tiles
+        result = _empty_audience(days, device, base)
+        result["status"] = "error"
+        result["message"] = f"Google Analytics audience read failed: {type(exc).__name__}."
+        return result
+
+    with _cache_lock:
+        _ga4_audience_cache[key] = (now + CACHE_SECONDS, dict(result))
+    return result

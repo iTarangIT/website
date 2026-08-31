@@ -107,7 +107,7 @@ def _blog(task_id: str, title: str, text: str = "First draft.", blog: dict | Non
     }
 
 
-def _state(proposals: list[dict], blogs: list[dict]) -> dict:
+def _state(proposals: list[dict], blogs: list[dict], social: list[dict] | None = None) -> dict:
     return {
         "topics": {"proposals": proposals, "rejected": [], "carded": [], "budget": {}},
         "blogs": blogs,
@@ -119,13 +119,47 @@ def _state(proposals: list[dict], blogs: list[dict]) -> dict:
             "search": {"status": "none", "message": "not connected"},
             "search_console": {},
             "ga4": {"status": "none"},
+            "ga4_audience": {"status": "none", "traffic_sources": [], "countries": [],
+                             "cities": [], "devices": [], "browsers": [], "landing_pages": []},
+            "posts": {"posts": [], "measured": 0,
+                      "totals": {"views": None, "clicks": None, "impressions": None}},
             "competitor": {"status": "none"},
         },
         "controls": {"range": "28", "range_days": 28, "device": "all"},
+        "social": {"connected": True, "counts": {}, "articles": list(social or ())},
     }
 
 
-BASE = _state([_proposal(n) for n in range(1, 4)], [_blog("TASK-1", "First article")])
+def _social_article(task_id: str = "TASK-1", title: str = "First article") -> dict:
+    return {
+        "task_id": task_id,
+        "title": title,
+        "slug": "first-article",
+        "url": f"https://www.itarang.com/blog/first-article",
+        "drafts": [
+            {
+                "platform": "linkedin",
+                "body": "A claim, and the number behind it.",
+                "link": "https://www.itarang.com/blog/first-article",
+                "thread": [],
+                "image_alt": "",
+                "producer": "writer",
+                "status": "draft",
+                "channel_id": "",
+                "buffer_post_id": "",
+                "scheduled_at": "",
+                "sent_by": "",
+                "error": "",
+            }
+        ],
+    }
+
+
+BASE = _state(
+    [_proposal(n) for n in range(1, 4)],
+    [_blog("TASK-1", "First article")],
+    [_social_article()],
+)
 
 
 @unittest.skipIf(NODE is None, "node is unavailable")
@@ -220,6 +254,37 @@ class ConsoleStaysCurrent(unittest.TestCase):
                          "an unchanged token still refetched everything")
         self.assertIn("/ceo/api/state", " ".join(steps[1]["requests"]))
         self.assertIn("Written elsewhere", steps[1]["blogsHtml"])
+
+    def test_the_social_list_survives_a_second_paint(self) -> None:
+        """The bug this catches emptied the tab on the first background refresh.
+
+        `patchRows` removes every child whose `data-key` is not in the incoming
+        set, so a row whose rendered key carried its own state matched nothing on
+        the second pass and was swept away. The first paint looked perfect, which
+        is exactly why a single-render harness could never see it.
+        """
+        steps = self.steps({
+            "steps": [
+                {"name": "first paint", "do": "showView", "view": "social"},
+                {"name": "a quiet background refresh", "do": "refresh", "quiet": True},
+                {"name": "and another", "do": "refresh", "quiet": True},
+            ],
+        })
+
+        for step in steps:
+            self.assertIn("First article", step["socialList"], step["name"])
+            self.assertEqual(step["socialKeys"], ["social-TASK-1"], step["name"])
+
+    def test_an_unchanged_social_row_is_not_rebuilt(self) -> None:
+        """Same markup, same node — so an open textarea and its caret survive."""
+        steps = self.steps({
+            "steps": [
+                {"do": "showView", "view": "social"},
+                {"do": "refresh", "quiet": True},
+            ],
+        })
+
+        self.assertEqual(steps[0]["socialList"], steps[1]["socialList"])
 
     def test_the_poll_interval_starts_at_three_seconds(self) -> None:
         step = self.steps({"steps": [{"do": "poll"}]})[0]
@@ -491,7 +556,7 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertNotIn('data-decision="approve"', body)
         self.assertNotIn('data-revision="1"', body)
         self.assertNotIn("revision-comment", body)
-        self.assertIn("Being checked. It will come to you when review finishes.", body)
+        self.assertIn("Waiting for review. It will come to you when review finishes.", body)
 
     def test_every_lane_that_cannot_decide_says_when_it_will_come_to_him(self) -> None:
         lanes = [

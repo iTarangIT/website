@@ -29,18 +29,27 @@ from cmo_runtime import topic_proposals
 from cmo_runtime.console_db import ConsoleDB
 
 
-class FourTabsAndNoFifth(unittest.TestCase):
-    """Invariant 4, widened once.
+class FiveTabsAndNoSixth(unittest.TestCase):
+    """Invariant 4, widened twice.
 
     Archived is a destination and not a filter on Topics because it holds work the
     CEO has already decided about: the candidates swept aside when he approved one
     of their siblings. Keeping them on Topics is exactly the pile-up the tab
-    exists to end. Nothing else earns a tab.
+    exists to end.
+
+    Social is the second widening. It is not a filter on Blogs because it holds a
+    different decision about a different object: Blogs decides whether an article
+    ships, Social decides what is said about it on three networks once it has.
+    Folding three editable drafts and a send gate into a blog row would make the
+    Blogs list about two things.
+
+    Nothing else earns a tab, and Social went fourth rather than second so that
+    1, 2 and 3 keep meaning what they have always meant.
     """
 
-    def test_exactly_four_primary_tabs_render(self) -> None:
+    def test_exactly_five_primary_tabs_render(self) -> None:
         tabs = re.findall(r'data-view="([a-z-]+)"', MARKUP)
-        self.assertEqual(tabs, ["topics", "blogs", "analytics", "archived"])
+        self.assertEqual(tabs, ["topics", "blogs", "analytics", "social", "archived"])
 
     def test_every_tab_has_a_panel_and_every_panel_has_a_tab(self) -> None:
         tabs = set(re.findall(r'data-view="([a-z-]+)"', MARKUP))
@@ -56,23 +65,23 @@ class FourTabsAndNoFifth(unittest.TestCase):
         self.assertIn('id="trend-list"', topics_panel)
         self.assertIn('id="watchlist"', topics_panel)
 
-    def test_the_keyboard_map_covers_four_tabs_only(self) -> None:
-        self.assertIn("const VIEWS=['topics','blogs','analytics','archived']", SCRIPT)
-        self.assertIn("/^[1-4]$/", SCRIPT)
-        self.assertNotIn("/^[1-5]$/", SCRIPT)
+    def test_the_keyboard_map_covers_five_tabs_only(self) -> None:
+        self.assertIn("const VIEWS=['topics','blogs','analytics','social','archived']", SCRIPT)
+        self.assertIn("/^[1-5]$/", SCRIPT)
+        self.assertNotIn("/^[1-6]$/", SCRIPT)
 
-    def test_the_rendered_page_exposes_no_fifth_view(self) -> None:
+    def test_the_rendered_page_exposes_no_sixth_view(self) -> None:
         page = render_page().decode("utf-8")
         nav = page.split('<nav class="primary"', 1)[1].split("</nav>", 1)[0]
         self.assertEqual(
             re.findall(r'data-view="([a-z-]+)"', nav),
-            ["topics", "blogs", "analytics", "archived"],
+            ["topics", "blogs", "analytics", "social", "archived"],
         )
         # Nothing anywhere on the page — nav, script or empty-state action — may
-        # target a view outside the four.
+        # target a view outside the five.
         self.assertEqual(
             set(re.findall(r'data-view="([a-z-]+)"', page)),
-            {"analytics", "topics", "blogs", "archived"},
+            {"analytics", "topics", "blogs", "social", "archived"},
         )
 
 
@@ -271,7 +280,7 @@ class ProductFinish(unittest.TestCase):
     def test_every_documented_shortcut_is_bound_and_shown(self) -> None:
         for binding in ("event.key==='j'", "event.key==='k'", "event.key==='Enter'", "event.key==='/'"):
             self.assertIn(binding, SCRIPT)
-        self.assertIn("/^[1-4]$/", SCRIPT)
+        self.assertIn("/^[1-5]$/", SCRIPT)
         self.assertIn("event.key==='Escape'", SCRIPT)
         for label in ("tabs", "search", "move", "open", "close"):
             self.assertIn(label, MARKUP.split('<footer class="shortcuts">', 1)[1])

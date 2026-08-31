@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Link2 } from "lucide-react";
 import { siteConfig } from "@/data/site";
+import { trackEvent, withUtm, type ShareChannel } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
 /* Brand glyphs — lucide-react v1 ships no social logos, so these are inline
@@ -56,25 +57,37 @@ export default function ShareBar({ title, slug }: ShareBarProps) {
   // Always share the canonical production URL, never localhost or a preview host.
   const url = `${siteConfig.url}/blog/${slug}`;
 
-  const targets = [
+  /* Each destination shares a UTM-tagged copy of that URL. Without the tag a
+     WhatsApp forward arrives with no referrer and GA4 files it under Direct,
+     which is why the console could never say where blog traffic came from. */
+  const shared = useCallback(
+    (channel: ShareChannel) => withUtm(url, channel, `blog_${slug}`),
+    [url, slug],
+  );
+
+  const targets: { label: string; channel: ShareChannel; href: string; Icon: typeof WhatsAppIcon }[] = [
     {
       label: "WhatsApp",
-      href: `https://wa.me/?text=${encodeURIComponent(`${title} ${url}`)}`,
+      channel: "whatsapp",
+      href: `https://wa.me/?text=${encodeURIComponent(`${title} ${shared("whatsapp")}`)}`,
       Icon: WhatsAppIcon,
     },
     {
       label: "Facebook",
-      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+      channel: "facebook",
+      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shared("facebook"))}`,
       Icon: FacebookIcon,
     },
     {
       label: "X",
-      href: `https://x.com/intent/post?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`,
+      channel: "x",
+      href: `https://x.com/intent/post?url=${encodeURIComponent(shared("x"))}&text=${encodeURIComponent(title)}`,
       Icon: XIcon,
     },
     {
       label: "LinkedIn",
-      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
+      channel: "linkedin",
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shared("linkedin"))}`,
       Icon: LinkedInIcon,
     },
   ];
@@ -88,26 +101,30 @@ export default function ShareBar({ title, slug }: ShareBarProps) {
   const copyLink = useCallback(async () => {
     try {
       // navigator.clipboard is unavailable outside secure contexts.
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(shared("copy_link"));
       setCopied(true);
+      trackEvent("share", { method: "copy_link", content_type: "blog", item_id: slug });
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard blocked — leave the button in its default state.
     }
-  }, [url]);
+  }, [shared, slug]);
 
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm text-gray-400">Share</span>
 
       <div className="flex items-center gap-2">
-        {targets.map(({ label, href, Icon }) => (
+        {targets.map(({ label, channel, href, Icon }) => (
           <a
             key={label}
             href={href}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() =>
+              trackEvent("share", { method: channel, content_type: "blog", item_id: slug })
+            }
             aria-label={`Share on ${label}`}
             title={`Share on ${label}`}
             className={shareButtonStyles}

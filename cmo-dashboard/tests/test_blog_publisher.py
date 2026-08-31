@@ -18,7 +18,9 @@ BLOG_POSTS = """export type BlogCategorySlug =
   | "charging-maintenance"
   | "safety"
   | "lifecycle-recycling"
-  | "partners-industry";
+  | "partners-industry"
+  | "energy-storage"
+  | "energy-transition";
 
 export interface BlogPost {
   slug: string;
@@ -127,7 +129,9 @@ class BlogPublisherTest(unittest.TestCase):
         self.assertIn("<em>careful context</em>", plan.page_source)
         self.assertIn('href="https://example.org/source"', plan.page_source)
         self.assertIn('<figure className="my-10">', plan.page_source)
-        self.assertIn('src="/images/blog/useful-finance-guide.svg"', plan.page_source)
+        self.assertIn(
+            'src="/images/blog/useful-finance-guide-decision-flow.svg"', plan.page_source
+        )
         self.assertIn('alt="EV finance decision flow"', plan.page_source)
         self.assertIn('width={1000}', plan.page_source)
         self.assertIn('height={560}', plan.page_source)
@@ -456,17 +460,19 @@ class RasterAndCoverTest(unittest.TestCase):
             {image.role for image in plan.images}, {"diagram", "illustration", "cover"}
         )
         self.assertEqual(
-            plan.image_for("diagram").path.name, "useful-finance-guide.svg"
+            plan.image_for("diagram").path.name, "useful-finance-guide-decision-flow.svg"
         )
         self.assertEqual(
-            plan.image_for("illustration").path.name, "useful-finance-guide-figure.webp"
+            plan.image_for("illustration").path.name, "useful-finance-guide-depot-scene.webp"
         )
         self.assertEqual(plan.image_for("cover").path.name, "useful-finance-guide-cover.webp")
         # The diagram still renders from its own validated SVG metadata.
-        self.assertIn('src="/images/blog/useful-finance-guide.svg"', plan.page_source)
+        self.assertIn(
+            'src="/images/blog/useful-finance-guide-decision-flow.svg"', plan.page_source
+        )
         self.assertIn('alt="EV finance decision flow"', plan.page_source)
         # The illustration renders with the measured pixel size and the card's alt.
-        self.assertIn('src="/images/blog/useful-finance-guide-figure.webp"', plan.page_source)
+        self.assertIn('src="/images/blog/useful-finance-guide-depot-scene.webp"', plan.page_source)
         self.assertIn(
             'alt="An e-rickshaw parked beside a charging point at dusk"', plan.page_source
         )
@@ -519,7 +525,10 @@ class RasterAndCoverTest(unittest.TestCase):
             self.plan()
         self.assertIn("Image alt depot-scene", str(caught.exception))
 
-    def test_two_illustrations_are_refused_rather_than_numbered(self) -> None:
+    def test_two_illustrations_publish_to_two_filenames(self) -> None:
+        """Two of a kind used to be refused, and the reason was the filename:
+        every illustration wanted `{slug}-figure.webp`. Keyed by slot id they
+        cannot collide, so the refusal had nothing left to protect."""
         (self.profile / "artifacts/TASK-900-decision-flow.webp").write_bytes(webp_bytes(800, 450))
         self.rewrite_board(
             **{
@@ -529,9 +538,97 @@ class RasterAndCoverTest(unittest.TestCase):
             }
         )
 
+        plan = self.plan()
+
+        names = sorted(image.path.name for image in plan.images)
+        self.assertEqual(
+            names,
+            [
+                "useful-finance-guide-cover.webp",
+                "useful-finance-guide-decision-flow.webp",
+                "useful-finance-guide-depot-scene.webp",
+            ],
+        )
+        self.assertEqual(len(set(names)), len(names), "two images want one filename")
+
+    def test_four_slots_publish_to_four_distinct_filenames(self) -> None:
+        """The requirement: an article carries several pictures, placed by the
+        writer, and each one lands somewhere of its own."""
+        for slot in ("second-diagram", "second-scene"):
+            (self.profile / f"artifacts/TASK-900-{slot}.webp").write_bytes(webp_bytes(800, 450))
+        article = (self.profile / "artifacts/TASK-900-content.md").read_text(encoding="utf-8")
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            article.replace(
+                "## What to check",
+                "{{image:second-diagram|A second figure.}}\n\n"
+                "{{image:second-scene|A second scene.}}\n\n## What to check",
+            ),
+            encoding="utf-8",
+        )
+        board = (self.profile / "tasks.md").read_text(encoding="utf-8")
+        (self.profile / "tasks.md").write_text(
+            board.rstrip("\n")
+            + "\n- Image slot second-diagram: artifacts/TASK-900-second-diagram.webp"
+            + "\n- Image alt second-diagram: A second figure"
+            + "\n- Image slot second-scene: artifacts/TASK-900-second-scene.webp"
+            + "\n- Image alt second-scene: A second scene\n",
+            encoding="utf-8",
+        )
+
+        plan = self.plan()
+
+        names = [image.path.name for image in plan.images if image.role != "cover"]
+        self.assertEqual(len(names), 4)
+        self.assertEqual(len(set(names)), 4, "two slots want one filename")
+        for slot in ("decision-flow", "depot-scene", "second-diagram", "second-scene"):
+            self.assertIn(f"/images/blog/useful-finance-guide-{slot}", plan.page_source)
+
+    def test_a_fifth_slot_is_refused_and_the_message_names_the_cap(self) -> None:
+        article = (self.profile / "artifacts/TASK-900-content.md").read_text(encoding="utf-8")
+        extra = "".join(
+            f"{{{{image:extra-{index}|Another one.}}}}\n\n" for index in range(3)
+        )
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            article.replace("## What to check", extra + "## What to check"), encoding="utf-8"
+        )
+
         with self.assertRaises(BlogPublishRefused) as caught:
             self.plan()
-        self.assertIn("two illustration slots", str(caught.exception))
+        self.assertIn("between one and 4 image slots", str(caught.exception))
+
+    def test_a_republish_keeps_the_filename_the_live_page_already_uses(self) -> None:
+        """Renaming an image on a published page would break its URL for a fix
+        that has nothing to do with the image."""
+        legacy = self.website / "public/images/blog/useful-finance-guide.svg"
+        legacy.write_text(SVG, encoding="utf-8")
+        # The recorded preview URL is what marks this card as the one that
+        # published this slug, and so what makes a republish a republish.
+        board = (self.profile / "tasks.md").read_text(encoding="utf-8")
+        (self.profile / "tasks.md").write_text(
+            board.rstrip("\n")
+            + "\n- Preview URL: https://itarangwebsite.vercel.app/blog/useful-finance-guide\n",
+            encoding="utf-8",
+        )
+
+        plan = self.plan()
+
+        self.assertEqual(plan.image_for("diagram").path.name, "useful-finance-guide.svg")
+
+    def test_a_paragraph_wrapped_over_two_lines_still_publishes(self) -> None:
+        """`_render_blocks` compared against a name its own signature no longer
+        had, so any wrapped paragraph raised NameError instead of publishing."""
+        article = (self.profile / "artifacts/TASK-900-content.md").read_text(encoding="utf-8")
+        (self.profile / "artifacts/TASK-900-content.md").write_text(
+            article.replace(
+                "## What to check",
+                "A paragraph that the author\nwrapped across two lines.\n\n## What to check",
+            ),
+            encoding="utf-8",
+        )
+
+        plan = self.plan()
+
+        self.assertIn("<p>A paragraph that the author wrapped across two lines.</p>", plan.page_source)
 
     def test_cover_bound_to_an_svg_is_refused(self) -> None:
         self.rewrite_board(

@@ -3,6 +3,7 @@ import Script from "next/script";
 import { DM_Serif_Display, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ChatWidget from "@/components/chatbot/ChatWidget";
+import GoogleAnalytics from "@/components/analytics/GoogleAnalytics";
 import WhatsAppButton from "@/components/shared/WhatsAppButton";
 
 const GTM_ID = "GTM-NWF4GDVS";
@@ -67,6 +68,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         {children}
         <ChatWidget />
         <WhatsAppButton />
+        <GoogleAnalytics />
       </body>
     </html>
   );

@@ -140,13 +140,13 @@ function byId(id) {
   return registry.get(id);
 }
 
-const panels = ['topics', 'blogs', 'analytics'].map(name => {
+const panels = ['topics', 'blogs', 'analytics', 'social', 'archived'].map(name => {
   const panel = makeElement(`panel-${name}`, 'section');
   panel.hidden = name !== 'topics';
   registry.set(`panel-${name}`, panel);
   return panel;
 });
-const primaryButtons = ['topics', 'blogs', 'analytics'].map(name => {
+const primaryButtons = ['topics', 'blogs', 'analytics', 'social', 'archived'].map(name => {
   const button = makeElement('', 'button');
   button.dataset.view = name;
   if (name === 'topics') button.classList.add('active');
@@ -162,7 +162,8 @@ const nestedButtons = ['read', 'files'].map(name => {
    registry cannot know that, and a test asking "did it stay hidden?" would get a
    free pass if it started visible. */
 ['topics-pending', 'topics-new', 'blogs-pending', 'blogs-new', 'competitor-result',
- 'editor-conflict', 'detail-pending', 'detail-error'].forEach(id => { byId(id).hidden = true; });
+ 'editor-conflict', 'detail-pending', 'detail-error',
+ 'social-pending', 'social-new'].forEach(id => { byId(id).hidden = true; });
 const badges = new Map(['topics', 'blogs'].map(name => {
   const badge = makeElement('', 'span');
   badge.hidden = true;
@@ -393,6 +394,10 @@ async function main() {
         topics: byId('topics-search').value,
         blogs: byId('blogs-search').value,
       },
+      /* Both the markup and the node identities. A list that survives one paint
+         and vanishes on the next only shows up if a later step can read it. */
+      socialList: byId('social-list').innerHTML,
+      socialKeys: [...byId('social-list').children].map(node => node.getAttribute('data-key')),
       scrolls: scrolls.slice(),
       detailBody: byId('detail-body').innerHTML,
       /* The publish block reports itself. detail-body holds the string setHtml put

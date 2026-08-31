@@ -122,24 +122,58 @@ replaced by a socket.
 If you restart by hand instead, the rule is unchanged: **end with a curl health
 check on the port**, and leave **no orphan processes**.
 
+Run it as `hermes`. **There is no `sudo` on this box** — it is `gosu`.
+
 ```bash
-# 1. stop the old server first — never leave a second one bound to the port
-"$PROFILE_DIR/bin/tmux" kill-session -t cmo-dashboard || true
-pkill -f dashboard_server.py || true
+gosu hermes bash -c '
+  P=/opt/data/profiles/itarang_cmo
 
-# 2. start the new one through its supervisor
-"$PROFILE_DIR/bin/run-dashboard"
+  # 1. stop the old server first — never leave a second one bound to the port.
+  #    Scope the pattern to THIS profile: a bare `dashboard_server.py` also
+  #    matches the unrelated meet_ops dashboard on port 8090, and an unscoped
+  #    pkill takes that down with it.
+  "$P/bin/tmux" kill-session -t cmo-dashboard 2>/dev/null || true
+  pkill -f "$P/dashboard/dashboard_server.py" || true
+  sleep 2
 
-# 3. MANDATORY: health check on ${CMO_DASHBOARD_PORT:-8080}
-curl -fsS -o /dev/null -w '%{http_code}\n' \
-  "http://127.0.0.1:${CMO_DASHBOARD_PORT:-8080}/" || echo "DEPLOY FAILED"
+  # 2. start the new one through its supervisor
+  "$P/bin/run-dashboard"
+'
+
+# 3. MANDATORY: health check. `run-dashboard` returns as soon as tmux has
+#    forked, so the port is not bound yet — poll rather than curl once, or a
+#    healthy restart reports 000 and reads as a failure.
+for _ in $(seq 15); do
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 2 \
+    "http://127.0.0.1:${CMO_DASHBOARD_PORT:-8080}/")"
+  [ "$code" != "000" ] && break
+  sleep 1
+done
+echo "HTTP $code"
 ```
 
 A deploy is not done until the curl returns (401 from Basic Auth is a healthy
-response — the server is up). If the check fails, stop the process you started
-and report the failure; do not leave a half-started server behind. Before
-declaring done, confirm exactly one `dashboard_server.py` is running
-(`pgrep -af dashboard_server.py`).
+response — the server is up; so is 200). If the check fails, stop the process you
+started and report the failure; do not leave a half-started server behind. Before
+declaring done, confirm exactly one server is running — again scoped to this
+profile: `pgrep -cf "$PROFILE_DIR/dashboard/dashboard_server.py"` must print `1`.
+
+The supervisor exports `LD_LIBRARY_PATH` for the vendored tmux, which carries its
+own libevent. It did not always: the missing export failed as
+`libevent_core-2.1.so.7: cannot open shared object file`, which reads exactly like
+a missing binary, and because step 1 has already stopped the old server the
+console is left **down**. If you ever see that error, the profile's
+`bin/run-dashboard` is older than `cmo-dashboard/bin/run-dashboard`.
+
+`deploy-dashboard` copies only `*.py` and `*.js` (plus `cmo_runtime/*.py`), so
+**nothing under `bin/` is ever shipped by a deploy** — the repo copy is the source
+of truth and the profile copy is installed by hand, as `hermes`, the same way
+`run-news-radar` is:
+
+```bash
+gosu hermes install -o hermes -g hermes -m 0700 \
+  cmo-dashboard/bin/run-dashboard "$PROFILE_DIR/bin/"
+```
 
 ### 5.1 Say which build you are looking at
 

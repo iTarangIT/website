@@ -4,7 +4,9 @@ export type BlogCategorySlug =
   | "charging-maintenance"
   | "safety"
   | "lifecycle-recycling"
-  | "partners-industry";
+  | "partners-industry"
+  | "energy-storage"
+  | "energy-transition";
 
 export interface BlogPost {
   slug: string;
@@ -30,6 +32,8 @@ export const blogCategories: BlogCategory[] = [
   { name: "Safety", slug: "safety", description: "Safe charging, handling, installation checks, and escalation." },
   { name: "Lifecycle & Recycling", slug: "lifecycle-recycling", description: "Battery health, replacement, second life, and recycling." },
   { name: "Partners & Industry", slug: "partners-industry", description: "Dealer, OEM, NBFC, policy, and ecosystem topics." },
+  { name: "Energy Storage", slug: "energy-storage", description: "BESS, grid and inverter batteries: sizing, siting, and buying stationary storage." },
+  { name: "Energy Transition", slug: "energy-transition", description: "Solar, deep tech, and where India's grid and energy mix are going." },
 ];
 
 export const blogPosts: BlogPost[] = [

@@ -65,13 +65,13 @@ function byId(id) {
   return registry.get(id);
 }
 
-const panels = ['topics', 'blogs', 'analytics', 'archived'].map(name => {
+const panels = ['topics', 'blogs', 'analytics', 'social', 'archived'].map(name => {
   const panel = makeElement(`panel-${name}`, 'section');
   panel.hidden = name !== 'topics';
   registry.set(`panel-${name}`, panel);
   return panel;
 });
-const primaryButtons = ['topics', 'blogs', 'analytics', 'archived'].map(name => {
+const primaryButtons = ['topics', 'blogs', 'analytics', 'social', 'archived'].map(name => {
   const button = makeElement('', 'button');
   button.dataset.view = name;
   if (name === 'topics') button.classList.add('active');
@@ -195,6 +195,15 @@ setTimeout(() => {
     creditMeter: byId('credit-meter').innerHTML + byId('credit-meter').textContent,
     creditMeterError: byId('credit-meter').classList.contains('error'),
     ga4: html('ga4-panel'),
+    sources: html('sources-panel'),
+    places: html('places-panel'),
+    devices: html('devices-panel'),
+    journey: html('journey-panel'),
+    postsBody: byId('posts-table').querySelector('tbody').innerHTML,
+    social: html('social-list'),
+    socialCount: byId('social-count').textContent,
+    socialFilter: html('social-filter'),
+    bufferState: byId('buffer-state').textContent,
     queued: html('queued-list'),
     read: readHtml,
     editor: editorHtmlOut,

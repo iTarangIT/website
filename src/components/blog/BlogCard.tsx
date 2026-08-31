@@ -15,7 +15,11 @@ export default function BlogCard({ post }: BlogCardProps) {
       ? "from-brand-600 to-brand-800"
       : post.category === "partners-industry"
         ? "from-accent-sky to-brand-600"
-        : "from-brand-700 to-accent-green";
+        : post.category === "energy-storage"
+          ? "from-accent-amber to-brand-700"
+          : post.category === "energy-transition"
+            ? "from-accent-green to-accent-sky"
+            : "from-brand-700 to-accent-green";
 
   return (
     <Link href={`/blog/${post.slug}`} className="group block">

@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 import ceo_actions
 import ceo_analytics
+import ceo_social
 import console_auth
 import dashboard_server
 import analytics_readers
@@ -113,6 +114,17 @@ def state_payload(
         ).latest()
     finally:
         service.database.close()
+    search = ceo_analytics.cached_report(range_key, device, start=start, end=end)
+    ga4_detail = analytics_readers.ga4_technical_summary(range_days, device)
+    # The join is done here, once, rather than in the browser: the two halves come
+    # from two APIs on two cadences, and a client-side join would leave the
+    # Blog performance table disagreeing with the tiles above it whenever one
+    # cache expired before the other.
+    posts = ceo_analytics.blog_performance(
+        search,
+        ga4_detail.get("pages") or [],
+        titles=_blog_titles(board["blogs"]),
+    )
     return {
         "topics": topics,
         "blogs": board["blogs"],
@@ -120,13 +132,60 @@ def state_payload(
         "trending_messages": trend_messages,
         "watchlist": ceo_actions.read_watchlist(PROFILE_DIR),
         "research_queue": ceo_actions.read_research_queue(PROFILE_DIR),
+        "social": social_payload(board["blogs"]),
         "analytics": {
-            "search": ceo_analytics.cached_report(range_key, device, start=start, end=end),
+            "search": search,
             "search_console": dashboard_server.gsc_summary(),
             "ga4": analytics_readers.ga4_summary(range_days, device),
+            "ga4_audience": analytics_readers.ga4_audience(range_days, device),
+            "posts": posts,
             "competitor": competitor,
         },
         "controls": {"range": range_key, "range_days": range_days, "device": device, "start": start, "end": end},
+    }
+
+
+def _slug_of(blog: dict[str, Any]) -> str:
+    """The article's slug, from its parsed front matter. Empty until it is written."""
+    article = blog.get("article") or {}
+    metadata = article.get("metadata") or {}
+    return str(metadata.get("slug", "") or "").strip()
+
+
+def _blog_titles(blogs: list[dict[str, Any]]) -> dict[str, str]:
+    """slug -> the title the board shows, so an analytics row is not read as a URL."""
+    return {slug: str(blog.get("title", "")) for blog in blogs if (slug := _slug_of(blog))}
+
+
+def social_payload(blogs: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the Social tab renders: one row per published article, with its drafts.
+
+    Read model only. Buffer is not called here — a page load must not depend on
+    a third party being up, and the channel list is fetched by the preflight the
+    Send button asks for, not by every three-second poll.
+    """
+    from cmo_runtime.console_db import ConsoleDB
+
+    published = [blog for blog in blogs if (blog.get("blog") or {}).get("state") == "published"]
+    database = ConsoleDB(PROFILE_DIR)
+    try:
+        articles = [
+            {
+                "task_id": blog["id"],
+                "title": blog.get("title", ""),
+                "slug": _slug_of(blog),
+                "url": (blog.get("blog") or {}).get("url", ""),
+                "drafts": database.crosspost_drafts(str(blog["id"])),
+            }
+            for blog in published
+        ]
+        counts = database.crosspost_summary()
+    finally:
+        database.close()
+    return {
+        "articles": articles,
+        "counts": counts,
+        "connected": ceo_social.BufferClient.configured(str(PROFILE_DIR)),
     }
 
 
@@ -254,6 +313,31 @@ def dispatch(handler: Any, method: str) -> bool:
             _json(handler, HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return True
         _json(handler, HTTPStatus.OK, outcome)
+        return True
+    if method == "GET" and path == "/ceo/social-check":
+        # Same preflight/instruction shape as the two publish gates, one step
+        # further along: reports whether the drafts for a *live* article may be
+        # queued in Buffer, and only then mints this human's single-use token.
+        # This is the one route that talks to Buffer, so it is a click, never a poll.
+        task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
+        try:
+            check = ceo_social.preflight(PROFILE_DIR, task_id)
+        except ceo_publish.PublicationRefused as error:
+            _json(handler, HTTPStatus.OK, {"eligible": False, "blockers": [str(error)]})
+            return True
+        payload = check.as_dict()
+        payload["request_id"] = (
+            ceo_social.issue_request(
+                PROFILE_DIR,
+                task_id,
+                actor=email,
+                fingerprint=check.fingerprint,
+                platforms=check.sendable,
+            )
+            if check.eligible
+            else ""
+        )
+        _json(handler, HTTPStatus.OK, payload)
         return True
     if method == "GET" and path == "/ceo/artifact":
         task_id = parse_qs(urlparse(handler.path).query).get("task", [""])[0]
@@ -449,10 +533,43 @@ def dispatch(handler: Any, method: str) -> bool:
                         email,
                     )
                     result = {"ok": True, "revision_round": round_number}
+                elif path == "/ceo/api/publish-date":
+                    # A day a human wrote down, nothing more. No job reads it, and
+                    # publishing is still a press -- see `set_publish_date`.
+                    result = ceo_actions.set_publish_date(
+                        PROFILE_DIR, task_id, str(payload.get("publish_at", "")), email
+                    )
                 elif path == "/ceo/api/blog-retry":
                     # Requeue a write that failed. Not a decision, not an approval,
                     # and refused outright on a card a human put on hold.
                     result = ceo_actions.retry_write(PROFILE_DIR, task_id, email)
+                elif path == "/ceo/api/social/generate":
+                    # Writes three drafts and stores them. Sends nothing: the copy
+                    # exists so a human can read it before deciding to.
+                    result = ceo_social.generate(PROFILE_DIR, task_id, actor=email)
+                elif path == "/ceo/api/social/draft":
+                    # A human's edit of one draft, checked against the platform's
+                    # own limit here rather than discovered by Buffer later.
+                    result = ceo_social.save_draft(
+                        PROFILE_DIR,
+                        task_id,
+                        platform=str(payload.get("platform", "")),
+                        body=str(payload.get("body", "")),
+                        thread=[str(item) for item in payload.get("thread", []) or []],
+                        actor=email,
+                    )
+                elif path == "/ceo/api/social/send":
+                    # The one call that reaches Buffer. The instruction it consumes
+                    # was minted by `/ceo/social-check` for this human and this
+                    # article, and a partial send is reported as one.
+                    result = ceo_social.send(
+                        PROFILE_DIR,
+                        task_id,
+                        actor=email,
+                        role=_role,
+                        request_id=str(payload.get("request_id", "")),
+                        platforms=[str(item) for item in payload.get("platforms", []) or []],
+                    )
                 elif path == "/ceo/api/decision":
                     decision = str(payload.get("decision", "")).strip()
                     task = _task(task_id)
@@ -476,11 +593,17 @@ def dispatch(handler: Any, method: str) -> bool:
                 else:
                     _json(handler, HTTPStatus.NOT_FOUND, {"error": "not found"})
                     return True
+    except ceo_publish.PublicationConflict as exc:
+        # A used instruction, a moved article, a post Buffer already holds. 409 so
+        # the browser can say "read it again" rather than offer a blind retry.
+        _json(handler, HTTPStatus.CONFLICT, {"error": str(exc)})
+        return True
     except (
         ValueError,
         json.JSONDecodeError,
         TaskFileError,
         ConsoleDBError,
+        ceo_publish.PublicationRefused,
         topic_proposals.ProposalRefused,
         news_radar.RadarRefused,
         competitors.CompetitorRefused,

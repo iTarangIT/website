@@ -243,3 +243,127 @@ class ReportShape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BlogSlugJoin(unittest.TestCase):
+    """The slug is the join key, and it has to survive both sides' URL shapes.
+
+    Search Console reports an absolute URL, Google Analytics reports a path, and
+    a shared link comes back with UTM parameters attached. All three are the same
+    article and must fold onto one row.
+    """
+
+    def test_both_shapes_of_the_same_article_yield_the_same_slug(self):
+        self.assertEqual(
+            analytics.blog_slug("https://www.itarang.com/blog/battery-passport"),
+            analytics.blog_slug("/blog/battery-passport"),
+        )
+
+    def test_a_utm_tagged_share_is_the_same_article(self):
+        """Our own ShareBar stamps these, so failing here would split every shared post."""
+        self.assertEqual(
+            analytics.blog_slug("/blog/battery-passport?utm_source=whatsapp&utm_medium=social"),
+            "battery-passport",
+        )
+
+    def test_a_category_archive_is_not_an_article(self):
+        """Folding it in would credit every post's impressions to a listing page."""
+        self.assertEqual(analytics.blog_slug("/blog/category/safety"), "")
+
+    def test_the_blog_index_and_other_pages_are_not_articles(self):
+        for page in ("/blog", "/blog/", "/products", "https://www.itarang.com/"):
+            self.assertEqual(analytics.blog_slug(page), "", page)
+
+
+class BlogPerformance(unittest.TestCase):
+    """One row per article, from two systems that each know half of it."""
+
+    def report(self):
+        return {
+            "pages": [
+                {
+                    "page": "https://www.itarang.com/blog/battery-passport",
+                    "impressions": 540,
+                    "clicks": 18,
+                    "ctr": 3.33,
+                    "position": 8.4,
+                },
+                {
+                    "page": "https://www.itarang.com/blog/informal-financing",
+                    "impressions": 120,
+                    "clicks": 0,
+                    "ctr": 0.0,
+                    "position": 22.1,
+                },
+                {"page": "https://www.itarang.com/products", "impressions": 900, "clicks": 40},
+            ]
+        }
+
+    def ga4(self):
+        return [
+            {"page": "/blog/battery-passport", "screen_page_views": 230, "sessions": 180},
+            {"page": "/blog/only-shared", "screen_page_views": 95, "sessions": 80},
+            {"page": "/products", "screen_page_views": 400, "sessions": 300},
+        ]
+
+    def test_only_blog_pages_reach_the_table(self):
+        result = analytics.blog_performance(self.report(), self.ga4())
+        self.assertEqual(
+            sorted(row["slug"] for row in result["posts"]),
+            ["battery-passport", "informal-financing", "only-shared"],
+        )
+
+    def test_the_two_halves_join_onto_one_row(self):
+        row = next(
+            item
+            for item in analytics.blog_performance(self.report(), self.ga4())["posts"]
+            if item["slug"] == "battery-passport"
+        )
+        self.assertEqual(row["impressions"], 540)
+        self.assertEqual(row["views"], 230)
+        self.assertEqual(sorted(row["sources"]), ["ga4", "search_console"])
+
+    def test_an_article_seen_by_only_one_system_is_a_row_that_says_so(self):
+        """Views with no impressions is a post that was shared, not found. Both are real."""
+        posts = {
+            item["slug"]: item
+            for item in analytics.blog_performance(self.report(), self.ga4())["posts"]
+        }
+        self.assertEqual(posts["only-shared"]["sources"], ["ga4"])
+        self.assertIsNone(posts["only-shared"]["impressions"])
+        self.assertEqual(posts["informal-financing"]["sources"], ["search_console"])
+        self.assertIsNone(posts["informal-financing"]["views"])
+
+    def test_an_unmeasured_column_stays_none_and_never_becomes_zero(self):
+        """`0 impressions` is a measurement. `no impressions recorded` is not."""
+        result = analytics.blog_performance({"pages": []}, [])
+        self.assertEqual(result["posts"], [])
+        self.assertIsNone(result["totals"]["impressions"])
+        self.assertIsNone(result["totals"]["views"])
+
+    def test_a_real_zero_survives_as_a_zero(self):
+        row = next(
+            item
+            for item in analytics.blog_performance(self.report(), self.ga4())["posts"]
+            if item["slug"] == "informal-financing"
+        )
+        self.assertEqual(row["clicks"], 0)
+
+    def test_totals_add_only_what_was_measured(self):
+        totals = analytics.blog_performance(self.report(), self.ga4())["totals"]
+        self.assertEqual(totals["impressions"], 660)
+        self.assertEqual(totals["views"], 325)
+
+    def test_the_board_title_is_used_when_there_is_one(self):
+        posts = {
+            item["slug"]: item
+            for item in analytics.blog_performance(
+                self.report(), self.ga4(), titles={"battery-passport": "The real title"}
+            )["posts"]
+        }
+        self.assertEqual(posts["battery-passport"]["title"], "The real title")
+        self.assertEqual(
+            posts["informal-financing"]["title"],
+            "Informal Financing",
+            "an article the board does not name still needs something readable",
+        )

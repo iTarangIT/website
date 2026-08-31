@@ -108,8 +108,65 @@ def _archived(index: int, subject_id: int) -> dict:
     }
 
 
+def _social(articles: int = 2, *, drafts: bool = True, queued: bool = False) -> dict:
+    def draft(task_id: str, platform: str) -> dict:
+        return {
+            "platform": platform,
+            "body": f"{platform} copy for {task_id}",
+            "link": f"https://www.itarang.com/blog/article-{task_id}",
+            "thread": ["first post", "second post"] if platform == "x" else [],
+            "image_alt": "A depot at dusk",
+            "producer": "writer",
+            "status": "queued" if queued else "draft",
+            "buffer_post_id": "d" * 24 if queued else "",
+            "scheduled_at": "2026-09-01T10:00:00Z" if queued else "",
+            "sent_by": "it@itarang.com" if queued else "",
+            "error": "",
+        }
+
+    return {
+        "connected": True,
+        "counts": {"draft": 3, "queued": 0, "failed": 0},
+        "articles": [
+            {
+                "task_id": f"TASK-{800 + index}",
+                "title": f"Published article {index}",
+                "slug": f"published-article-{index}",
+                "url": f"https://www.itarang.com/blog/published-article-{index}",
+                "drafts": [draft(f"TASK-{800 + index}", platform)
+                           for platform in ("linkedin", "x", "instagram")] if drafts else [],
+            }
+            for index in range(articles)
+        ],
+    }
+
+
+def _audience(status: str = "ready") -> dict:
+    return {
+        "status": status,
+        "message": "" if status == "ready" else "Google Analytics is not connected yet",
+        "required_variables": ["GA4_PROPERTY_ID"],
+        "range_days": 28,
+        "device": "all",
+        "traffic_sources": [
+            {"source": "Google", "sessions": 60, "active_users": 55, "share": 54.5, "examples": ["google"]},
+            {"source": "LinkedIn", "sessions": 40, "active_users": 37, "share": 36.4,
+             "examples": ["lnkd.in", "linkedin"]},
+            {"source": "Direct", "sessions": 10, "active_users": 9, "share": 9.1, "examples": ["(direct)"]},
+        ],
+        "countries": [{"country": "India", "sessions": 90, "active_users": 80}],
+        "cities": [{"city": "Gurugram", "country": "India", "sessions": 40}],
+        "devices": [{"device": "mobile", "sessions": 70, "engagement_rate": 0.62}],
+        "browsers": [{"browser": "Chrome", "operating_system": "Android", "sessions": 65}],
+        "landing_pages": [
+            {"page": "/blog/emi", "sessions": 30, "engagement_rate": 0.58, "bounces": 0.42}
+        ],
+    }
+
+
 def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dict | None = None,
-             archived: list | None = None, radar: dict | None = None) -> dict:
+             archived: list | None = None, radar: dict | None = None,
+             social: dict | None = None, audience: dict | None = None) -> dict:
     series = [
         {"date": f"2026-08-{day:02d}", "impressions": day * 12, "clicks": day % 4, "ctr": 1.4, "position": 12.5}
         for day in range(1, 15)
@@ -140,6 +197,7 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
             "trending_messages": [],
             "watchlist": [],
             "research_queue": [{"subject": "battery query 0", "reason": "Queued from Analytics.", "queued_by": "x"}],
+            "social": _social() if social is None else social,
             "analytics": {
                 "search": {
                     "status": "ready",
@@ -172,6 +230,21 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
                 "search_console": {"status": "collecting"},
                 "ga4": {"status": "not_connected", "message": "Google Analytics is not connected yet",
                         "required_variables": ["GA4_PROPERTY_ID"]},
+                "ga4_audience": _audience() if audience is None else audience,
+                "posts": {
+                    "posts": [
+                        {"slug": "emi", "title": "What an EMI actually costs", "url": "https://itarang.com/blog/emi",
+                         "views": 230, "sessions": 180, "engagement_rate": 0.62,
+                         "impressions": 90, "clicks": 4, "ctr": 4.4, "position": 15.5,
+                         "sources": ["search_console", "ga4"]},
+                        {"slug": "only-shared", "title": "Shared, never found", "url": "",
+                         "views": 95, "sessions": 80, "engagement_rate": 0.5,
+                         "impressions": None, "clicks": None, "ctr": None, "position": None,
+                         "sources": ["ga4"]},
+                    ],
+                    "measured": 2,
+                    "totals": {"views": 325, "clicks": 4, "impressions": 90},
+                },
                 "competitor": {"status": "none"},
             },
             "controls": {"range": "28", "device": "all"},
@@ -436,6 +509,20 @@ class ConsoleRenders(unittest.TestCase):
             self.assertIn(name, out["radarStatus"], f"the {name} beat is not named")
         self.assertIn("nothing new from Battery technology", out["radarStatus"])
 
+    def test_a_rotating_vertical_is_named_rather_than_shown_as_a_slug(self) -> None:
+        """The roster beats are new; an unnamed one would print `inverter-batteries`
+        at the reader, which is true but is not a beat name."""
+        out = self.run_console(_fixture(radar={
+            "started_at": "2026-09-02T01:30:00Z", "mode": "due", "status": "completed",
+            "message": "2 candidate(s) proposed from 1 subject(s); 12 credits used.",
+            "beats": ["ev-industry", "policy", "competitors", "solar", "inverter-batteries"],
+            "empty_beats": ["inverter-batteries"],
+        }))
+
+        for name in ("Solar", "Inverter batteries"):
+            self.assertIn(name, out["radarStatus"], f"the {name} beat is not named")
+        self.assertIn("nothing new from Inverter batteries", out["radarStatus"])
+
     def test_a_sweep_with_no_recorded_beats_claims_nothing(self) -> None:
         """Runs from before beats were recorded must not read as full coverage."""
         out = self.run_console(_fixture(radar={
@@ -451,5 +538,138 @@ class ConsoleRenders(unittest.TestCase):
             self.assertTrue(request.startswith("/"), f"{request} leaves this host")
 
 
-if __name__ == "__main__":
-    unittest.main()
+class SocialTabRenders(unittest.TestCase):
+    """The Social tab, executed rather than grepped.
+
+    A renderer that ships beside its markup and never paints is the failure this
+    file exists to catch, so these assertions are on rendered HTML.
+    """
+
+    maxDiff = None
+
+    @classmethod
+    def render(cls, fixture: dict) -> dict:
+        return ConsoleRenders.run_console(fixture)
+
+    def test_each_published_article_becomes_a_card_with_three_drafts(self):
+        report = self.render(_fixture())
+        html = report["social"]
+
+        self.assertIn("Published article 0", html)
+        for label in ("LinkedIn", "X", "Instagram"):
+            self.assertIn(f">{label}</span>", html)
+        self.assertEqual(html.count('data-draft="'), 6, "two articles, three platforms each")
+
+    def test_a_thread_is_edited_as_one_box_with_a_separator(self):
+        """One box per item would be a nicer form and a worse edit: reordering is
+        the commonest change, and moving a line beats dragging boxes."""
+        html = self.render(_fixture())["social"]
+        self.assertIn("first post\n---\nsecond post", html)
+        self.assertIn("Separate thread posts with a line containing only ---", html)
+
+    def test_every_draft_carries_a_live_character_count_against_its_own_limit(self):
+        html = self.render(_fixture())["social"]
+        self.assertIn("/ 3,000", html, "LinkedIn's limit")
+        self.assertIn("/ 280", html, "X's limit")
+        self.assertIn("/ 2,200", html, "Instagram's limit")
+
+    def test_the_send_button_appears_only_after_a_plan_is_prepared(self):
+        html = self.render(_fixture())["social"]
+        self.assertIn("data-social-prepare=", html)
+        self.assertNotIn("data-social-send=", html)
+
+    def test_a_queued_post_is_read_only_and_says_where_to_edit_it(self):
+        html = self.render(_fixture(social=_social(articles=1, queued=True)))["social"]
+        self.assertIn("queued in Buffer", html)
+        self.assertIn("Edit it in Buffer, not here.", html)
+        self.assertNotIn("data-draft-body=", html)
+        self.assertNotIn("data-social-prepare=", html, "nothing is left to send")
+
+    def test_an_article_with_no_copy_offers_to_write_it_and_nothing_else(self):
+        html = self.render(_fixture(social=_social(articles=1, drafts=False)))["social"]
+        self.assertIn("no copy written yet", html)
+        self.assertIn("data-social-generate=", html)
+        self.assertNotIn("data-social-prepare=", html)
+
+    def test_no_live_article_is_an_empty_state_that_explains_the_gate(self):
+        report = self.render(_fixture(social={"connected": True, "counts": {}, "articles": []}))
+        html = report["social"]
+        self.assertIn("No article is live yet", html)
+        self.assertIn("Gate 2", html)
+
+    def test_the_tab_says_when_buffer_is_not_connected(self):
+        report = self.render(_fixture(social={"connected": False, "counts": {}, "articles": []}))
+        self.assertIn("BUFFER_ACCESS_TOKEN", report["bufferState"])
+
+    def test_the_filter_chips_count_what_is_in_each_state(self):
+        html = self.render(_fixture())["socialFilter"]
+        for label in ("All", "No copy yet", "Ready to send", "Queued", "Refused"):
+            self.assertIn(f">{label}<", html)
+
+
+@unittest.skipUnless(NODE, "node is required to execute the console script")
+class AudiencePanelsRender(unittest.TestCase):
+    """Traffic sources, locations, devices and landing pages, executed."""
+
+    maxDiff = None
+
+    @classmethod
+    def render(cls, fixture: dict) -> dict:
+        return ConsoleRenders.run_console(fixture)
+
+    def test_traffic_sources_render_as_named_channels_not_raw_referrers(self):
+        """"LinkedIn sent 40" is the answer; "lnkd.in 22, linkedin.com 18" is not."""
+        html = self.render(_fixture())["sources"]
+        self.assertIn(">LinkedIn</td>", html)
+        self.assertIn("36.4%", html)
+        self.assertIn("lnkd.in, linkedin", html, "what matched must stay visible")
+
+    def test_a_share_is_drawn_as_a_bar_and_still_printed_as_a_number(self):
+        html = self.render(_fixture())["sources"]
+        self.assertIn('class="share-bar"', html)
+        self.assertIn("width:54.5%", html)
+        self.assertIn("54.5%", html)
+
+    def test_locations_render_countries_and_the_cities_inside_them(self):
+        html = self.render(_fixture())["places"]
+        self.assertIn(">India</td>", html)
+        self.assertIn(">Gurugram</td>", html)
+
+    def test_devices_render_with_their_browsers(self):
+        html = self.render(_fixture())["devices"]
+        self.assertIn(">mobile</td>", html)
+        self.assertIn(">Chrome</td>", html)
+        self.assertIn("62.0%", html, "engagement rate reads as a percentage")
+
+    def test_landing_pages_say_they_are_the_entry_point_and_not_a_journey(self):
+        """Claiming a full user journey from a landing-page report would be a lie."""
+        html = self.render(_fixture())["journey"]
+        self.assertIn("/blog/emi", html)
+        self.assertIn("not a full path", html)
+
+    def test_every_panel_reports_the_same_missing_tag_rather_than_four_stories(self):
+        report = self.render(_fixture(audience=_audience(status="not_connected")))
+        for key in ("sources", "places", "devices", "journey"):
+            self.assertIn("GA4_PROPERTY_ID", report[key], key)
+
+
+@unittest.skipUnless(NODE, "node is required to execute the console script")
+class PerPostTableRenders(unittest.TestCase):
+    maxDiff = None
+
+    def test_each_article_is_a_row_carrying_views_beside_the_search_numbers(self):
+        report = ConsoleRenders.run_console(_fixture())
+        body = report["postsBody"]
+        self.assertIn("What an EMI actually costs", body)
+        self.assertIn(">230<", body, "views")
+        self.assertIn(">90<", body, "impressions")
+
+    def test_an_article_only_one_system_saw_says_which_one(self):
+        body = ConsoleRenders.run_console(_fixture())["postsBody"]
+        self.assertIn("analytics only", body)
+
+    def test_an_unmeasured_column_renders_as_a_dash_and_never_as_zero(self):
+        body = ConsoleRenders.run_console(_fixture())["postsBody"]
+        row = body.split("Shared, never found", 1)[1]
+        self.assertIn("—", row)
+        self.assertNotIn(">0<", row)

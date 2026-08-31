@@ -15,7 +15,7 @@ import datetime as dt
 import os
 import threading
 import time
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 CACHE_SECONDS = 600
 COLLECTION_START = "2026-08-04"
@@ -396,3 +396,128 @@ def cached_report(range_key: str = "28", device: str = "all", *, start: str = ""
     with _cache_lock:
         _cache[key] = (now + CACHE_SECONDS, report)
     return report
+
+
+# --------------------------------------------------------------- per-post rows
+
+#: The path prefix an article is served under. The slug is the last segment, and
+#: it is the join key: Search Console reports an absolute URL, GA4 reports a
+#: path, and both end in the same slug.
+BLOG_PREFIX = "/blog/"
+
+
+def blog_slug(page: str) -> str:
+    """The article slug in a Search Console URL or a GA4 path, or '' if it is not one.
+
+    Query strings and trailing slashes are stripped, and a category archive
+    (`/blog/category/<x>`) is deliberately not an article — folding those in
+    would credit every post's impressions to a listing page.
+    """
+    path = str(page or "").split("?", 1)[0].split("#", 1)[0]
+    if "://" in path:
+        path = "/" + path.split("://", 1)[1].split("/", 1)[1] if "/" in path.split("://", 1)[1] else "/"
+    if not path.startswith(BLOG_PREFIX):
+        return ""
+    rest = path[len(BLOG_PREFIX) :].strip("/")
+    if not rest or "/" in rest:
+        return ""
+    return rest
+
+
+def blog_performance(
+    search_report: Mapping[str, Any],
+    ga4_pages: Sequence[Mapping[str, Any]] = (),
+    *,
+    titles: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """One row per published article: views, clicks, impressions, CTR, position.
+
+    The two halves come from two systems and neither is authoritative about the
+    other. Search Console knows impressions, clicks and position — what Google
+    showed and what was tapped. GA4 knows views — what a browser actually
+    loaded, including every arrival that never touched a search result. A post
+    with views and no impressions is real (it was shared, not found); so is one
+    with impressions and no views (it was shown, not clicked). Both are kept as
+    rows, and the missing half stays `None` rather than becoming a zero that
+    reads as a measurement.
+
+    `sources` says which system saw the post, so a row with a surprising number
+    carries the reason it is surprising.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+
+    for page in search_report.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        slug = blog_slug(str(page.get("page", "")))
+        if not slug:
+            continue
+        row = rows.setdefault(slug, _blank_post_row(slug))
+        row["url"] = str(page.get("page", ""))
+        row["impressions"] = page.get("impressions")
+        row["clicks"] = page.get("clicks")
+        row["ctr"] = page.get("ctr")
+        row["position"] = page.get("position")
+        row["sources"].append("search_console")
+
+    for page in ga4_pages or []:
+        if not isinstance(page, Mapping):
+            continue
+        slug = blog_slug(str(page.get("page", "")))
+        if not slug:
+            continue
+        row = rows.setdefault(slug, _blank_post_row(slug))
+        row["views"] = page.get("screen_page_views")
+        row["sessions"] = page.get("sessions")
+        row["engagement_rate"] = page.get("engagement_rate")
+        row["sources"].append("ga4")
+
+    named = titles or {}
+    for slug, row in rows.items():
+        row["title"] = named.get(slug) or _subject_from_page(f"/blog/{slug}").title()
+
+    ordered = sorted(
+        rows.values(),
+        key=lambda row: (
+            -(row["impressions"] or 0),
+            -(row["views"] or 0),
+            row["slug"],
+        ),
+    )
+    measured = [row for row in ordered if row["impressions"] is not None or row["views"] is not None]
+    return {
+        "posts": ordered,
+        "measured": len(measured),
+        "totals": {
+            "views": _sum_or_none(ordered, "views"),
+            "clicks": _sum_or_none(ordered, "clicks"),
+            "impressions": _sum_or_none(ordered, "impressions"),
+        },
+    }
+
+
+def _blank_post_row(slug: str) -> dict[str, Any]:
+    return {
+        "slug": slug,
+        "title": "",
+        "url": "",
+        "views": None,
+        "sessions": None,
+        "engagement_rate": None,
+        "impressions": None,
+        "clicks": None,
+        "ctr": None,
+        "position": None,
+        "sources": [],
+    }
+
+
+def _sum_or_none(rows: Sequence[Mapping[str, Any]], field: str) -> int | float | None:
+    """Total a column, or None when nothing in it was measured.
+
+    A column of `None` sums to `None`, not to `0`: "no article has been measured"
+    and "every article scored zero" are different sentences and the tiles say
+    them differently.
+    """
+    present = [row[field] for row in rows if row.get(field) is not None]
+    return sum(present) if present else None

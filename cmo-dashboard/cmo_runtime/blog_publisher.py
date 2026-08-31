@@ -21,6 +21,7 @@ from cmo_runtime.review_sections import strip_scaffolding
 from cmo_runtime.content_flow import (
     BLOG_CATEGORY_SLUGS,
     IMAGE_MARKER,
+    MAX_IMAGE_SLOTS,
     ContentRunRefused,
     _validate_svg,
 )
@@ -144,9 +145,10 @@ class BlogPublisher:
 
         public_body = _public_body(body)
         markers = list(IMAGE_MARKER.finditer(public_body))
-        if not 1 <= len(markers) <= 2:
+        if not 1 <= len(markers) <= MAX_IMAGE_SLOTS:
             raise BlogPublishRefused(
-                f"{task_id} must declare one or two image slots; found {len(markers)}"
+                f"{task_id} must declare between one and {MAX_IMAGE_SLOTS} image slots;"
+                f" found {len(markers)}"
             )
 
         page_path = (
@@ -169,7 +171,6 @@ class BlogPublisher:
 
         figures: dict[str, Figure] = {}
         images: list[PublishedImage] = []
-        seen_kinds: set[str] = set()
         for marker in markers:
             slot_id = marker.group(1)
             caption = marker.group(2).strip()
@@ -180,15 +181,6 @@ class BlogPublisher:
                 slot_id=slot_id,
                 caption=caption,
             )
-            # Two diagrams would both want `{slug}.svg` and two illustrations would
-            # both want `{slug}-figure.webp`. Rather than inventing a numbering
-            # scheme nobody asked for, one of each is the contract.
-            if figure.kind in seen_kinds:
-                raise BlogPublishRefused(
-                    f"{task_id} binds two {figure.kind} slots; one diagram and one "
-                    "illustration are the most an article may publish"
-                )
-            seen_kinds.add(figure.kind)
             figures[marker.group(0)] = figure
             images.append(published)
 
@@ -237,6 +229,27 @@ class BlogPublisher:
             cover_src=cover_src,
         )
 
+    def _image_destination(
+        self, slug: str, slot_id: str, suffix: str, *, legacy: str
+    ) -> Path:
+        """Where one slot's file is committed on the website.
+
+        Keyed by slot id, because an article may now carry several images of the
+        same kind and the old names could not tell them apart: every diagram
+        wanted `{slug}.svg` and every illustration `{slug}-figure.webp`. That
+        collision is the entire reason the article was capped at one of each.
+
+        A file already sitting at the old name keeps it. Republishing is a
+        supported path -- the converter is code, code gets fixed, and the fix has
+        to reach the article that exposed it -- and renaming an image on a live
+        page would break the URL for a fix that has nothing to do with it.
+        """
+        directory = self.website_root / "public/images/blog"
+        existing = directory / legacy
+        if existing.exists():
+            return existing
+        return directory / f"{slug}-{slot_id.casefold()}{suffix}"
+
     def _bind_slot(
         self,
         *,
@@ -272,7 +285,7 @@ class BlogPublisher:
             except ContentRunRefused as exc:
                 raise BlogPublishRefused(f"SVG refused: {exc}") from exc
             alt_text, width, height = _svg_metadata(svg_text)
-            destination = self.website_root / "public/images/blog" / f"{slug}.svg"
+            destination = self._image_destination(slug, slot_id, ".svg", legacy=f"{slug}.svg")
             credit = ""
             kind = "diagram"
         elif suffix in RASTER_SUFFIXES:
@@ -285,8 +298,8 @@ class BlogPublisher:
                     f"{task_id} is missing card field: Image alt {slot_id}"
                 )
             width, height = _raster_metadata(source, reference)
-            destination = (
-                self.website_root / "public/images/blog" / f"{slug}-figure{suffix}"
+            destination = self._image_destination(
+                slug, slot_id, suffix, legacy=f"{slug}-figure{suffix}"
             )
             credit = AI_FIGURE_CREDIT
             kind = "illustration"
@@ -679,7 +692,13 @@ def _render_blocks(body: str, *, figures: Mapping[str, Figure]) -> str:
         while index < len(lines) and lines[index].strip():
             candidate = lines[index].strip()
             if (
-                candidate == marker
+                # `figures` is keyed by the whole marker line, the same way the
+                # block loop above tests it. This read `candidate == marker` for
+                # as long as `marker` had been gone from the signature: a
+                # paragraph wrapped over two lines raised NameError instead of
+                # publishing, which writer-generated Markdown never hit because
+                # it puts a paragraph on one line, and a hand-edited article did.
+                candidate in figures
                 or candidate.startswith("#")
                 or re.match(r"^(?:-|\d+\.)\s+", candidate)
                 or (

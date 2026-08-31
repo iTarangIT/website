@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,18 @@ WORKER_HEARTBEAT = "state/content-worker.json"
 PREVIEW_ORIGIN = "https://itarangwebsite.vercel.app"
 
 #: The card field the publish click writes when the post is on `cmo-changes`.
+#: This is the *preview*, not the live site: Gate 2 still has to merge it.
 PUBLISHED_STATUS = "published to cmo-changes"
+
+#: What `ceo_publish` writes once Gate 2 merges the branch. This, and only this,
+#: is an article a reader can reach. The board reaching `Completed` says the same
+#: thing for a card written before this status existed.
+MERGED_STATUS = "merged to main"
+
+#: The card field naming the day a human means to publish an approved article.
+#: A plan, not a trigger: nothing reads this to act on it, and the Publish button
+#: is still a human press. There is no scheduler on this box.
+PUBLISH_AT_FIELD = "publish_at"
 
 def artifact_for(task: dict[str, Any], profile_dir: Path = PROFILE_DIR) -> Path | None:
     """Return a real card attachment only when it resolves beneath artifacts/."""
@@ -62,6 +74,27 @@ def _positive_round(task: dict[str, Any]) -> bool:
     that is never going to arrive.
     """
     return bool(re.fullmatch(r"[1-9][0-9]*", str(task.get("revision_round", "")).strip()))
+
+
+def _scheduled_for(task: dict[str, Any]) -> tuple[str, bool] | None:
+    """The publish date on a card, and whether it is still ahead.
+
+    Returns `None` when the field is absent or is not a date this can read --
+    an unreadable value must not become a state, because "Scheduled" with no
+    day behind it promises something nobody wrote down.
+
+    A date that has passed is deliberately not still "Scheduled": nothing fires
+    on this box, so a past date means a plan that was missed, and the card falls
+    back to Approved carrying the day it was meant to go out.
+    """
+    raw = str(task.get(PUBLISH_AT_FIELD, "")).strip()
+    if not raw:
+        return None
+    try:
+        day = date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+    return day.isoformat(), day >= datetime.now(UTC).date()
 
 
 def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -103,12 +136,18 @@ def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) ->
             "url": url,
         }
 
+    # Published means a reader can reach it, and only a Gate 2 merge makes that
+    # true. This branch used to label `published to cmo-changes` "Live on the
+    # site" while an article actually merged to main fell through to "Approved" --
+    # so the one state everyone asks about was wrong in both directions.
+    if change == MERGED_STATUS or section == "Completed":
+        return result("published", "Published", url=published_url)
     if change == PUBLISHED_STATUS or (published_url and approved and change.startswith("published")):
-        return result("published", "Live on the site", url=published_url)
+        return result("in_preview", "In preview", url=published_url)
     if change == "executing revision":
-        return result("rewriting", "Being rewritten", reason=summary)
+        return result("rewriting", "Being edited", reason=summary)
     if change == "revision requested" and _positive_round(task):
-        return result("rewriting", "Being rewritten", reason=summary)
+        return result("rewriting", "Being edited", reason=summary)
     if section == "In Progress":
         # `execute()` writes the research brief onto the card before it calls the
         # writer, so the card itself says which half of the run is happening.
@@ -118,8 +157,8 @@ def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) ->
             else str(task.get("updated", ""))
         )
         if str(task.get("research_reference") or "").strip():
-            return result("writing", "Writing…", started_at=started)
-        return result("researching", "Researching…", started_at=started)
+            return result("writing", "Draft — writing…", started_at=started)
+        return result("researching", "Draft — researching…", started_at=started)
     if change == WRITE_FAILED:
         return result(
             "failed",
@@ -128,11 +167,22 @@ def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) ->
             retryable=True,
         )
     if approved:
+        # A date a human wrote down, not a job that will fire. Shown only once
+        # the article is approved, because a publish date on something nobody has
+        # agreed to publish is not a plan.
+        scheduled = _scheduled_for(task)
+        if scheduled is not None:
+            day, future = scheduled
+            return result(
+                "scheduled" if future else "approved",
+                f"Scheduled — {day}" if future else "Approved",
+                reason="" if future else f"Was scheduled for {day}.",
+            )
         return result("approved", "Approved")
     if section == "CMO Review":
-        return result("checking", "Being checked", reason=summary)
+        return result("checking", "Waiting for review", reason=summary)
     if section == "Human Approval":
-        return result("awaiting_you", "Awaiting you")
+        return result("awaiting_you", "Waiting for review")
     if section == "Backlog":
         # "Queued to be written" has to mean the worker will actually pick this
         # up. A commissioning card sat here reading "queued" while carrying a
@@ -141,8 +191,8 @@ def blog_state(task: dict[str, Any], heartbeat: dict[str, Any] | None = None) ->
         # rewritten" for a revision nothing can service.
         if change in BLOCKING_CHANGE_STATUSES or str(task.get("topic_stage", "")).strip().casefold() != "approved":
             return result("held", "On hold", reason=summary)
-        return result("queued", "Queued to be written")
-    return result("awaiting_you", "Awaiting you")
+        return result("queued", "Draft — queued to be written")
+    return result("awaiting_you", "Waiting for review")
 
 
 def publish_components(

@@ -99,11 +99,30 @@ class ResearchPass:
             return 0
         return max(0, self.credits_after - self.credits_before)
 
+    @property
+    def demand(self) -> dict[str, Any]:
+        """The measured demand behind this pass, or `{}` when there is none.
+
+        Derived rather than stored so it cannot drift from `gsc_rows`, which is
+        the evidence it is a summary of.
+        """
+        return demand_summary(self.gsc_rows)
+
     def evidence_markdown(self) -> str:
         lines = [f"# Research pass — {self.subject}", ""]
         if self.gsc_rows:
             lines.append("## Search Console demand evidence (free, unmetered)")
             lines.append("")
+            summary = self.demand
+            if summary:
+                position = summary.get("position")
+                lines.append(
+                    f"- measured total: impressions {summary['impressions']},"
+                    f" clicks {summary['clicks']},"
+                    f" CTR {summary['ctr'] * 100:.1f}%"
+                    + (f", average position {position}" if position else "")
+                )
+                lines.append("")
             for row in self.gsc_rows:
                 lines.append(
                     f"- query: {row.get('query', '')} — impressions {row.get('impressions', 0)},"
@@ -134,6 +153,55 @@ class ResearchPass:
         if self.pages:
             return "firecrawl"
         return "search_console"
+
+
+def demand_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Roll Search Console rows into the one line a human reads on a candidate.
+
+    Every figure here is a sum or a ratio of numbers Search Console measured for
+    *this property*. Nothing is estimated, nothing is projected, and a subject
+    with no rows returns `None` rather than zeros -- "we have no data for solar"
+    and "solar gets no impressions" are opposite facts, and rendering the first
+    as the second is the kind of invented figure SOUL.md section 2 forbids.
+
+    CTR is derived, not read: Search Console reports one per row and averaging
+    those would weight a 3-impression query the same as a 3,000-impression one.
+    Position is impression-weighted for the same reason.
+
+    This is a ranking aid over what we already rank for. It says nothing about a
+    query the property has never appeared for, which is exactly the case for a
+    vertical the beat has only just started watching.
+    """
+    impressions = 0
+    clicks = 0
+    weighted_position = 0.0
+    counted = 0
+    for row in rows:
+        try:
+            row_impressions = int(row.get("impressions") or 0)
+            row_clicks = int(row.get("clicks") or 0)
+        except (TypeError, ValueError):
+            continue
+        if row_impressions < 0 or row_clicks < 0:
+            continue
+        impressions += row_impressions
+        clicks += row_clicks
+        try:
+            position = float(row.get("position") or 0.0)
+        except (TypeError, ValueError):
+            position = 0.0
+        if position > 0 and row_impressions > 0:
+            weighted_position += position * row_impressions
+            counted += row_impressions
+    if impressions <= 0:
+        return {}
+    return {
+        "impressions": impressions,
+        "clicks": clicks,
+        "ctr": round(clicks / impressions, 4),
+        "position": round(weighted_position / counted, 1) if counted else None,
+        "rows": len(list(rows)),
+    }
 
 
 class SearchConsoleReader(Protocol):
@@ -839,6 +907,7 @@ class TopicProposalService:
             credits_used=research.credits_used,
             credits_remaining=research.credits_remaining,
             gsc_rows_used=len(research.gsc_rows),
+            demand=research.demand,
             cache_hit_of=research.cache_hit_of,
             message=research.message,
         )
@@ -993,6 +1062,7 @@ class TopicProposalService:
                 credits_used=research.credits_used,
                 credits_remaining=research.credits_remaining,
                 gsc_rows_used=len(research.gsc_rows),
+                demand=research.demand,
                 cache_hit_of=research.cache_hit_of,
                 message=research.message,
             )
@@ -1076,6 +1146,7 @@ def _proposal_payload(record: dict[str, Any]) -> dict[str, Any]:
         "subject_id": record["subject_id"],
         "subject": (record["subject"] or {}).get("raw_text", ""),
         "beat": (record["subject"] or {}).get("beat", ""),
+        "demand": record.get("demand") or {},
         "created_at": record.get("created_at", ""),
         "updated_at": record.get("updated_at", ""),
         "round": version.get("round", 1),

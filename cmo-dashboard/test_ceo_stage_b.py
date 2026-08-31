@@ -334,6 +334,7 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/watchlist", {"keyword": "battery", "action": "add"}, None, ""),
             ("/ceo/api/revision", {"task_id": "TASK-001", "comment": "change"}, None, ""),
             ("/ceo/api/blog-retry", {"task_id": "TASK-001"}, None, ""),
+            ("/ceo/api/publish-date", {"task_id": "TASK-001", "publish_at": "2099-09-02"}, None, ""),
             ("/ceo/api/decision", {"task_id": "TASK-001", "decision": "approve"}, None, ""),
             ("/ceo/api/upload?task=TASK-001&slot=hero", None, b"png", "hero.png"),
             (
@@ -347,6 +348,21 @@ class CeoStageBTests(unittest.TestCase):
             ("/ceo/api/article/title", {"task_id": "TASK-001", "title": "Renamed"}, None, ""),
             ("/ceo/api/article/preview", {"text": "# Draft\n"}, None, ""),
             ("/ceo/api/competitor", {"target": "example.com"}, None, ""),
+            # Cross-posting is the one write path that leaves this box, so preview
+            # mode has to stop it before Buffer is asked, not after.
+            ("/ceo/api/social/generate", {"task_id": "TASK-001"}, None, ""),
+            (
+                "/ceo/api/social/draft",
+                {"task_id": "TASK-001", "platform": "linkedin", "body": "Copy."},
+                None,
+                "",
+            ),
+            (
+                "/ceo/api/social/send",
+                {"task_id": "TASK-001", "request_id": "x", "platforms": ["linkedin"]},
+                None,
+                "",
+            ),
         ]
 
     def test_preview_forbids_every_ceo_write_route(self):

@@ -31,7 +31,9 @@ BLOG_POSTS = """export type BlogCategorySlug =
   | "charging-maintenance"
   | "safety"
   | "lifecycle-recycling"
-  | "partners-industry";
+  | "partners-industry"
+  | "energy-storage"
+  | "energy-transition";
 
 export interface BlogPost {
   slug: string;
@@ -240,7 +242,7 @@ class TheClickDoesAllOfIt(PublishFixture):
         pushed = git(self.website, "show", "--stat", "--name-only", "--format=", "origin/cmo-changes")
         self.assertIn("src/app/(marketing)/blog/useful-finance-guide/page.tsx", pushed)
         self.assertIn("src/data/blog-posts.ts", pushed)
-        self.assertIn("public/images/blog/useful-finance-guide.svg", pushed)
+        self.assertIn("public/images/blog/useful-finance-guide-decision-flow.svg", pushed)
 
     def test_the_blog_index_entry_is_added_not_only_the_page(self) -> None:
         """Without it the post is absent from /blog and from its category page."""
@@ -258,7 +260,7 @@ class TheClickDoesAllOfIt(PublishFixture):
         page = git(self.website, "show",
                    "origin/cmo-changes:src/app/(marketing)/blog/useful-finance-guide/page.tsx")
         self.assertNotIn("{{image:", page, "the image marker was published verbatim")
-        self.assertIn("/images/blog/useful-finance-guide.svg", page)
+        self.assertIn("/images/blog/useful-finance-guide-decision-flow.svg", page)
         self.assertIn("EV finance decision flow", page, "the SVG title is not the image alt text")
 
     def test_the_card_carries_the_preview_url_afterwards(self) -> None:
@@ -273,7 +275,10 @@ class TheClickDoesAllOfIt(PublishFixture):
         self.assertEqual(task["preview_url"], outcome["preview_url"])
         self.assertEqual(task["change_status"], "published to cmo-changes")
         self.assertEqual(task["commit_hash(es)"], outcome["commit"])
-        self.assertEqual(console_board.blog_state(task)["state"], "published")
+        # `in_preview`, not `published`: this click pushed to `cmo-changes`, and a
+        # human still has to merge. The state used to read "Live on the site" here,
+        # which asserted a merge nobody had done.
+        self.assertEqual(console_board.blog_state(task)["state"], "in_preview")
         self.assertEqual(console_board.blog_state(task)["url"], outcome["preview_url"])
 
     def test_the_publication_is_recorded_with_who_clicked_and_which_commit(self) -> None:
@@ -428,7 +433,10 @@ class ItRefusesForOneNamedReasonAtATime(PublishFixture):
 
         self.assertFalse(check.eligible)
         blocker = next(reason for reason in check.blockers if "opinion" in reason)
-        self.assertIn("not one of the six allowed", blocker)
+        # The count is derived from BLOG_CATEGORY_SLUGS, so this assertion does
+        # not go stale the next time a category is added.
+        self.assertIn("is not one of the", blocker)
+        self.assertIn("allowed:", blocker)
         self.assertIn("charging-maintenance", blocker)
 
     def test_an_article_edited_after_approval_refuses(self) -> None:

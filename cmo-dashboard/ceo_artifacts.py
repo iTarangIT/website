@@ -8,13 +8,16 @@ from pathlib import Path
 from typing import Any
 
 import ceo_reader
+from cmo_runtime.image_slots import COVER_SLOT, IMAGE_MARKER
 from cmo_runtime.task_file import TaskFile, TaskFileError
 
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 COMMITTED_IMAGE_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {".svg"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 TEXT_EXTENSIONS = {".md", ".markdown", ".txt"}
-SLOT_PATTERN = re.compile(r"\{\{image:([a-z0-9][a-z0-9_-]{0,40})(?:\|([^}]+))?\}\}", re.I)
+#: Kept as the console's local name for the shared marker. It used to be a
+#: second, more permissive regex; see `cmo_runtime.image_slots`.
+SLOT_PATTERN = IMAGE_MARKER
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -114,7 +117,7 @@ def generate_image(
 
     if not re.fullmatch(r"TASK-[0-9]+", task_id):
         raise TaskFileError("valid task ID is required")
-    is_cover = slot.casefold() == "cover"
+    is_cover = slot.casefold() == COVER_SLOT
     if not is_cover and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", slot, re.I):
         raise TaskFileError("image slot must use letters, numbers, hyphens, or underscores")
     slot = slot.casefold()
@@ -164,6 +167,36 @@ def generate_image(
     }
 
 
+def _slot_kind(task: dict[str, Any], slot: str, bound: Path | None) -> str:
+    """Whether this slot holds a drawn diagram or a generated illustration.
+
+    Read from the card first. Inferring it from the bound file's suffix -- which
+    is all this could do before -- cannot answer the question for a slot that has
+    no file yet, so every *unbound* slot reported `illustration` and was offered a
+    Generate button, including the ones the writer is meant to draw as SVG. With
+    one slot of each kind that was a single misplaced button; with four it is a
+    bill.
+
+    The suffix stays as the fallback, because it is the stronger evidence when it
+    exists: a slot bound to an `.svg` is a diagram whatever the card claims.
+    """
+    if bound is not None:
+        return "diagram" if bound.suffix.casefold() == ".svg" else "illustration"
+    # `parse_tasks` lowercases a field name and turns spaces into underscores but
+    # leaves hyphens alone, so `Image kind swap-loop` parses as
+    # `image_kind_swap-loop`. Both spellings are tried, exactly as `image_for`
+    # does for the slot field itself.
+    declared = str(
+        task.get(
+            f"image_kind_{slot.casefold()}",
+            task.get(f"image_kind_{slot.casefold().replace('-', '_')}", ""),
+        )
+    ).strip().casefold()
+    if declared in {"diagram", "illustration"}:
+        return declared
+    return "illustration"
+
+
 def artifact_payload(task: dict[str, Any], artifact: Path, profile_dir: Path) -> dict[str, Any]:
     try:
         text = artifact.read_text(encoding="utf-8", errors="replace")
@@ -188,7 +221,7 @@ def artifact_payload(task: dict[str, Any], artifact: Path, profile_dir: Path) ->
                 "filename": bound.name if bound else "",
                 "prompt": str(task.get(f"image_prompt_{slot}", "")).strip(),
                 "alt": str(task.get(f"image_alt_{slot}", "")).strip(),
-                "kind": "diagram" if bound and bound.suffix.casefold() == ".svg" else "illustration",
+                "kind": _slot_kind(task, slot, bound),
             }
         )
     cover_path = cover_for(task, profile_dir)
@@ -299,8 +332,16 @@ def save_upload(
         except FileNotFoundError:
             pass
     relative = destination.relative_to(profile_dir).as_posix()
+    # The cover is read from `Cover image`, not from a body slot -- `cover_for`
+    # says so, and `generate_image` already branches on it. Writing
+    # `Image slot cover` here bound an uploaded cover to a field nothing reads,
+    # and invented a body slot the publisher would then try to bind as a figure.
+    fields = (
+        {"Cover image": relative}
+        if slot.casefold() == COVER_SLOT
+        else {f"Image slot {slot.casefold()}": relative}
+    )
     TaskFile(tasks_path, lock_path=profile_dir / "state" / "tasks.lock").set_board_fields(
-        task_id,
-        {f"Image slot {slot.casefold()}": relative},
+        task_id, fields
     )
     return destination

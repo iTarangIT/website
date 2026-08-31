@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PROFILE_DIR="/opt/data/profiles/itarang_cmo"
+TMUX_BIN="$PROFILE_DIR/bin/tmux"
+SESSION="cmo-dashboard"
+HEALTH_CHECK="$PROFILE_DIR/bin/dashboard-session-healthy"
+SERVER="$PROFILE_DIR/dashboard/dashboard_server.py"
+
+# The vendored tmux carries its own libevent. Without this it fails to start with
+# a shared-library error, which reads exactly like a missing binary -- and because
+# the caller has usually already stopped the old server by this point, the console
+# is left down. `run-news-radar` and `run-content-worker` have carried this line
+# for a while; this script relied on the entrypoint's environment instead, so it
+# worked on boot and failed from a hand-run shell.
+export LD_LIBRARY_PATH="/opt/data/.local/tmux-pkg/unpacked/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+if "$HEALTH_CHECK" "$SESSION" 8080 "$SERVER" 2>/dev/null; then
+  exit 0
+fi
+"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
+exec "$TMUX_BIN" new-session -d -s "$SESSION" -x 160 -y 48 \
+  "$PROFILE_DIR/dashboard/run-dashboard"

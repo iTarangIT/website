@@ -143,7 +143,9 @@ class FakeProposer:
 
 
 class RadarTestCase(unittest.TestCase):
-    def make_radar(self, *, researcher=None, triager=None, beats=BEATS):
+    # `rotating=()` by default so a test that names its beats gets exactly
+    # those. Rotation is exercised deliberately, in RotatingBeatTests.
+    def make_radar(self, *, researcher=None, triager=None, beats=BEATS, rotating=()):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
@@ -165,6 +167,7 @@ class RadarTestCase(unittest.TestCase):
             database=service.database,
             triager=triager or FakeTriager(),
             beats=beats,
+            rotating=rotating,
         )
         self.addCleanup(service.database.close)
         return radar, root
@@ -534,14 +537,19 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
         self.assertIn("competitors", slugs, "the watchlist displaced the competitor beat")
         self.assertLessEqual(len(slugs), news_radar.RADAR_MAX_BEATS)
 
-    def test_all_five_standing_beats_are_swept_on_a_normal_day(self) -> None:
-        """The five kinds of development the radar promises, in one assertion."""
-        radar, _root = self.make_radar(beats=news_radar.DEFAULT_BEATS)
+    def test_a_normal_day_sweeps_the_standing_beats_then_a_turn_of_the_roster(self) -> None:
+        """The shape the budget is sized for: three standing, two rotating."""
+        radar, _root = self.make_radar(
+            beats=news_radar.CORE_BEATS, rotating=news_radar.ROTATING_BEATS
+        )
 
-        slugs = [slug for slug, _query in radar.beats()]
+        slugs = [slug for slug, _query in radar.beats(today=dt.date(2026, 9, 1))]
 
-        self.assertEqual(
-            slugs, ["ev-industry", "policy", "battery-tech", "market", "competitors"]
+        self.assertEqual(slugs[:3], ["ev-industry", "policy", "competitors"])
+        self.assertEqual(len(slugs), news_radar.RADAR_MAX_BEATS)
+        self.assertTrue(
+            set(slugs[3:]) <= {slug for slug, _ in news_radar.ROTATING_BEATS},
+            "the tail of the sweep should come from the roster",
         )
 
     def test_an_empty_competitor_list_asks_the_question_generally(self) -> None:
@@ -603,6 +611,99 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
             [slug for slug, _query in radar.beats()],
             [slug for slug, _ in BEATS] + ["competitors"],
         )
+
+
+class TheRosterRotatesInsteadOfCostingMore(RadarTestCase):
+    """Six new verticals, and the same discovery bill.
+
+    A beat is a flat 2 credits, so watching solar, storage, inverter batteries and
+    deep tech alongside the EV beat would have been 22 credits of discovery a
+    sweep -- most of the day's budget spent before researching anything. The
+    roster is larger than the sweep and takes turns instead.
+    """
+
+    def roster_radar(self):
+        return self.make_radar(
+            beats=news_radar.CORE_BEATS, rotating=news_radar.ROTATING_BEATS
+        )[0]
+
+    def test_the_whole_roster_is_swept_within_a_week(self) -> None:
+        radar = self.roster_radar()
+
+        seen = set()
+        for day in range(1, 8):
+            seen.update(slug for slug, _ in radar.beats(today=dt.date(2026, 9, day)))
+
+        missing = {slug for slug, _ in news_radar.ROTATING_BEATS} - seen
+        self.assertEqual(missing, set(), f"never swept in a week: {sorted(missing)}")
+
+    def test_every_new_vertical_is_actually_on_the_roster(self) -> None:
+        """The six the company asked to watch, by name.
+
+        A rename or a dropped line here is a vertical that silently stops being
+        watched, which is exactly the failure the standing-beat rule exists for.
+        """
+        slugs = {slug for slug, _ in news_radar.ROTATING_BEATS}
+
+        for vertical in (
+            "solar",
+            "bess",
+            "ess",
+            "inverter-batteries",
+            "energy-transition",
+            "deep-tech",
+        ):
+            self.assertIn(vertical, slugs)
+
+    def test_the_sweep_still_costs_five_beats_a_day(self) -> None:
+        """The roster must not widen the bill it was designed to avoid."""
+        radar = self.roster_radar()
+
+        for day in range(1, 15):
+            beats = radar.beats(today=dt.date(2026, 9, day))
+            self.assertEqual(len(beats), news_radar.RADAR_MAX_BEATS)
+
+    def test_a_rotating_beat_never_displaces_a_standing_one(self) -> None:
+        """The roster is the third thing that could crowd the standing beats out.
+
+        The watchlist did it once and the competitor beat was the casualty; a
+        roster placed before them would do it again, silently.
+        """
+        radar = self.roster_radar()
+
+        for day in range(1, 15):
+            slugs = [slug for slug, _ in radar.beats(today=dt.date(2026, 9, day))]
+            self.assertEqual(slugs[:3], ["ev-industry", "policy", "competitors"])
+
+    def test_consecutive_days_do_not_re_ask_the_same_question(self) -> None:
+        radar = self.roster_radar()
+
+        first = [slug for slug, _ in radar.beats(today=dt.date(2026, 9, 1))][3:]
+        second = [slug for slug, _ in radar.beats(today=dt.date(2026, 9, 2))][3:]
+
+        self.assertEqual(set(first) & set(second), set())
+
+    def test_a_watchlist_cannot_displace_a_rotating_beat_either(self) -> None:
+        """The precedence is standing, then roster, then watchlist."""
+        radar, root = self.make_radar(
+            beats=news_radar.CORE_BEATS, rotating=news_radar.ROTATING_BEATS
+        )
+        (root / "state" / "ceo-watchlist.json").write_text(
+            json.dumps([f"keyword {index}" for index in range(20)]), encoding="utf-8"
+        )
+
+        slugs = [slug for slug, _ in radar.beats(today=dt.date(2026, 9, 1))]
+
+        self.assertNotIn("watchlist", slugs)
+        self.assertEqual(len(slugs), news_radar.RADAR_MAX_BEATS)
+
+    def test_an_empty_roster_is_not_an_error(self) -> None:
+        """A caller may legitimately sweep only the standing beats."""
+        radar, _root = self.make_radar(beats=news_radar.CORE_BEATS, rotating=())
+
+        slugs = [slug for slug, _ in radar.beats(today=dt.date(2026, 9, 1))]
+
+        self.assertEqual(slugs, ["ev-industry", "policy", "competitors"])
 
 
 class TheLockSaysWhatWentWrong(unittest.TestCase):

@@ -11,12 +11,13 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from cmo_runtime.agent_runtime import BoardCard, BoardStore, SkillLoader
 from cmo_runtime.console_db import ConsoleDB
 from cmo_runtime import image_gen
 from cmo_runtime.env_file import read_env_value as _read_env_value
+from cmo_runtime.image_slots import IMAGE_MARKER, MAX_IMAGE_SLOTS
 from cmo_runtime.pipeline_stages import NullRecorder, StageRecorder
 from cmo_runtime.task_file import TaskFile, TaskFileError
 
@@ -27,7 +28,6 @@ FIRECRAWL_HTTP_TIMEOUT_SECONDS = 300
 MAX_ARTIFACT_BYTES = 250_000
 #: Generated images are the only binary artifacts; the generator caps them too.
 MAX_BINARY_ARTIFACT_BYTES = image_gen.MAX_GENERATED_IMAGE_BYTES
-IMAGE_MARKER = re.compile(r"\{\{image:([a-z0-9]+(?:-[a-z0-9]+)*)\|([^}]+)\}\}", re.I)
 BLOG_CATEGORY_SLUGS = frozenset(
     {
         "financing",
@@ -36,6 +36,13 @@ BLOG_CATEGORY_SLUGS = frozenset(
         "safety",
         "lifecycle-recycling",
         "partners-industry",
+        # The beat reaches past EVs into stationary storage and the wider energy
+        # transition, and an article has to file somewhere. Without these two, a
+        # BESS or solar piece is refused at publish for a category outside the
+        # set -- or, worse, filed under `partners-industry` until that archive
+        # page stops meaning anything.
+        "energy-storage",
+        "energy-transition",
     }
 )
 
@@ -247,18 +254,33 @@ class ResearchBundle:
 
 
 @dataclass(frozen=True)
+class PhotoScene:
+    """One illustration the writer asked for: where it goes, and what is in it."""
+
+    slot_id: str
+    scene: str
+    alt: str
+
+    def usable(self) -> bool:
+        """A scene with no alt text buys an image that can never be published."""
+        return bool(self.slot_id.strip() and self.scene.strip() and self.alt.strip())
+
+
+@dataclass(frozen=True)
 class ArticlePackage:
     markdown: str
     slot_id: str
     slot_caption: str
     svg: str
     usage: Mapping[str, object] = field(default_factory=dict)
-    #: Scene descriptions for the two generated images, written by the same call
-    #: that wrote the article. Empty on a revision, which reuses what is bound.
+    #: Scene descriptions for the generated images, written by the same call that
+    #: wrote the article -- so the picture comes from the piece rather than from
+    #: its headline. Empty on a revision, which reuses what is already bound.
     cover_scene: str = ""
-    photo_slot_id: str = ""
-    photo_scene: str = ""
-    photo_alt: str = ""
+    #: One entry per illustration. A list rather than a single slot because an
+    #: article may now carry up to `MAX_IMAGE_SLOTS` images of either kind; the
+    #: diagram is still `slot_id`, because the writer draws exactly one.
+    photos: tuple[PhotoScene, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -639,10 +661,58 @@ class HermesContentWriter:
             svg=self._section(completed.stdout, "SVG"),
             usage=usage,
             cover_scene=self._optional_section(completed.stdout, "COVER_SCENE"),
-            photo_slot_id=self._optional_section(completed.stdout, "PHOTO_SLOT_ID"),
-            photo_scene=self._optional_section(completed.stdout, "PHOTO_SCENE"),
-            photo_alt=self._optional_section(completed.stdout, "PHOTO_ALT"),
+            photos=self._photo_scenes(completed.stdout),
         )
+
+    def _photo_scenes(self, stdout: str) -> tuple[PhotoScene, ...]:
+        """The illustrations the writer asked for, as a JSON array.
+
+        A repeated delimited section cannot be parsed unambiguously, so several
+        scenes arrive the way every other list in this system does: one fenced
+        JSON array. The single `PHOTO_*` sections are still read when no array
+        comes back, because a model that answers in the older shape should
+        produce one picture rather than none.
+
+        Unreadable JSON is no scenes, not an exception: a missing picture leaves
+        an empty slot, and losing the article over it would be the wrong trade.
+        """
+        block = self._optional_section(stdout, "PHOTOS")
+        rows: list[Any] = []
+        if block:
+            try:
+                decoded = json.loads(block)
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, list):
+                rows = decoded
+        if not rows:
+            single = PhotoScene(
+                slot_id=self._optional_section(stdout, "PHOTO_SLOT_ID"),
+                scene=self._optional_section(stdout, "PHOTO_SCENE"),
+                alt=self._optional_section(stdout, "PHOTO_ALT"),
+            )
+            return (single,) if single.usable() else ()
+
+        photos: list[PhotoScene] = []
+        seen: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            photo = PhotoScene(
+                slot_id=_single_line(row.get("slot_id", ""), limit=41),
+                scene=_single_line(row.get("scene", ""), limit=400),
+                alt=_single_line(row.get("alt", ""), limit=300),
+            )
+            key = photo.slot_id.casefold()
+            if not photo.usable() or key in seen:
+                continue
+            seen.add(key)
+            photos.append(photo)
+            # The cap is enforced here rather than in the prompt: a model asked
+            # for two and returning six must cost two images, not six.
+            if len(photos) >= MAX_IMAGE_SLOTS:
+                break
+        return tuple(photos)
 
     def outline(
         self,
@@ -769,29 +839,34 @@ In `source_urls`, copy only the
 top-level `- URL:` values under `## Retained source pages`, character for character; links
 inside retained page excerpts are not approved sources. Choose exactly one `category` from
 `financing`, `battery-selection`, `charging-maintenance`, `safety`, `lifecycle-recycling`,
-or `partners-industry`; emit that slug in front matter so it can be recorded on the card.
+`partners-industry`, `energy-storage`, or `energy-transition`; emit that slug in front matter
+so it can be recorded on the card.
 Include 3–5 business-facing bullets under a heading exactly named `## Decision bullets:`.
 
-Declare exactly two image slots, each with its `{{image:<slot-id>|<caption>}}` marker at the
-position it belongs in the body:
-  · One explanatory diagram. Generate its SVG directly; do not use Excalidraw or a browser.
-    The SVG must be accessible, self-contained, have a viewBox, title and desc, and must not
-    contain scripts, external URLs, foreignObject, or embedded data.
-  · One photographic illustration, placed beside the paragraph it supports. You do not draw
-    this one — describe the scene and an image model renders it.
+Declare two to {MAX_IMAGE_SLOTS} image slots, each with its `{{{{image:<slot-id>|<caption>}}}}` marker
+at the position it belongs in the body. The marker's position is where the picture appears,
+so put each one beside the paragraph it supports:
+  · Exactly one explanatory diagram. Generate its SVG directly; do not use Excalidraw or a
+    browser. The SVG must be accessible, self-contained, have a viewBox, title and desc, and
+    must not contain scripts, external URLs, foreignObject, or embedded data.
+  · One to {MAX_IMAGE_SLOTS - 1} photographic illustrations. You do not draw these — describe each
+    scene and an image model renders it.
+
+Declare a second illustration only where it carries something the prose cannot. An article
+of 4–6 sections rarely needs four pictures, and every extra one is a real cost.
 
 Also describe the article's cover image, which goes on the blog card and the social preview.
 
-For both photographic scenes: describe only what is visible, in one or two sentences. Every
+For every photographic scene: describe only what is visible, in one or two sentences. Every
 number, label and name in this article belongs in the diagram or the prose, never in a
 photograph — do not ask for text, signage, logos, screens, documents or recognisable faces in
 an image, because an image model renders them wrong and a wrong number in a picture is a
-false claim nobody proofreads. Write PHOTO_ALT as alt text for a reader who cannot see the
+false claim nobody proofreads. Write each `alt` as alt text for a reader who cannot see the
 illustration: what it shows, not what it means.
 
 Return only these exact delimited sections:
 <<<BEGIN_ARTICLE>>>
-[complete Markdown article with WRITER_CONTRACT front matter and both image markers]
+[complete Markdown article with WRITER_CONTRACT front matter and every image marker]
 <<<END_ARTICLE>>>
 <<<BEGIN_SLOT_ID>>>
 [the diagram slot id: lowercase letters, numbers and hyphens only]
@@ -802,15 +877,11 @@ Return only these exact delimited sections:
 <<<BEGIN_SVG>>>
 [complete SVG beginning with <svg]
 <<<END_SVG>>>
-<<<BEGIN_PHOTO_SLOT_ID>>>
-[the illustration slot id: lowercase letters, numbers and hyphens only]
-<<<END_PHOTO_SLOT_ID>>>
-<<<BEGIN_PHOTO_SCENE>>>
-[one or two sentences describing the illustration]
-<<<END_PHOTO_SCENE>>>
-<<<BEGIN_PHOTO_ALT>>>
-[one line of alt text for the illustration]
-<<<END_PHOTO_ALT>>>
+<<<BEGIN_PHOTOS>>>
+[{{"slot_id": "lowercase letters, numbers and hyphens only, matching a marker in the body",
+  "scene": "one or two sentences describing what is visible",
+  "alt": "one line of alt text"}}]
+<<<END_PHOTOS>>>
 <<<BEGIN_COVER_SCENE>>>
 [one or two sentences describing the cover image]
 <<<END_COVER_SCENE>>>
@@ -936,7 +1007,7 @@ page excerpts are not approved sources. Keep the article's shape: an introductio
 result is long it will be trimmed section by section afterwards, and a correction pass
 chasing a total it cannot measure overshoots exactly as the first pass did. Preserve
 `## Decision bullets:` with 3–5 concrete, business-facing Markdown bullets. The corrected
-front matter must emit one of the six allowed `category` slugs from the writer contract.
+front matter must emit one of the allowed `category` slugs from the writer contract.
 
 VALIDATION ERROR:
 {validation_error}
@@ -1212,38 +1283,43 @@ def accept_trim(original: ArticleSection, returned: str) -> str | None:
 def _normalise_package_slot(package: ArticlePackage) -> ArticlePackage:
     """Believe the article body over what the writer said about it.
 
-    An article may now declare two slots — the hand-authored diagram and one
-    illustration for the generator to fill — so this has to decide which marker is
-    which rather than taking the first one it finds. The diagram is the marker
-    matching the declared `SLOT_ID`; failing that, the first marker that is not the
-    declared photo slot. A photo slot declared but never placed in the body is
-    dropped, because there is nowhere to put the picture.
+    An article may declare up to `MAX_IMAGE_SLOTS` markers, mixing the
+    hand-authored diagram with illustrations for the generator to fill, so this
+    has to decide which marker is which rather than taking the first one it
+    finds. The diagram is the marker matching the declared `SLOT_ID`; failing
+    that, the first marker that no photo scene claims.
+
+    A photo scene whose slot never appears in the body is dropped, because there
+    is nowhere to put the picture -- generating it would buy an image with no
+    reading position. The body is the authority in both directions: a marker the
+    writer forgot to describe simply stays unbound.
     """
     markers = list(IMAGE_MARKER.finditer(package.markdown))
     if not markers:
         return package
     declared = package.slot_id.casefold()
-    photo_declared = package.photo_slot_id.casefold()
+    photo_ids = {photo.slot_id.casefold() for photo in package.photos}
     diagram = next((item for item in markers if item.group(1).casefold() == declared), None)
     if diagram is None:
         diagram = next(
-            (item for item in markers if item.group(1).casefold() != photo_declared),
+            (item for item in markers if item.group(1).casefold() not in photo_ids),
             markers[0],
         )
-    photo = next(
-        (
-            item
-            for item in markers
-            if item is not diagram
-            and (not photo_declared or item.group(1).casefold() == photo_declared)
-        ),
-        None,
+    placed = {
+        item.group(1).casefold(): item.group(1)
+        for item in markers
+        if item is not diagram
+    }
+    photos = tuple(
+        replace(photo, slot_id=placed[photo.slot_id.casefold()])
+        for photo in package.photos
+        if photo.slot_id.casefold() in placed
     )
     return replace(
         package,
         slot_id=diagram.group(1),
         slot_caption=diagram.group(2).strip(),
-        photo_slot_id=photo.group(1) if photo is not None else "",
+        photos=photos,
     )
 
 
@@ -2088,6 +2164,7 @@ class ContentRuntime:
                     "Category": frontmatter["category"],
                     "Description": description,
                     f"Image slot {package.slot_id}": diagram_path.relative_to(self.root.resolve()).as_posix(),
+                    f"Image kind {package.slot_id}": "diagram",
                     "Latest summary": (
                         f"Revision r{round_number} written from the recorded human comment; "
                         "pending cold CMO review."
@@ -2130,15 +2207,15 @@ class ContentRuntime:
         Returns the artifact bytes to write, the board fields to set, and what it
         spent, for the caller to fold into one atomic write and one ledger line.
         """
-        wanted = [
-            ("cover", package.cover_scene, image_gen.cover_prompt),
-            (
-                "photo",
-                package.photo_scene if package.photo_slot_id and package.photo_alt else "",
-                image_gen.figure_prompt,
-            ),
+        wanted: list[tuple[str, str, Any, PhotoScene | None]] = [
+            ("cover", package.cover_scene, image_gen.cover_prompt, None),
         ]
-        if not any(scene for _role, scene, _builder in wanted):
+        wanted += [
+            (photo.slot_id, photo.scene, image_gen.figure_prompt, photo)
+            for photo in package.photos
+            if photo.usable()
+        ]
+        if not any(scene for _role, scene, _builder, _photo in wanted):
             return {}, {}, {"image_calls": 0}
 
         try:
@@ -2151,7 +2228,7 @@ class ContentRuntime:
         spent = 0.0
         calls = 0
         failures: list[str] = []
-        for role, scene, build_prompt in wanted:
+        for role, scene, build_prompt, photo in wanted:
             if not scene:
                 continue
             try:
@@ -2162,17 +2239,18 @@ class ContentRuntime:
                 continue
             calls += 1
             spent += generated.estimated_cost_usd
-            if role == "cover":
+            if photo is None:
                 path = _safe_artifact(self.root, f"{task_id}-cover.webp")
                 fields["Cover image"] = f"artifacts/{path.name}"
                 fields["Cover prompt"] = _single_line(scene, limit=400)
             else:
-                path = _safe_artifact(self.root, f"{task_id}-{package.photo_slot_id}.webp")
-                fields[f"Image slot {package.photo_slot_id}"] = f"artifacts/{path.name}"
-                fields[f"Image alt {package.photo_slot_id}"] = _single_line(
-                    package.photo_alt, limit=300
-                )
-                fields[f"Image prompt {package.photo_slot_id}"] = _single_line(scene, limit=400)
+                path = _safe_artifact(self.root, f"{task_id}-{photo.slot_id}.webp")
+                fields[f"Image slot {photo.slot_id}"] = f"artifacts/{path.name}"
+                fields[f"Image alt {photo.slot_id}"] = _single_line(photo.alt, limit=300)
+                fields[f"Image prompt {photo.slot_id}"] = _single_line(scene, limit=400)
+                # Declared rather than inferred, so an unbound slot can still say
+                # which kind it is -- see `ceo_artifacts._slot_kind`.
+                fields[f"Image kind {photo.slot_id}"] = "illustration"
             artifacts[path] = generated.webp
 
         accounting: dict[str, object] = {
@@ -2335,6 +2413,9 @@ class ContentRuntime:
                     "Change type": "website",
                     "Metric": metric,
                     f"Image slot {package.slot_id}": f"artifacts/{diagram_path.name}",
+                    # The writer draws this one; the console must not offer to
+                    # generate it, even before the SVG is bound.
+                    f"Image kind {package.slot_id}": "diagram",
                     **image_fields,
                 },
             )
