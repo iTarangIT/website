@@ -103,14 +103,30 @@ class ThreePiecesNotOne(unittest.TestCase):
     def test_instagram_carries_alt_text_because_it_must_carry_a_picture(self):
         self.assertEqual(compose(summary())["instagram"].image_alt, "A depot at dusk")
 
-    def test_hashtags_come_from_the_articles_own_keywords(self):
-        draft = compose(summary())["instagram"]
-        self.assertIn("#erickshawbatterycost", draft.body)
+    def test_compose_writes_prose_and_leaves_the_tags_to_the_taxonomy(self):
+        """Tagging moved out of `compose` so the writer path gets the same tags.
+
+        These used to assert `#erickshawbatterycost` — the keyword, lowercased
+        and stripped of its spaces. That is not a tag anyone follows, and it was
+        only ever produced when the card happened to carry `topic_keywords`.
+        `cmo_runtime.social_tags` chooses them now, for both producers, from the
+        curated set; `with_tags` is what puts them on a draft.
+        """
+        self.assertNotIn("#", compose(summary())["instagram"].body)
+
+    def test_the_tagged_draft_carries_industry_tags_from_its_keywords(self):
+        drafts = social_copy.with_tags(compose(summary()), summary())
+
+        self.assertIn("#ERickshaw", drafts["instagram"].body)
+        self.assertNotIn("#erickshawbatterycost", drafts["instagram"].body)
 
     def test_a_two_letter_keyword_never_becomes_a_hashtag(self):
-        draft = compose(summary(keywords=("EV", "battery finance")))["instagram"]
+        """`#ev` reaches everyone and therefore nobody. Still true, new mechanism."""
+        read = summary(keywords=("EV", "battery finance"))
+        draft = social_copy.with_tags(compose(read), read)["instagram"]
+
         self.assertNotIn("#ev ", draft.body + " ")
-        self.assertIn("#batteryfinance", draft.body)
+        self.assertIn("#EVFinance", draft.body)
 
     def test_an_article_with_nothing_to_say_is_refused_rather_than_padded(self):
         with self.assertRaises(SocialCopyRefused):

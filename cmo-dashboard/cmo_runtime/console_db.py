@@ -301,6 +301,10 @@ CREATE TABLE IF NOT EXISTS crosspost_drafts (
     created_at          TEXT NOT NULL,
     thread_json         TEXT NOT NULL DEFAULT '[]',
     image_alt           TEXT NOT NULL DEFAULT '',
+    -- The social cards this platform posts, as [{"url", "alt"}] in swipe order.
+    -- Public URLs rather than artifact paths: Buffer fetches them over the open
+    -- internet, so a path into the profile store is not an image it can post.
+    images_json         TEXT NOT NULL DEFAULT '[]',
     producer            TEXT NOT NULL DEFAULT 'composed',  -- writer|composed
     status              TEXT NOT NULL DEFAULT 'draft',     -- draft|queued|failed
     channel_id          TEXT NOT NULL DEFAULT '',
@@ -361,6 +365,7 @@ class ConsoleDB:
         for column, declaration in (
             ("thread_json", "TEXT NOT NULL DEFAULT '[]'"),
             ("image_alt", "TEXT NOT NULL DEFAULT ''"),
+            ("images_json", "TEXT NOT NULL DEFAULT '[]'"),
             ("producer", "TEXT NOT NULL DEFAULT 'composed'"),
             ("status", "TEXT NOT NULL DEFAULT 'draft'"),
             ("channel_id", "TEXT NOT NULL DEFAULT ''"),
@@ -863,6 +868,28 @@ class ConsoleDB:
             )
             return int(cursor.lastrowid or 0)
 
+    def save_crosspost_images(
+        self, *, task_id: str, platform: str, images: Sequence[Mapping[str, str]]
+    ) -> None:
+        """Bind the cards one platform posts, leaving its copy alone.
+
+        Kept apart from `save_crosspost_draft` on purpose: rewriting a caption
+        must not discard a carousel that cost money to generate, and regenerating
+        the carousel must not overwrite a caption a human just edited.
+        """
+        if platform not in CROSSPOST_PLATFORMS:
+            raise ConsoleDBError(f"unknown cross-post platform: {platform!r}")
+        payload = [
+            {"url": str(item.get("url", "")), "alt": str(item.get("alt", ""))}
+            for item in images
+        ]
+        with self.write() as connection:
+            connection.execute(
+                "UPDATE crosspost_drafts SET images_json = ?, updated_at = ?"
+                " WHERE task_id = ? AND platform = ?",
+                (json.dumps(payload), utc_timestamp(), task_id, platform),
+            )
+
     def mark_crosspost_queued(
         self,
         *,
@@ -915,6 +942,16 @@ class ConsoleDB:
                 thread = []
             item["thread"] = [str(part) for part in thread] if isinstance(thread, list) else []
             item.pop("thread_json", None)
+            try:
+                images = json.loads(item.get("images_json") or "[]")
+            except json.JSONDecodeError:
+                images = []
+            item["images"] = [
+                {"url": str(card.get("url", "")), "alt": str(card.get("alt", ""))}
+                for card in images
+                if isinstance(card, Mapping)
+            ] if isinstance(images, list) else []
+            item.pop("images_json", None)
             rows.append(item)
         rows.sort(key=lambda item: order.get(str(item.get("platform")), 99))
         return rows

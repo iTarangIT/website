@@ -201,6 +201,127 @@ class PostShape(unittest.TestCase):
         )
         self.assertEqual(sent["metadata"]["instagram"], {"type": "post", "shouldShareToFeed": True})
 
+    def test_a_second_instagram_picture_makes_it_a_carousel(self):
+        """`InstagramPostMetadataInput.type` is non-null, so the shape is chosen
+        here rather than inferred by Buffer from the asset count."""
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL,
+            platform="instagram",
+            text="Caption.",
+            images=[
+                {"url": "https://itarang.com/images/social/a-ig-cover.webp", "alt": "Cover"},
+                {"url": "https://itarang.com/images/social/a-ig-1.webp", "alt": "One"},
+                {"url": "https://itarang.com/images/social/a-ig-close.webp", "alt": "Close"},
+            ],
+        )
+        sent = recorder.last_input
+        self.assertEqual(sent["metadata"]["instagram"]["type"], "carousel")
+        self.assertEqual(len(sent["assets"]), 3)
+
+    def test_the_carousel_keeps_the_order_it_was_given(self):
+        """Swipe order is the content: the close card cannot arrive second."""
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL,
+            platform="instagram",
+            text="Caption.",
+            images=[
+                {"url": "https://i/1.webp", "alt": "one"},
+                {"url": "https://i/2.webp", "alt": "two"},
+                {"url": "https://i/3.webp", "alt": "three"},
+            ],
+        )
+        self.assertEqual(
+            [asset["image"]["url"] for asset in recorder.last_input["assets"]],
+            ["https://i/1.webp", "https://i/2.webp", "https://i/3.webp"],
+        )
+
+    def test_one_picture_is_still_a_plain_post_not_a_one_card_carousel(self):
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL,
+            platform="instagram",
+            text="Caption.",
+            images=[{"url": "https://i/1.webp", "alt": "one"}],
+        )
+        self.assertEqual(recorder.last_input["metadata"]["instagram"]["type"], "post")
+
+    def test_a_carousel_past_instagram_s_ceiling_is_refused_by_number(self):
+        recorder = Recorder(success())
+        with self.assertRaises(BufferRefused) as caught:
+            client(recorder).create_post(
+                channel_id=CHANNEL,
+                platform="instagram",
+                text="Caption.",
+                images=[{"url": f"https://i/{n}.webp", "alt": str(n)} for n in range(11)],
+            )
+        self.assertIn("at most 10", str(caught.exception))
+        self.assertEqual(recorder.calls, [], "Buffer was asked for a post it cannot take")
+
+    def test_an_image_with_no_alt_text_omits_metadata_rather_than_sending_empty(self):
+        """`ImageMetadataInput.altText` is non-null; an empty string is a 400."""
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL, platform="instagram", text="C.",
+            images=[{"url": "https://i/1.webp", "alt": ""}],
+        )
+        self.assertEqual(recorder.last_input["assets"], [{"image": {"url": "https://i/1.webp"}}])
+
+    def test_an_image_buffer_could_never_fetch_is_refused_before_the_call(self):
+        """Buffer fetches over the internet, so a profile-local path is not an image."""
+        recorder = Recorder(success())
+        with self.assertRaises(BufferRefused) as caught:
+            client(recorder).create_post(
+                channel_id=CHANNEL, platform="instagram", text="C.",
+                images=[{"url": "/opt/data/profiles/itarang_cmo/artifacts/a.webp", "alt": "a"}],
+            )
+        self.assertIn("over the internet", str(caught.exception))
+        self.assertEqual(recorder.calls, [])
+
+    def test_the_x_infographic_rides_the_first_thread_item(self):
+        """The first item has to earn the rest of the thread, so it carries the picture."""
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL,
+            platform="x",
+            text="ignored",
+            thread=("Hook.", "Second."),
+            images=[{"url": "https://i/x.webp", "alt": "The claim"}],
+        )
+        thread = recorder.last_input["metadata"]["twitter"]["thread"]
+        self.assertEqual(len(thread[0]["assets"]), 1)
+        self.assertEqual(thread[0]["assets"][0]["image"]["url"], "https://i/x.webp")
+        self.assertEqual(thread[1]["assets"], [], "the picture was repeated down the thread")
+
+    def test_a_linkedin_infographic_replaces_the_link_preview_card(self):
+        """LinkedIn renders one or the other. The image wins; `social_copy` has
+        already put the URL in the body text."""
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL,
+            platform="linkedin",
+            text="A claim. Read it: https://x/y",
+            link="https://x/y",
+            images=[{"url": "https://i/li.webp", "alt": "The claim"}],
+        )
+        sent = recorder.last_input
+        self.assertEqual(len(sent["assets"]), 1)
+        self.assertNotIn(
+            "linkedin", sent.get("metadata", {}),
+            "the preview card and the image cannot both be rendered",
+        )
+
+    def test_linkedin_without_an_infographic_still_gets_its_preview_card(self):
+        """The behaviour every existing article relies on is unchanged."""
+        recorder = Recorder(success())
+        client(recorder).create_post(
+            channel_id=CHANNEL, platform="linkedin", text="A claim.", link="https://x/y"
+        )
+        self.assertEqual(
+            recorder.last_input["metadata"]["linkedin"]["linkAttachment"]["url"], "https://x/y"
+        )
+
     def test_every_post_joins_the_queue_and_needs_no_approval_in_buffer(self):
         """The approval happened in the console. A second one in Buffer would strand it."""
         recorder = Recorder(success())
