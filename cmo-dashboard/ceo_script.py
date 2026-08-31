@@ -1437,7 +1437,7 @@ async function generateSocial(taskId){
   failTitle:'The copy was not written.'
  });
  try{
-  await post('/ceo/api/social/generate',{task:taskId});
+  await post('/ceo/api/social/generate',{task_id:taskId});
   delete socialPlans[taskId];
   toast('Three drafts written. Read them before sending.');
   await refresh();
@@ -1461,7 +1461,7 @@ async function saveSocialDraft(key){
  try{
   const thread=platform==='x'?splitThread(text):[];
   await post('/ceo/api/social/draft',{
-   task:taskId,platform,
+   task_id:taskId,platform,
    body:platform==='x'?(thread[0]||''):text,
    thread
   });
@@ -1507,7 +1507,7 @@ async function sendSocial(taskId){
  });
  try{
   const result=await post('/ceo/api/social/send',
-   {task:taskId,request_id:plan.request_id,platforms:plan.platforms});
+   {task_id:taskId,request_id:plan.request_id,platforms:plan.platforms});
   /* An instruction is single use whatever happened to it, so it goes either way. */
   delete socialPlans[taskId];
   const queued=(result.queued||[]).length;
