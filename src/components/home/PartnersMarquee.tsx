@@ -66,6 +66,15 @@ const partners = [
     height: 421,
     logoHeight: "h-7",
   },
+  {
+    // Supplied as white-on-navy; stored as the navy-on-transparent variant so it
+    // sits on the light card like the rest of the row instead of as a dark plate.
+    name: "Perpetuity Capital",
+    src: "/logos/perpetuity-capital.png",
+    width: 198,
+    height: 49,
+    logoHeight: "h-9",
+  },
 ];
 
 const marqueeHalf = Array.from(
