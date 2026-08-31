@@ -75,6 +75,19 @@ const partners = [
     height: 49,
     logoHeight: "h-9",
   },
+  {
+    // Supplied on a white plate; stored un-matted to transparency and cropped to
+    // the lockup, so the card gradient shows through like the rest of the row.
+    name: "Bundela Fin Corp",
+    src: "/logos/bundela-fin-corp.png",
+    width: 529,
+    height: 224,
+    // Sized off Bajaj, the row's other two-line lockup, rather than off the
+    // 2.36:1 ratio: h-12 renders it 113px wide and lands its cap height on
+    // Bajaj's. The h-14 the stacked-lockup rule implies made it the heaviest
+    // mark in the strip.
+    logoHeight: "h-12",
+  },
 ];
 
 const marqueeHalf = Array.from(
