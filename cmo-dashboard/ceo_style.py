@@ -471,12 +471,6 @@ var(--line-soft) 0 5px,transparent 5px 10px)}
 .funnel-retention{grid-column:2/-1;color:var(--faint);font-size:var(--f-xs)}
 tr.is-intent td.subject{font-weight:700;color:var(--green-deep)}
 
-/* The day-by-day trend. Engaged sessions are drawn inside the total, so the
-   engaged bar sits on top of the same baseline rather than beside it. */
-.chart.trend{height:150px}
-.chart.trend .bar{fill:var(--clay);opacity:.35}
-.chart.trend .bar.engaged{fill:var(--green);opacity:.9}
-.legend i.engaged{background:var(--green)}
 .source-examples{color:var(--faint);font-size:var(--f-xs);font-family:var(--mono)}
 
 /* ---- social drafts ------------------------------------------------------- */

@@ -1393,48 +1393,6 @@ function renderJourney(){
 <td class="n">${cell(row.bounces,'rate')}</td></tr>`).join('')}</tbody></table></div>
 <p class="footnote">This is the entry point, not a full path. Google Analytics reports the page a session began on; a step-by-step journey needs an exploration in GA itself.</p>`);
 }
-/* The 28-day shape.
- *
- * A standalone SVG rather than a parameterised `drawChart`: that function is
- * wired to the Search Console series, its metric chips, its tooltip element and
- * a resize listener, and generalising seventy lines of geometry to gain a
- * secondary panel would put the primary chart at risk for no reader's benefit.
- * This one scales with a viewBox and needs no resize handler at all.
- *
- * Engaged sessions are drawn inside total sessions rather than beside them: the
- * question the panel answers is what fraction of a day's traffic stayed, and two
- * adjacent bars make that a subtraction the reader has to do. */
-function renderGa4Trend(){
- const host=$('#ga4-trend-panel');if(!host)return;
- const data=state.analytics?.ga4_trend||{};
- if(data.status!=='ready'&&data.status!=='collecting'){
-  const vars=(data.required_variables||[]).join(', ');
-  setHtml(host,emptyState('The traffic trend needs Google Analytics',
-   (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
-  return;
- }
- const series=data.series||[];
- if(!series.length){
-  setHtml(host,emptyState('No day recorded yet',
-   'Google Analytics reports a day once it has a session in it. This window has none.'));
-  return;
- }
- const peak=Math.max(1,...series.map(point=>Number(point.sessions)||0));
- const width=720,height=150,gap=series.length>60?0:1;
- const slot=width/series.length;
- const bars=series.map((point,index)=>{
-  const total=Number(point.sessions)||0,engaged=Number(point.engaged_sessions)||0;
-  const x=index*slot,barWidth=Math.max(slot-gap,0.5);
-  const totalHeight=total*height/peak,engagedHeight=engaged*height/peak;
-  return `<rect class="bar" x="${x.toFixed(2)}" y="${(height-totalHeight).toFixed(2)}" width="${barWidth.toFixed(2)}" height="${totalHeight.toFixed(2)}"></rect>`+
-   `<rect class="bar engaged" x="${x.toFixed(2)}" y="${(height-engagedHeight).toFixed(2)}" width="${barWidth.toFixed(2)}" height="${engagedHeight.toFixed(2)}">`+
-   `<title>${esc(point.date)}: ${esc(String(total))} sessions, ${esc(String(engaged))} engaged</title></rect>`;
- }).join('');
- setHtml(host,`<div class="chart-head"><span class="legend"><i></i> Sessions <i class="engaged"></i> Engaged</span>
-<span class="meta">${esc(series[0].date)} to ${esc(series[series.length-1].date)}</span></div>
-<svg class="chart trend" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Sessions per day, with engaged sessions inside each bar">${bars}</svg>
-<p class="footnote">Peak day in this window: ${esc(figure(peak))} sessions. A day Google Analytics recorded no session is drawn as zero, because the window is bounded by dates we chose and the tag was collecting throughout it.</p>`);
-}
 /* Where the money path loses people.
  *
  * Steps with no row are `not instrumented`, never zero. "Nobody reached this
@@ -1801,7 +1759,7 @@ function renderSkeletons(){
 }
 function renderAll(){
  renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderPosts();
- renderGa4();renderGa4Trend();renderGa4Pages();renderFunnel();
+ renderGa4();renderGa4Pages();renderFunnel();
  renderSources();renderPlaces();renderDevices();renderJourney();renderSocial();
  renderCompetitor();applyFocus();
 }

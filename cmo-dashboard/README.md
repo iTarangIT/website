@@ -838,14 +838,11 @@ rate and pages-per-session once per channel. Averaging the ratios would weight a
 comparable: direct and organic search routinely collect the credit for work
 another channel did.
 
-**Three new readers, each failing on its own.** `ga4_trend` gives sessions and
-engaged sessions per day — a campaign that landed on one day and a steady climb
-produce the same delta against the previous window, and only the series tells them
-apart. `ga4_events` carries the calculator funnel, reading depth and the key-event
-totals. Both are separate from `ga4_summary` deliberately: GA4 renamed
-`conversions` to `keyEvents` and a property answers to one or the other depending
-on when it was created, so `ga4_events` tries both names in its own request. A
-rejected metric name there cannot blank the tiles.
+**`ga4_events` is a reader that fails on its own**, carrying the calculator
+funnel, reading depth and the key-event totals. It is separate from `ga4_summary`
+deliberately: GA4 renamed `conversions` to `keyEvents` and a property answers to
+one or the other depending on when it was created, so it tries both names in its
+own request. A rejected metric name there cannot blank the tiles.
 
 `ceo_console.state_payload` had been fetching `ga4_technical_summary` for the blog
 join and then sending the browser a second, smaller `ga4_summary` — the page rows

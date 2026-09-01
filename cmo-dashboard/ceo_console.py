@@ -142,7 +142,6 @@ def state_payload(
             # page rows were being thrown away afterwards.
             "ga4": ga4_detail,
             "ga4_audience": analytics_readers.ga4_audience(range_days, device),
-            "ga4_trend": analytics_readers.ga4_trend(range_days, device),
             "ga4_events": analytics_readers.ga4_events(range_days, device),
             "posts": posts,
             "competitor": competitor,

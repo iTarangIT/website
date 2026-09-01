@@ -135,9 +135,6 @@ BODY = '''<main id="app">
 <h3 class="rule">Google Analytics 4<span class="meta">What visitors do after they reach the site. Volume sits one disclosure down; these six are the ones that change a decision.</span></h3>
 <div id="ga4-panel"></div>
 
-<h3 class="rule">Sessions, day by day<span class="meta">The shape of the window. A campaign that landed on one day and a steady climb produce the same delta against the previous window; only this tells them apart.</span></h3>
-<div id="ga4-trend-panel"></div>
-
 <h3 class="rule">Did they convert?<span class="meta">The calculator is the only path on the site that ends in a lead. This is where it loses people.</span></h3>
 <div id="ga4-events-panel"></div>
 

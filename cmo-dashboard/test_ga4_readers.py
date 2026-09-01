@@ -13,7 +13,6 @@ whole tab is worse than the panel it took down.
 
 from __future__ import annotations
 
-import datetime as dt
 import os
 import unittest
 from typing import Any
@@ -61,7 +60,6 @@ class ReaderCase(unittest.TestCase):
             readers._ga4_cache,
             readers._ga4_detail_cache,
             readers._ga4_audience_cache,
-            readers._ga4_trend_cache,
             readers._ga4_events_cache,
         ):
             cache.clear()
@@ -347,62 +345,17 @@ class Events(ReaderCase):
                          "enhanced measurement supplies page_view on its own")
 
 
-class Trend(ReaderCase):
-    def test_a_day_with_no_session_is_drawn_as_zero_not_skipped(self) -> None:
-        """The exception to never-a-zero, and the reason it is one.
-
-        The window is bounded by dates we chose and the tag was collecting
-        throughout it, so a day with no row genuinely had no session. Dropping
-        it would compress the x-axis and misdraw the shape the panel exists to
-        show.
-        """
-        last_finalised = dt.date.today() - dt.timedelta(days=1)
-        sparse = {"rows": [
-            metric_row("5", "2", dimensions=(last_finalised.strftime("%Y%m%d"),))
-        ]}
-        summary_names = [name for _, name in readers.GA4_SUMMARY_METRICS]
-
-        def respond(_credentials: str, _property: str, payload: dict[str, Any]) -> dict[str, Any]:
-            names = [metric["name"] for metric in payload.get("metrics", [])]
-            return READY if names == summary_names else sparse
-
-        with mock.patch.object(readers, "_ga4_request", side_effect=respond):
-            result = readers.ga4_trend(7)
-
-        self.assertEqual(len(result["series"]), 7)
-        dates = [point["date"] for point in result["series"]]
-        self.assertEqual(dates, sorted(dates))
-        self.assertEqual(sum(point["sessions"] for point in result["series"]), 5)
-
-    def test_a_trend_failure_does_not_reach_the_tiles(self) -> None:
-        def explode(_credentials: str, _property: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if payload.get("dimensions") == [{"name": "date"}]:
-                raise TimeoutError("slow")
-            return READY
-
-        with mock.patch.object(readers, "_ga4_request", side_effect=explode):
-            trend = readers.ga4_trend(28)
-            summary = readers.ga4_summary(28)
-
-        self.assertEqual(trend["status"], "error")
-        self.assertEqual(trend["series"], [])
-        self.assertEqual(summary["metrics"]["active_users"], 24)
-
-
 class NotConnected(ReaderCase):
     def test_every_new_panel_names_what_is_missing_rather_than_showing_zero(self) -> None:
         with mock.patch.dict(os.environ, {"GA4_PROPERTY_ID": ""}, clear=False):
-            for cache in (readers._ga4_cache, readers._ga4_trend_cache,
-                          readers._ga4_events_cache):
+            for cache in (readers._ga4_cache, readers._ga4_events_cache):
                 cache.clear()
-            trend = readers.ga4_trend(28)
             events = readers.ga4_events(28)
 
-        for panel in (trend, events):
-            self.assertEqual(panel["status"], "not_connected")
-            self.assertIn("GA4_PROPERTY_ID", panel["required_variables"])
-        self.assertEqual(trend["series"], [])
+        self.assertEqual(events["status"], "not_connected")
+        self.assertIn("GA4_PROPERTY_ID", events["required_variables"])
         self.assertEqual(events["funnel"], [])
+        self.assertEqual(events["scroll_depth"], [])
         self.assertIsNone(events["key_events"])
 
 

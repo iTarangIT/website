@@ -215,20 +215,10 @@ def _events(**overrides: object) -> dict:
     return payload
 
 
-def _trend(days: int = 7) -> dict:
-    return {
-        "status": "ready", "message": "", "required_variables": ["GA4_PROPERTY_ID"],
-        "range_days": days, "device": "all",
-        "series": [{"date": f"2026-08-{day:02d}", "sessions": day,
-                    "engaged_sessions": day // 3} for day in range(1, days + 1)],
-    }
-
-
 def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dict | None = None,
              archived: list | None = None, radar: dict | None = None,
              social: dict | None = None, audience: dict | None = None,
-             ga4: dict | None = None, ga4_events: dict | None = None,
-             ga4_trend: dict | None = None) -> dict:
+             ga4: dict | None = None, ga4_events: dict | None = None) -> dict:
     series = [
         {"date": f"2026-08-{day:02d}", "impressions": day * 12, "clicks": day % 4, "ctr": 1.4, "position": 12.5}
         for day in range(1, 15)
@@ -294,10 +284,6 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
                         "required_variables": ["GA4_PROPERTY_ID"]} if ga4 is None else ga4,
                 "ga4_audience": _audience() if audience is None else audience,
                 "ga4_events": _events() if ga4_events is None else ga4_events,
-                "ga4_trend": ({"status": "not_connected",
-                               "message": "Google Analytics is not connected yet",
-                               "required_variables": ["GA4_PROPERTY_ID"], "series": []}
-                              if ga4_trend is None else ga4_trend),
                 "posts": {
                     "posts": [
                         {"slug": "emi", "title": "What an EMI actually costs", "url": "https://itarang.com/blog/emi",
@@ -851,13 +837,6 @@ class Ga4TieringRenders(unittest.TestCase):
         self.assertIn("/blog/emi", html)
         self.assertIn("25.0%", html)
 
-    def test_the_day_by_day_trend_draws_one_bar_per_day(self) -> None:
-        html = self.render(_fixture(ga4=_ga4(), ga4_trend=_trend(7)))["ga4Trend"]
-
-        self.assertEqual(html.count('class="bar"'), 7)
-        self.assertEqual(html.count('class="bar engaged"'), 7)
-        self.assertIn("2026-08-01", html)
-
     def test_the_page_table_renders_rows_that_were_already_being_fetched(self) -> None:
         """These rows came back with the blog join and were thrown away."""
         html = self.render(_fixture(ga4=_ga4()))["ga4Pages"]
@@ -896,5 +875,5 @@ class Ga4TieringRenders(unittest.TestCase):
                                message="Google Analytics is not connected yet")
         out = self.render(_fixture(ga4_events=disconnected))
 
-        for panel in ("ga4", "ga4Trend", "ga4Events", "ga4Pages"):
+        for panel in ("ga4", "ga4Events", "ga4Pages"):
             self.assertIn("GA4_PROPERTY_ID", out[panel], panel)

@@ -721,14 +721,13 @@ class ServedPageTests(unittest.TestCase):
         """
         page = self.text("/ceo")
 
-        for panel in ('id="ga4-panel"', 'id="ga4-trend-panel"',
-                      'id="ga4-events-panel"', 'id="ga4-pages-panel"'):
+        for panel in ('id="ga4-panel"', 'id="ga4-events-panel"', 'id="ga4-pages-panel"'):
             self.assertIn(panel, page, panel)
-        for renderer in ("function renderGa4(", "function renderGa4Trend(",
-                         "function renderGa4Pages(", "function renderFunnel("):
+        for renderer in ("function renderGa4(", "function renderGa4Pages(",
+                         "function renderFunnel("):
             self.assertIn(renderer, page, renderer)
         # Every one of them has to be called, not merely defined.
-        self.assertIn("renderGa4();renderGa4Trend();renderGa4Pages();renderFunnel();", page)
+        self.assertIn("renderGa4();renderGa4Pages();renderFunnel();", page)
 
     def test_the_served_page_can_format_a_google_analytics_ratio(self) -> None:
         """The defect this work started from: engagement rate rendered as

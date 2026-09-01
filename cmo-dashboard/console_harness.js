@@ -195,7 +195,6 @@ setTimeout(() => {
     creditMeter: byId('credit-meter').innerHTML + byId('credit-meter').textContent,
     creditMeterError: byId('credit-meter').classList.contains('error'),
     ga4: html('ga4-panel'),
-    ga4Trend: html('ga4-trend-panel'),
     ga4Events: html('ga4-events-panel'),
     ga4Pages: html('ga4-pages-panel'),
     sources: html('sources-panel'),

@@ -47,7 +47,6 @@ GA4_METRIC_KEYS: tuple[str, ...] = tuple(
 
 CACHE_SECONDS = 300
 _ga4_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
-_ga4_trend_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _ga4_events_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _ga4_detail_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _gsc_trend_cache: dict[tuple[str, ...], tuple[float, tuple[list[dict[str, Any]], str]]] = {}
@@ -1039,97 +1038,3 @@ def _ga4_values_named(
         else None
         for index, name in enumerate(metrics)
     }
-
-
-def _empty_trend(days: int, device: str, base: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "status": base.get("status", "not_connected"),
-        "message": base.get("message", ""),
-        "required_variables": list(GA4_REQUIRED_VARIABLES),
-        "missing_variables": base.get("missing_variables", []),
-        "range_days": days,
-        "device": device,
-        "series": [],
-    }
-
-
-def ga4_trend(days: int = 28, device: str = "all") -> dict[str, Any]:
-    """Sessions and engaged sessions, day by day.
-
-    The tiles compare this window against the previous one, which answers "up or
-    down" and nothing about shape. A campaign that landed on one day and a steady
-    climb produce the same delta; only the series tells them apart.
-
-    Days GA4 has no row for are filled in as explicit zeros rather than left out.
-    Here that is correct and not a violation of the never-a-zero rule: the window
-    is bounded by dates we chose, GA4 was collecting throughout it, and a day
-    with no session genuinely had none. A gap in the x-axis would misdraw the
-    shape, which is the whole point of the chart.
-    """
-    if days not in {7, 28, 90}:
-        days = 28
-    if device not in {"all", "desktop", "mobile", "tablet"}:
-        device = "all"
-    base = ga4_summary(days, device)
-    if base.get("status") not in {"ready", "collecting"}:
-        return _empty_trend(days, device, base)
-
-    config = {name: os.getenv(name, "").strip() for name in GA4_REQUIRED_VARIABLES}
-    key = tuple(config[name] for name in GA4_REQUIRED_VARIABLES) + (str(days), device, "trend")
-    now = time.monotonic()
-    with _cache_lock:
-        cached = _ga4_trend_cache.get(key)
-        if cached and cached[0] > now:
-            return dict(cached[1])
-
-    result = _empty_trend(days, device, base)
-    result["status"] = base.get("status", "ready")
-    end = dt.date.today() - dt.timedelta(days=1)
-    start = end - dt.timedelta(days=days - 1)
-    payload: dict[str, Any] = {
-        "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
-        "dimensions": [{"name": "date"}],
-        "metrics": [{"name": "sessions"}, {"name": "engagedSessions"}],
-        "orderBys": [{"dimension": {"dimensionName": "date"}, "desc": False}],
-        "limit": "400",
-    }
-    if device != "all":
-        payload["dimensionFilter"] = {
-            "filter": {
-                "fieldName": "deviceCategory",
-                "stringFilter": {"matchType": "EXACT", "value": device},
-            }
-        }
-    try:
-        rows = _ga4_rows(
-            _ga4_request(config["GA4_CREDENTIALS_PATH"], config["GA4_PROPERTY_ID"], payload),
-            ("date",),
-            ("sessions", "engagedSessions"),
-        )
-    except Exception as exc:  # a trend failure must not blank the summary tiles
-        result["status"] = "error"
-        result["message"] = f"Google Analytics trend read failed: {type(exc).__name__}."
-        return result
-
-    measured: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        try:
-            day = dt.datetime.strptime(str(row.get("date") or ""), "%Y%m%d").date()
-        except ValueError:
-            continue
-        measured[day.isoformat()] = {
-            "sessions": row.get("sessions") or 0,
-            "engaged_sessions": row.get("engagedSessions") or 0,
-        }
-    series = []
-    cursor = start
-    while cursor <= end:
-        stamp = cursor.isoformat()
-        point = measured.get(stamp, {"sessions": 0, "engaged_sessions": 0})
-        series.append({"date": stamp, **point})
-        cursor += dt.timedelta(days=1)
-    result["series"] = series
-
-    with _cache_lock:
-        _ga4_trend_cache[key] = (now + CACHE_SECONDS, dict(result))
-    return result
