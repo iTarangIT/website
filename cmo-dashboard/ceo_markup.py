@@ -132,8 +132,17 @@ BODY = '''<main id="app">
 
 <p class="footnote" id="analytics-footnote"></p>
 
-<h3 class="rule">Google Analytics 4<span class="meta">What visitors do after they reach the site.</span></h3>
+<h3 class="rule">Google Analytics 4<span class="meta">What visitors do after they reach the site. Volume sits one disclosure down; these six are the ones that change a decision.</span></h3>
 <div id="ga4-panel"></div>
+
+<h3 class="rule">Sessions, day by day<span class="meta">The shape of the window. A campaign that landed on one day and a steady climb produce the same delta against the previous window; only this tells them apart.</span></h3>
+<div id="ga4-trend-panel"></div>
+
+<h3 class="rule">Did they convert?<span class="meta">The calculator is the only path on the site that ends in a lead. This is where it loses people.</span></h3>
+<div id="ga4-events-panel"></div>
+
+<h3 class="rule">Which pages were read<span class="meta">Every page by views, not only the blog. Engagement is the share of those sessions that stayed.</span></h3>
+<div id="ga4-pages-panel"></div>
 
 <h3 class="rule">Where the traffic came from<span class="meta">Sessions grouped by the channel that sent them. A share from the blog carries a UTM tag, so WhatsApp forwards land here rather than under Direct.</span></h3>
 <div id="sources-panel"></div>

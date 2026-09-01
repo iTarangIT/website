@@ -800,6 +800,106 @@ environment, and `GA4_PROPERTY_ID`, `GA4_CREDENTIALS_PATH`, `GA4_MEASUREMENT_ID`
 `GA4_TAG_INSTALLED=1` in the dashboard's. Until all five are present every GA4 panel
 says so and names the ones that are missing, which is the honest reading.
 
+## Analytics: six tiles that change a decision
+
+The Google Analytics panel reported four figures — active users, sessions, page
+views, engagement rate. They answer "how much traffic" and nothing else: no time
+dimension, no quality signal, and no link to an outcome. The tab now tiers them.
+
+**The engagement rate was unreadable.** `renderGa4` passed every value through
+`figure(value)` with no kind, and GA4 reports engagement as a ratio between 0 and
+1, so www.itarang.com's console showed `0.207`. `figure` gained a `rate` kind —
+`20.7%` — and a `duration` kind for engagement time. A delta between two ratios
+renders in percentage **points**, because "+5%" after a move from 20.7% to 25.7%
+reads as a relative gain and is a different, smaller number.
+
+**The strip is what changes a decision; volume is one disclosure down.** Active
+users, engaged sessions, engagement rate, average engagement time, pages per
+session, key events. Sessions, page views, sessions per user and bounce rate moved
+into a closed `<details>`. Every rate prints what it was computed over — 20.7% of
+29 sessions is six sessions, and a percentage hiding a sample that small invites a
+trend reading it cannot support.
+
+`GA4_SUMMARY_METRICS` is one table of `(payload key, GA4 metric name)` pairs
+rather than a metric list beside a name tuple. `_ga4_values` reads values back by
+position, so two sequences that drift by one index make every tile show its
+neighbour's number — plausibly, and with nothing on screen to say so. It is ten
+metrics, which is exactly what the Data API allows in one `runReport`; an
+eleventh needs a second request, not a longer tuple. Returning visitors are
+`activeUsers - newUsers` from that same response, so they cost no metric slot, and
+they are `None` when either half is.
+
+**Channels are weighed, not just counted.** `_fold_sources` now sums
+`engagedSessions` and `screenPageViews` — both additive — and rebuilds engagement
+rate and pages-per-session once per channel. Averaging the ratios would weight a
+2-session referrer the same as a 200-session one, which is the same reasoning
+`_totals` applies to Search Console CTR. The same fold runs over
+`firstUserSource`/`firstUserMedium`, so first touch and session source are
+comparable: direct and organic search routinely collect the credit for work
+another channel did.
+
+**Three new readers, each failing on its own.** `ga4_trend` gives sessions and
+engaged sessions per day — a campaign that landed on one day and a steady climb
+produce the same delta against the previous window, and only the series tells them
+apart. `ga4_events` carries the calculator funnel, reading depth and the key-event
+totals. Both are separate from `ga4_summary` deliberately: GA4 renamed
+`conversions` to `keyEvents` and a property answers to one or the other depending
+on when it was created, so `ga4_events` tries both names in its own request. A
+rejected metric name there cannot blank the tiles.
+
+`ceo_console.state_payload` had been fetching `ga4_technical_summary` for the blog
+join and then sending the browser a second, smaller `ga4_summary` — the page rows
+were paid for and thrown away. It now sends the detail payload it already has, one
+round-trip fewer, and those rows render as "Which pages were read".
+
+### A step with no event is not a step nobody reached
+
+The funnel is `calculator_start` → `otp_requested` → `otp_verified` →
+`generate_lead`. A step GA4 has never seen renders **not instrumented**, never
+zero: "nobody converted" is a marketing problem and "nothing reports a conversion"
+is an engineering one, and a zero sends a CMO to the wrong department. A step GA4
+reported as `0` keeps its zero.
+
+Reading depth is the exception that proves the rule. `scroll` is fired by enhanced
+measurement at 90% depth and is collected site-wide already, so a page with views
+and no scroll row genuinely had nobody finish it — that zero is measured.
+
+### The events that were never arriving
+
+`trackEvent` pushed to `window.gtag`. The root layout loads **Google Tag Manager**,
+which is what carries GA4 for this property, and `window.gtag` exists only when the
+*direct* tag is the one loading — which it is not, by default. Every event the site
+sent was dropped in production, silently, for as long as the events existed. It now
+pushes to `window.dataLayer`, which GTM creates and replays.
+
+The site reports `calculator_start`, `otp_requested`, `otp_verified`,
+`generate_lead`, `whatsapp_click`, `deck_request` and `contact_submit`. The names
+are the contract with `GA4_FUNNEL_STEPS` and `GA4_INTENT_EVENTS`; renaming one here
+empties a console panel. `generate_lead` fires on the calculator's success
+response, which is the only conversion on this site that reaches a server — that
+response means a row was written to `calcLeads` against an OTP-verified number.
+
+WhatsApp is handled by one delegated listener, `WhatsAppTracker`. There are six
+WhatsApp CTAs in five differently-shaped components, and wiring each would leave
+six places to keep in step and a seventh added later without a handler. It reports
+`location` from a `data-wa-location` attribute where a component sets one and from
+the surrounding landmark otherwise.
+
+**A push is not a measurement.** GTM forwards an event to GA4 only when the
+container holds a GA4 Event tag with a custom-event trigger for that name, and GA4
+counts it as a conversion only when it is marked a key event in admin. Both are
+container-side; until they exist the funnel correctly reads "not instrumented".
+
+### The container was counting us
+
+`GTM-NWF4GDVS` was hardcoded and unconditional, so it fired on localhost and on
+every Vercel preview deploy and developer sessions were counted as visitors. At 24
+users a window that is not a rounding error — it moves every rate on this tab. The
+container id stays hardcoded as the default (it is not a secret, and making
+production depend on an unset env var would take analytics dark); what is gated is
+where it runs. `NEXT_PUBLIC_GTM_ID` overrides the id. Preview is checked separately
+from `NODE_ENV` because Vercel builds previews in production mode.
+
 ## Competitor analytics
 
 `cmo_runtime/competitors.py` answers "which website do you want to replicate" from what

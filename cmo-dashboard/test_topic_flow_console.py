@@ -298,10 +298,19 @@ class ProductFinish(unittest.TestCase):
     def test_the_layout_answers_a_phone(self) -> None:
         self.assertIn("@media(max-width:640px)", CSS)
         phone = CSS.split("@media(max-width:640px)", 1)[1]
-        for rule in (".tiles{grid-template-columns:1fr 1fr", "dialog{width:100%",
+        for rule in ("dialog{width:100%",
                      ".card-row{display:block}", ".chips{flex-wrap:nowrap;overflow-x:auto",
                      ".opportunity{display:block}"):
             self.assertIn(rule, phone)
+        # Every tile strip collapses to two columns on a phone, whatever it
+        # counts on a desktop. The Google Analytics strip is six wide and its
+        # drill-down four, and a modifier that outranks this rule would leave
+        # six tiles fighting over a phone's width.
+        two_up = [line for line in phone.splitlines()
+                  if "grid-template-columns:1fr 1fr" in line]
+        self.assertEqual(len(two_up), 1, "one rule should collapse the tile strips")
+        for selector in (".tiles", ".tiles.six", ".tiles.four"):
+            self.assertIn(selector, two_up[0])
         # A wide table scrolls inside its own box; the page itself never does.
         self.assertIn(".table-scroll{overflow-x:auto", CSS)
         self.assertIn("--tap:44px", CSS, "touch targets need a floor")

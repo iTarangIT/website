@@ -33,7 +33,7 @@ a{color:var(--green-deep)}
 
 /* ---- numerals ------------------------------------------------------------ */
 /* Every measured figure in the console shares one face and one alignment. */
-.num,.tile-figure,.stat,td.n,th.n,.pager-count,.chart text,.delta,kbd{
+.num,.tile-figure,.stat,td.n,th.n,.pager-count,.chart text,.delta,.funnel-retention,kbd{
 font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 td.n,th.n{text-align:right}
 
@@ -431,6 +431,52 @@ clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .share-bar i{display:block;height:100%;border-radius:999px;background:var(--green);
 transition:width .18s ease}
 .share-cell .num{flex:0 0 auto;min-width:44px;text-align:right}
+
+/* ---- tiered analytics ---------------------------------------------------- */
+/* The Search Console strip is five tiles and stays five. The Google Analytics
+   strip is six and its drill-down is four, so the count is a modifier rather
+   than a change to the shared default -- otherwise every strip on the tab
+   reflows to suit whichever one grew last. */
+.tiles.six{grid-template-columns:repeat(6,minmax(0,1fr))}
+.tiles.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+/* Every rate on this tab shows what it was computed over. */
+.tile-note{display:block;margin-top:3px;color:var(--faint);font-size:var(--f-xs);line-height:1.35}
+
+/* New against returning, as one bar rather than two figures. */
+.split{display:flex;align-items:center;gap:12px;margin:12px 0 2px;font-size:var(--f-sm);
+color:var(--muted)}
+.split-label b{color:var(--ink);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.split-bar{flex:1 1 auto;height:8px;border-radius:999px;background:var(--clay);overflow:hidden}
+.split-bar i{display:block;height:100%;border-radius:999px 0 0 999px;background:var(--green)}
+
+/* Drill-downs. Closed by default: the strip above is the answer, this is the
+   working behind it. */
+.drill{margin-top:14px;border-top:1px solid var(--line-soft);padding-top:10px}
+.drill>summary{cursor:pointer;color:var(--green-deep);font-size:var(--f-sm);font-weight:700}
+.drill>summary:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:3px}
+.drill[open]>summary{margin-bottom:8px}
+
+/* The funnel. A step with no event is drawn as an empty track, never a zero bar
+   -- a full-width zero and an unwired step must not look alike. */
+.funnel{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:8px}
+.funnel-step{display:grid;grid-template-columns:minmax(140px,1.1fr) minmax(90px,2fr) auto;
+align-items:center;gap:10px;row-gap:2px}
+.funnel-label{font-size:var(--f-sm);font-weight:600}
+.funnel-bar{height:10px;border-radius:999px;background:var(--line-soft);overflow:hidden}
+.funnel-bar i{display:block;height:100%;border-radius:999px;background:var(--green)}
+.funnel-step.absent .funnel-label,.funnel-step.absent .num{color:var(--faint);font-weight:500}
+.funnel-step.absent .funnel-bar{background:repeating-linear-gradient(135deg,
+var(--line-soft) 0 5px,transparent 5px 10px)}
+.funnel-step .num{min-width:64px;text-align:right;font-size:var(--f-sm)}
+.funnel-retention{grid-column:2/-1;color:var(--faint);font-size:var(--f-xs)}
+tr.is-intent td.subject{font-weight:700;color:var(--green-deep)}
+
+/* The day-by-day trend. Engaged sessions are drawn inside the total, so the
+   engaged bar sits on top of the same baseline rather than beside it. */
+.chart.trend{height:150px}
+.chart.trend .bar{fill:var(--clay);opacity:.35}
+.chart.trend .bar.engaged{fill:var(--green);opacity:.9}
+.legend i.engaged{background:var(--green)}
 .source-examples{color:var(--faint);font-size:var(--f-xs);font-family:var(--mono)}
 
 /* ---- social drafts ------------------------------------------------------- */
@@ -477,7 +523,7 @@ dialog[open]{display:block;position:static;max-height:none;width:100%;border:0;b
 
 /* ---- phone --------------------------------------------------------------- */
 @media(max-width:820px){
-.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+.tiles,.tiles.six,.tiles.four{grid-template-columns:repeat(2,minmax(0,1fr))}
 .tiles .tile:first-child{grid-column:1/-1}
 .editor-grid{grid-template-columns:1fr}
 .editor textarea,.editor .preview{min-height:34vh}
@@ -505,7 +551,7 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .opportunity{display:block}
 .opportunity .card-figures{margin-top:8px}
 .opportunity button{width:100%;margin-top:10px}
-.tiles{grid-template-columns:1fr 1fr;gap:8px}
+.tiles,.tiles.six,.tiles.four{grid-template-columns:1fr 1fr;gap:8px}
 .tile-figure{font-size:21px}
 .legend{margin-left:0;flex-basis:100%}
 .pager{gap:8px}.pager .spacer{margin-left:0;flex-basis:100%;height:0}

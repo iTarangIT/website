@@ -241,9 +241,6 @@ class ReportShape(unittest.TestCase):
         self.assertIn("returned nothing since", report["message"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class BlogSlugJoin(unittest.TestCase):
     """The slug is the join key, and it has to survive both sides' URL shapes.
@@ -367,3 +364,7 @@ class BlogPerformance(unittest.TestCase):
             "Informal Financing",
             "an article the board does not name still needs something readable",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

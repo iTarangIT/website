@@ -18,8 +18,37 @@ GA4_REQUIRED_VARIABLES = (
     "GA4_MEASUREMENT_ID",
     "GA4_TAG_INSTALLED",
 )
+# The summary tiles, as (payload key, GA4 metric name) pairs.
+#
+# One table rather than two parallel sequences: `_ga4_values` reads metric values
+# back positionally, so a metric list and a name tuple that drift by one index
+# make every tile show its neighbour's number -- silently, and plausibly. Pairing
+# them here makes that particular mistake unrepresentable.
+#
+# The GA4 Data API caps a single runReport at 10 metrics, and this is exactly 10.
+# An eleventh needs a second request, not a longer tuple.
+GA4_SUMMARY_METRICS: tuple[tuple[str, str], ...] = (
+    ("active_users", "activeUsers"),
+    ("sessions", "sessions"),
+    ("screen_page_views", "screenPageViews"),
+    ("engagement_rate", "engagementRate"),
+    ("new_users", "newUsers"),
+    ("engaged_sessions", "engagedSessions"),
+    ("average_session_duration", "averageSessionDuration"),
+    ("screen_page_views_per_session", "screenPageViewsPerSession"),
+    ("bounce_rate", "bounceRate"),
+    ("sessions_per_user", "sessionsPerUser"),
+)
+# Computed from the pairs above rather than measured, so it costs no metric slot.
+GA4_DERIVED_KEYS: tuple[str, ...] = ("returning_users",)
+GA4_METRIC_KEYS: tuple[str, ...] = tuple(
+    key for key, _ in GA4_SUMMARY_METRICS
+) + GA4_DERIVED_KEYS
+
 CACHE_SECONDS = 300
 _ga4_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_ga4_trend_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_ga4_events_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _ga4_detail_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _gsc_trend_cache: dict[tuple[str, ...], tuple[float, tuple[list[dict[str, Any]], str]]] = {}
 _ga4_audience_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
@@ -53,24 +82,9 @@ def _empty_ga4(message: str, *, status: str = "not_connected") -> dict[str, Any]
         "required_variables": list(GA4_REQUIRED_VARIABLES),
         "range_days": None,
         "device": "all",
-        "metrics": {
-            "active_users": None,
-            "sessions": None,
-            "screen_page_views": None,
-            "engagement_rate": None,
-        },
-        "previous": {
-            "active_users": None,
-            "sessions": None,
-            "screen_page_views": None,
-            "engagement_rate": None,
-        },
-        "deltas": {
-            "active_users": None,
-            "sessions": None,
-            "screen_page_views": None,
-            "engagement_rate": None,
-        },
+        "metrics": {key: None for key in GA4_METRIC_KEYS},
+        "previous": {key: None for key in GA4_METRIC_KEYS},
+        "deltas": {key: None for key in GA4_METRIC_KEYS},
         "pages": [],
         "collection_start": None,
     }
@@ -107,23 +121,36 @@ def _ga4_request(
     return value
 
 
+def _ga4_derived(values: dict[str, int | float | None]) -> dict[str, int | float | None]:
+    """Add the figures we work out rather than ask for.
+
+    Returning users is `activeUsers - newUsers` from the same window and the same
+    response, so the subtraction is between two numbers GA4 measured together. If
+    either half is missing the answer is missing too -- a returning-user count of
+    zero and an unmeasured one are opposite facts, and this file never conflates
+    them.
+    """
+    active = values.get("active_users")
+    new = values.get("new_users")
+    returning: int | float | None = None
+    if active is not None and new is not None:
+        returning = max(active - new, 0)
+    return {**values, "returning_users": returning}
+
+
 def _ga4_values(report: dict[str, Any]) -> dict[str, int | float | None]:
     rows = report.get("rows")
     if not isinstance(rows, list) or not rows:
-        return {
-            "active_users": None,
-            "sessions": None,
-            "screen_page_views": None,
-            "engagement_rate": None,
-        }
+        return {key: None for key in GA4_METRIC_KEYS}
     values = rows[0].get("metricValues", []) if isinstance(rows[0], dict) else []
-    names = ("active_users", "sessions", "screen_page_views", "engagement_rate")
-    return {
-        name: _number(values[index].get("value"))
-        if index < len(values) and isinstance(values[index], dict)
-        else None
-        for index, name in enumerate(names)
-    }
+    return _ga4_derived(
+        {
+            key: _number(values[index].get("value"))
+            if index < len(values) and isinstance(values[index], dict)
+            else None
+            for index, (key, _) in enumerate(GA4_SUMMARY_METRICS)
+        }
+    )
 
 
 def _fetch_ga4(days: int, device: str) -> dict[str, Any]:
@@ -133,12 +160,7 @@ def _fetch_ga4(days: int, device: str) -> dict[str, Any]:
     start = end - dt.timedelta(days=days - 1)
     previous_end = start - dt.timedelta(days=1)
     previous_start = previous_end - dt.timedelta(days=days - 1)
-    metrics = [
-        {"name": "activeUsers"},
-        {"name": "sessions"},
-        {"name": "screenPageViews"},
-        {"name": "engagementRate"},
-    ]
+    metrics = [{"name": name} for _, name in GA4_SUMMARY_METRICS]
 
     def payload(date_start: dt.date, date_end: dt.date) -> dict[str, Any]:
         value: dict[str, Any] = {
@@ -574,6 +596,7 @@ def _empty_audience(days: int, device: str, base: dict[str, Any]) -> dict[str, A
         "range_days": days,
         "device": device,
         "traffic_sources": [],
+        "first_user_sources": [],
         "countries": [],
         "cities": [],
         "devices": [],
@@ -583,29 +606,61 @@ def _empty_audience(days: int, device: str, base: dict[str, Any]) -> dict[str, A
     }
 
 
-def _fold_sources(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+def _fold_sources(
+    rows: Sequence[dict[str, Any]],
+    *,
+    source_key: str = "sessionSource",
+    medium_key: str = "sessionMedium",
+) -> list[dict[str, Any]]:
     """Collapse raw sources into channels, keeping the referrers behind each one.
 
     `examples` is not decoration. When a channel looks wrong the first question
     is always "what actually matched", and the answer has to be on the row rather
     than in someone's re-run of the query.
+
+    Only additive metrics are summed. Engagement rate and views-per-session are
+    ratios, and averaging a ratio across rows weights a 3-session referrer the
+    same as a 300-session one; both are rebuilt here from the counts that GA4
+    measured (`engagedSessions`, `screenPageViews`) over the sessions in the
+    folded bucket. This is the same reasoning `ceo_analytics._totals` applies to
+    Search Console CTR.
+
+    The dimension keys are parameters because first-touch attribution asks the
+    identical question of `firstUserSource`/`firstUserMedium`, and one folding
+    rule for both is what keeps the two tables comparable.
     """
     folded: dict[str, dict[str, Any]] = {}
     for row in rows:
-        label = classify_source(str(row.get("sessionSource", "")), str(row.get("sessionMedium", "")))
+        label = classify_source(str(row.get(source_key, "")), str(row.get(medium_key, "")))
         bucket = folded.setdefault(
             label,
-            {"source": label, "sessions": 0, "active_users": 0, "examples": []},
+            {
+                "source": label,
+                "sessions": 0,
+                "active_users": 0,
+                "engaged_sessions": 0,
+                "screen_page_views": 0,
+                "examples": [],
+            },
         )
         bucket["sessions"] += int(row.get("sessions") or 0)
         bucket["active_users"] += int(row.get("activeUsers") or 0)
-        raw = str(row.get("sessionSource", "")).strip()
+        bucket["engaged_sessions"] += int(row.get("engagedSessions") or 0)
+        bucket["screen_page_views"] += int(row.get("screenPageViews") or 0)
+        raw = str(row.get(source_key, "")).strip()
         if raw and raw not in bucket["examples"] and len(bucket["examples"]) < 4:
             bucket["examples"].append(raw)
     total = sum(bucket["sessions"] for bucket in folded.values())
     ordered = sorted(folded.values(), key=lambda bucket: -bucket["sessions"])
     for bucket in ordered:
-        bucket["share"] = round(bucket["sessions"] * 100 / total, 1) if total else None
+        sessions = bucket["sessions"]
+        bucket["share"] = round(sessions * 100 / total, 1) if total else None
+        bucket["engagement_rate"] = (
+            bucket["engaged_sessions"] / sessions if sessions else None
+        )
+        bucket["views_per_session"] = (
+            round(bucket["screen_page_views"] / sessions, 2) if sessions else None
+        )
     return ordered
 
 
@@ -650,17 +705,30 @@ def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
         )
         return _ga4_rows(report, dimensions, metrics)
 
+    channel_metrics = ("sessions", "activeUsers", "engagedSessions", "screenPageViews")
     try:
         result["traffic_sources"] = _fold_sources(
-            read(("sessionSource", "sessionMedium"), ("sessions", "activeUsers"), limit=50)
+            read(("sessionSource", "sessionMedium"), channel_metrics, limit=50)
+        )
+        # First touch answers a different question from session source: which
+        # channel *recruited* a user, rather than which one delivered this visit.
+        # Direct and organic search routinely collect credit for work another
+        # channel did, and only the two side by side show it.
+        result["first_user_sources"] = _fold_sources(
+            read(("firstUserSource", "firstUserMedium"), channel_metrics, limit=50),
+            source_key="firstUserSource",
+            medium_key="firstUserMedium",
         )
         result["countries"] = [
             {
                 "country": row["country"],
                 "sessions": row["sessions"],
                 "active_users": row["activeUsers"],
+                "engagement_rate": row["engagementRate"],
             }
-            for row in read(("country",), ("sessions", "activeUsers"), limit=12)
+            for row in read(
+                ("country",), ("sessions", "activeUsers", "engagementRate"), limit=12
+            )
             if row["country"]
         ]
         result["cities"] = [
@@ -696,6 +764,7 @@ def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
                 "sessions": row["sessions"],
                 "engagement_rate": row["engagementRate"],
                 "bounces": row["bounceRate"],
+                "bounce_rate": row["bounceRate"],
             }
             for row in read(
                 ("landingPage",), ("sessions", "engagementRate", "bounceRate"), limit=15
@@ -710,4 +779,357 @@ def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
 
     with _cache_lock:
         _ga4_audience_cache[key] = (now + CACHE_SECONDS, dict(result))
+    return result
+
+
+# The steps of the calculator funnel, in order, as (label, GA4 event name).
+#
+# This is the website's only revenue path: a phone-verified financing enquiry
+# that ends as a row in `calcLeads`. Naming the steps here rather than in the
+# browser means the drop-off between them is computed once, server-side, from
+# one response -- two caches expiring independently would otherwise let a later
+# step show more sessions than an earlier one.
+GA4_FUNNEL_STEPS: tuple[tuple[str, str], ...] = (
+    ("Opened the calculator", "calculator_start"),
+    ("Asked for an OTP", "otp_requested"),
+    ("Verified the number", "otp_verified"),
+    ("Became a lead", "generate_lead"),
+)
+# Events that mark real intent, whether or not GA4 admin has been told to treat
+# them as key events yet.
+GA4_INTENT_EVENTS: tuple[str, ...] = (
+    "generate_lead",
+    "otp_verified",
+    "whatsapp_click",
+    "deck_request",
+    "contact_submit",
+)
+
+
+def _empty_events(days: int, device: str, base: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": base.get("status", "not_connected"),
+        "message": base.get("message", ""),
+        "required_variables": list(GA4_REQUIRED_VARIABLES),
+        "missing_variables": base.get("missing_variables", []),
+        "range_days": days,
+        "device": device,
+        "events": [],
+        "funnel": [],
+        "scroll_depth": [],
+        "scroll_message": "",
+        "key_events": None,
+        "session_key_event_rate": None,
+        "key_event_message": "",
+        "instrumented": False,
+    }
+
+
+def _funnel_from_counts(counts: dict[str, int | float | None]) -> list[dict[str, Any]]:
+    """Turn per-event counts into ordered steps with step-to-step retention.
+
+    An event GA4 has never seen is absent from the response, and absent is not
+    zero: "nobody reached this step" and "this step was never instrumented" are
+    opposite findings, and only the first is a marketing problem. A step with no
+    row therefore carries `count: None` and `instrumented: False`, and the
+    retention against it is `None` rather than a 0% that would read as a total
+    collapse of the funnel.
+    """
+    steps: list[dict[str, Any]] = []
+    previous: int | float | None = None
+    for label, event_name in GA4_FUNNEL_STEPS:
+        count = counts.get(event_name)
+        retention: float | None = None
+        if count is not None and previous is not None and previous:
+            retention = round(count * 100 / previous, 1)
+        steps.append({
+            "step": label,
+            "event": event_name,
+            "count": count,
+            "instrumented": count is not None,
+            "retention": retention,
+        })
+        if count is not None:
+            previous = count
+    return steps
+
+
+def ga4_events(days: int = 28, device: str = "all") -> dict[str, Any]:
+    """What visitors actually did, and how far they got.
+
+    Separate from `ga4_summary` on purpose. GA4 renamed the conversion metrics
+    (`conversions` -> `keyEvents`, `sessionConversionRate` ->
+    `sessionKeyEventRate`) and a property can answer to either name depending on
+    when it was created. Asking for the wrong one is a 400 for the whole request,
+    so this asks in its own request, tries both names, and reports which -- a
+    rejected metric name here cannot blank the summary tiles, which is the same
+    containment `ga4_technical_summary` uses for its page table.
+    """
+    if days not in {7, 28, 90}:
+        days = 28
+    if device not in {"all", "desktop", "mobile", "tablet"}:
+        device = "all"
+    base = ga4_summary(days, device)
+    if base.get("status") not in {"ready", "collecting"}:
+        return _empty_events(days, device, base)
+
+    config = {name: os.getenv(name, "").strip() for name in GA4_REQUIRED_VARIABLES}
+    key = tuple(config[name] for name in GA4_REQUIRED_VARIABLES) + (str(days), device, "events")
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _ga4_events_cache.get(key)
+        if cached and cached[0] > now:
+            return dict(cached[1])
+
+    credentials_path = config["GA4_CREDENTIALS_PATH"]
+    property_id = config["GA4_PROPERTY_ID"]
+    result = _empty_events(days, device, base)
+    result["status"] = base.get("status", "ready")
+
+    try:
+        rows = _ga4_rows(
+            _ga4_request(
+                credentials_path,
+                property_id,
+                _audience_payload(
+                    days,
+                    device,
+                    ("eventName",),
+                    ("eventCount", "totalUsers"),
+                    limit=50,
+                    order_by="eventCount",
+                ),
+            ),
+            ("eventName",),
+            ("eventCount", "totalUsers"),
+        )
+    except Exception as exc:  # an event failure must not blank the summary tiles
+        result["status"] = "error"
+        result["message"] = f"Google Analytics event read failed: {type(exc).__name__}."
+        return result
+
+    counts: dict[str, int | float | None] = {}
+    events: list[dict[str, Any]] = []
+    for row in rows:
+        name = row.get("eventName") or ""
+        if not name:
+            continue
+        counts[name] = row.get("eventCount")
+        events.append({
+            "event": name,
+            "count": row.get("eventCount"),
+            "users": row.get("totalUsers"),
+            "intent": name in GA4_INTENT_EVENTS,
+        })
+    result["events"] = events
+    result["funnel"] = _funnel_from_counts(counts)
+
+    # How far down the page people actually got.
+    #
+    # GA4's enhanced measurement fires `scroll` once a visitor reaches 90% depth,
+    # so this needs no code on the website -- it is already being collected. Read
+    # against page views for the same page it answers the question a view count
+    # cannot: a post that was opened and a post that was read are different
+    # outcomes, and only one of them is worth commissioning more of.
+    try:
+        depth_rows = _ga4_rows(
+            _ga4_request(
+                credentials_path,
+                property_id,
+                _audience_payload(
+                    days, device, ("pagePath", "eventName"),
+                    ("eventCount",), limit=100, order_by="eventCount",
+                ),
+            ),
+            ("pagePath", "eventName"),
+            ("eventCount",),
+        )
+    except Exception as exc:  # a depth failure must not blank the funnel
+        result["scroll_message"] = f"Google Analytics scroll read failed: {type(exc).__name__}."
+        depth_rows = []
+    views: dict[str, int | float | None] = {}
+    reached: dict[str, int | float | None] = {}
+    for row in depth_rows:
+        page = row.get("pagePath") or ""
+        if not page:
+            continue
+        if row.get("eventName") == "page_view":
+            views[page] = row.get("eventCount")
+        elif row.get("eventName") == "scroll":
+            reached[page] = row.get("eventCount")
+    depth = []
+    for page, view_count in views.items():
+        end = reached.get(page)
+        # A page with no scroll row was viewed and never finished. That is a
+        # measured zero, not an unmeasured one: the scroll event is collected
+        # site-wide, so its absence for a page GA4 did report views for means
+        # nobody reached the bottom.
+        finished = end if end is not None else 0
+        share = (
+            round(finished * 100 / view_count, 1)
+            if view_count not in (None, 0) else None
+        )
+        depth.append({
+            "page": page,
+            "views": view_count,
+            "reached_end": finished,
+            "share": share,
+        })
+    depth.sort(key=lambda item: -(item["views"] or 0))
+    result["scroll_depth"] = depth[:15]
+    # Enhanced measurement supplies `page_view` on its own, so the presence of a
+    # page_view proves the tag works and proves nothing about instrumentation.
+    result["instrumented"] = any(name in counts for name in GA4_INTENT_EVENTS)
+
+    for metric_pair in (("keyEvents", "sessionKeyEventRate"), ("conversions", "sessionConversionRate")):
+        try:
+            totals = _ga4_values_named(
+                _ga4_request(
+                    credentials_path,
+                    property_id,
+                    _totals_payload(days, device, metric_pair),
+                ),
+                metric_pair,
+            )
+        except Exception:
+            continue
+        result["key_events"] = totals.get(metric_pair[0])
+        result["session_key_event_rate"] = totals.get(metric_pair[1])
+        break
+    else:
+        result["key_event_message"] = (
+            "This property reported neither keyEvents nor conversions. "
+            "Key events are configured in Google Analytics admin, not here."
+        )
+
+    with _cache_lock:
+        _ga4_events_cache[key] = (now + CACHE_SECONDS, dict(result))
+    return result
+
+
+def _totals_payload(days: int, device: str, metrics: Sequence[str]) -> dict[str, Any]:
+    end = dt.date.today() - dt.timedelta(days=1)
+    start = end - dt.timedelta(days=days - 1)
+    payload: dict[str, Any] = {
+        "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
+        "metrics": [{"name": name} for name in metrics],
+        "limit": "1",
+    }
+    if device != "all":
+        payload["dimensionFilter"] = {
+            "filter": {
+                "fieldName": "deviceCategory",
+                "stringFilter": {"matchType": "EXACT", "value": device},
+            }
+        }
+    return payload
+
+
+def _ga4_values_named(
+    report: dict[str, Any], metrics: Sequence[str]
+) -> dict[str, int | float | None]:
+    rows = report.get("rows") if isinstance(report, dict) else None
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return {name: None for name in metrics}
+    values = rows[0].get("metricValues")
+    values = values if isinstance(values, list) else []
+    return {
+        name: _number(values[index].get("value"))
+        if index < len(values) and isinstance(values[index], dict)
+        else None
+        for index, name in enumerate(metrics)
+    }
+
+
+def _empty_trend(days: int, device: str, base: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": base.get("status", "not_connected"),
+        "message": base.get("message", ""),
+        "required_variables": list(GA4_REQUIRED_VARIABLES),
+        "missing_variables": base.get("missing_variables", []),
+        "range_days": days,
+        "device": device,
+        "series": [],
+    }
+
+
+def ga4_trend(days: int = 28, device: str = "all") -> dict[str, Any]:
+    """Sessions and engaged sessions, day by day.
+
+    The tiles compare this window against the previous one, which answers "up or
+    down" and nothing about shape. A campaign that landed on one day and a steady
+    climb produce the same delta; only the series tells them apart.
+
+    Days GA4 has no row for are filled in as explicit zeros rather than left out.
+    Here that is correct and not a violation of the never-a-zero rule: the window
+    is bounded by dates we chose, GA4 was collecting throughout it, and a day
+    with no session genuinely had none. A gap in the x-axis would misdraw the
+    shape, which is the whole point of the chart.
+    """
+    if days not in {7, 28, 90}:
+        days = 28
+    if device not in {"all", "desktop", "mobile", "tablet"}:
+        device = "all"
+    base = ga4_summary(days, device)
+    if base.get("status") not in {"ready", "collecting"}:
+        return _empty_trend(days, device, base)
+
+    config = {name: os.getenv(name, "").strip() for name in GA4_REQUIRED_VARIABLES}
+    key = tuple(config[name] for name in GA4_REQUIRED_VARIABLES) + (str(days), device, "trend")
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _ga4_trend_cache.get(key)
+        if cached and cached[0] > now:
+            return dict(cached[1])
+
+    result = _empty_trend(days, device, base)
+    result["status"] = base.get("status", "ready")
+    end = dt.date.today() - dt.timedelta(days=1)
+    start = end - dt.timedelta(days=days - 1)
+    payload: dict[str, Any] = {
+        "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
+        "dimensions": [{"name": "date"}],
+        "metrics": [{"name": "sessions"}, {"name": "engagedSessions"}],
+        "orderBys": [{"dimension": {"dimensionName": "date"}, "desc": False}],
+        "limit": "400",
+    }
+    if device != "all":
+        payload["dimensionFilter"] = {
+            "filter": {
+                "fieldName": "deviceCategory",
+                "stringFilter": {"matchType": "EXACT", "value": device},
+            }
+        }
+    try:
+        rows = _ga4_rows(
+            _ga4_request(config["GA4_CREDENTIALS_PATH"], config["GA4_PROPERTY_ID"], payload),
+            ("date",),
+            ("sessions", "engagedSessions"),
+        )
+    except Exception as exc:  # a trend failure must not blank the summary tiles
+        result["status"] = "error"
+        result["message"] = f"Google Analytics trend read failed: {type(exc).__name__}."
+        return result
+
+    measured: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        try:
+            day = dt.datetime.strptime(str(row.get("date") or ""), "%Y%m%d").date()
+        except ValueError:
+            continue
+        measured[day.isoformat()] = {
+            "sessions": row.get("sessions") or 0,
+            "engaged_sessions": row.get("engagedSessions") or 0,
+        }
+    series = []
+    cursor = start
+    while cursor <= end:
+        stamp = cursor.isoformat()
+        point = measured.get(stamp, {"sessions": 0, "engaged_sessions": 0})
+        series.append({"date": stamp, **point})
+        cursor += dt.timedelta(days=1)
+    result["series"] = series
+
+    with _cache_lock:
+        _ga4_trend_cache[key] = (now + CACHE_SECONDS, dict(result))
     return result

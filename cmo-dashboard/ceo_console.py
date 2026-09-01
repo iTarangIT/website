@@ -136,8 +136,14 @@ def state_payload(
         "analytics": {
             "search": search,
             "search_console": dashboard_server.gsc_summary(),
-            "ga4": analytics_readers.ga4_summary(range_days, device),
+            # `ga4_detail` is `ga4_summary` plus the page table and the collection
+            # start, so sending it costs nothing extra and saves a second summary
+            # round-trip. It was already fetched above for the blog join, and the
+            # page rows were being thrown away afterwards.
+            "ga4": ga4_detail,
             "ga4_audience": analytics_readers.ga4_audience(range_days, device),
+            "ga4_trend": analytics_readers.ga4_trend(range_days, device),
+            "ga4_events": analytics_readers.ga4_events(range_days, device),
             "posts": posts,
             "competitor": competitor,
         },

@@ -21,6 +21,7 @@ import {
   sendWhatsappOtp as sendOtp,
   verifyWhatsappOtp as verifyOtp,
 } from "@/lib/whatsapp-otp";
+import { EVENTS, trackEvent } from "@/lib/analytics";
 
 export interface VerifiedLead {
   name: string;
@@ -97,6 +98,10 @@ export default function CalculatorVerifyModal({
     const result = await sendOtp(normalizePhone(phone), name.trim());
     setBusy(false);
     if (result.success) {
+      // Reported on a delivered OTP, not on the button press. A send that
+      // failed is a step the visitor never actually reached, and counting it
+      // would hide a broken gate as a drop-off.
+      trackEvent(EVENTS.otpRequested, { lead_source: "loan_calculator" });
       setMockActive(result.data?.waStatus === "dev_hardcoded");
       setOtp("");
       setOtpError(null);
@@ -112,6 +117,7 @@ export default function CalculatorVerifyModal({
     setBusy(true);
     const result = await verifyOtp(code);
     if (result.success) {
+      trackEvent(EVENTS.otpVerified, { lead_source: "loan_calculator" });
       setStep("success");
       // Brief success flash, then hand the verified lead back to the caller.
       setTimeout(() => {

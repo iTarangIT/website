@@ -44,6 +44,7 @@ export default function WhatsAppDeeplinks() {
           <a
             key={link.label}
             href={url}
+            data-wa-location={`contact_${link.label.toLowerCase().replace(/\s+/g, "_")}`}
             target="_blank"
             rel="noopener noreferrer"
             className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${link.color}`}

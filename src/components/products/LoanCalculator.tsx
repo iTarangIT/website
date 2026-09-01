@@ -9,7 +9,7 @@
 // - Calls the public /api/calculator/* routes (cookie-gated + rate-limited).
 // - No WhatsApp results delivery.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Loader2,
   Calculator,
@@ -25,6 +25,7 @@ import CalculatorVerifyModal, {
   type VerifiedLead,
 } from "@/components/products/calculator/CalculatorVerifyModal";
 import type { CalcResponse, ConfigMeta } from "@/components/products/calculator/types";
+import { EVENTS, trackEvent } from "@/lib/analytics";
 
 // Remembered only to PREFILL the modal's name/phone for convenience — it never
 // grants access; a fresh OTP is still required for every calculation.
@@ -99,10 +100,20 @@ export default function LoanCalculator() {
     setPrefill(readPrefill());
   }, []);
 
+  // The first touch of any input is the top of the funnel. Reported once per
+  // mount: the event answers "how many people started", and firing it on every
+  // keystroke would answer a question nobody asked and inflate the denominator
+  // every later step is measured against.
+  const started = useRef(false);
+
   // Changing any input invalidates the shown result — the next "Calculate
   // schemes" must re-verify with a fresh OTP.
   const set = (k: keyof FormState, v: string) =>
     setForm((f) => {
+      if (!started.current) {
+        started.current = true;
+        trackEvent(EVENTS.calculatorStart, { field: String(k) });
+      }
       setResult(null);
       setError(null);
       return { ...f, [k]: v };
@@ -154,6 +165,14 @@ export default function LoanCalculator() {
       const data = await res.json();
       if (data.success) {
         setResult(data.data as CalcResponse);
+        // The bottom of the funnel, and the only conversion on this site that
+        // reaches a server: this response means a row was written to calcLeads
+        // against a phone number that passed an OTP. Reported here rather than
+        // on the button so a failed calculation is never counted as a lead.
+        trackEvent(EVENTS.generateLead, {
+          lead_source: "loan_calculator",
+          tenure: Number(form.tenure) || undefined,
+        });
       } else if (data.error?.code === "verification_required") {
         // Single-use cookie already consumed/expired — ask for a fresh OTP.
         setError("Your verification expired. Please verify again to calculate.");

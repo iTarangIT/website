@@ -712,6 +712,41 @@ class ServedPageTests(unittest.TestCase):
         # Sorting has three tables now; the key must come from the table, not a guess.
         self.assertIn("'posts-table':'posts'", page)
 
+    def test_the_analytics_tab_serves_the_tiered_google_analytics_panels(self) -> None:
+        """The tiering, in the bytes a browser actually receives.
+
+        Asserted on the served page rather than on the module, because every
+        regression this console has had was a name being present in a module
+        while the thing it named never reached a browser.
+        """
+        page = self.text("/ceo")
+
+        for panel in ('id="ga4-panel"', 'id="ga4-trend-panel"',
+                      'id="ga4-events-panel"', 'id="ga4-pages-panel"'):
+            self.assertIn(panel, page, panel)
+        for renderer in ("function renderGa4(", "function renderGa4Trend(",
+                         "function renderGa4Pages(", "function renderFunnel("):
+            self.assertIn(renderer, page, renderer)
+        # Every one of them has to be called, not merely defined.
+        self.assertIn("renderGa4();renderGa4Trend();renderGa4Pages();renderFunnel();", page)
+
+    def test_the_served_page_can_format_a_google_analytics_ratio(self) -> None:
+        """The defect this work started from: engagement rate rendered as
+        "0.207" because `figure` had no kind for a 0-to-1 ratio."""
+        page = self.text("/ceo")
+
+        self.assertIn("if(kind==='rate')return (Number(value)*100).toFixed(1)+'%';", page)
+        self.assertIn("{key:'engagement_rate',label:'Engagement rate',kind:'rate'}", page)
+        # And a delta between two ratios reads in points, not as a bare decimal.
+        self.assertIn("' pts'", page)
+
+    def test_the_executive_strip_is_six_tiles_and_the_grid_expects_six(self) -> None:
+        """A modifier without a rule is six tiles in a five-column grid."""
+        page = self.text("/ceo")
+
+        self.assertIn('class="tiles six"', page)
+        self.assertIn(".tiles.six{grid-template-columns:repeat(6,minmax(0,1fr))}", page)
+
     def test_the_per_post_table_offers_views_beside_the_search_columns(self) -> None:
         """The whole point of the join: what Google showed, and what a browser loaded."""
         page = self.text("/ceo")
