@@ -121,6 +121,21 @@
   75%, 100% { transform: scale(2.6); opacity: 0; }
 }
 
+/* Dealer map zoom. Button, double-click and keyboard zooms glide; pointer
+   gestures track the finger, so the frame drops the transition while dragging. */
+.dealer-map[data-animate="true"] .dealer-map-stage {
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dealer-map[data-animate="true"] .dealer-map-pin {
+  transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1), top 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dealer-map .dealer-map-stage,
+  .dealer-map .dealer-map-pin {
+    transition: none;
+  }
+}
+
 /* Track holds the logo set twice over, so -50% lands on a seam-free repeat.
    Spacing between cards must come from their own margins, never a flex gap —
    a gap would sit outside the halves and knock the loop out of register. */

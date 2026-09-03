@@ -3,10 +3,10 @@
 import { useState } from "react";
 import SectionHeading from "@/components/shared/SectionHeading";
 import FadeInOnScroll from "@/components/shared/FadeInOnScroll";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { DealerLocation } from "@/lib/dealers/types";
 import { cn } from "@/lib/utils";
-import IndiaMap from "./IndiaMap";
-import CityList from "./CityList";
+import DealerMapCard from "./DealerMapCard";
 
 interface DealerNetworkMapProps {
   /** Pins to plot, already aggregated per town. See `src/lib/dealers/locations.ts`. */
@@ -17,7 +17,7 @@ interface DealerNetworkMapProps {
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 export default function DealerNetworkMap({ locations, className }: DealerNetworkMapProps) {
-  const [activeName, setActiveName] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const live = locations.filter((l) => l.status === "active");
   const dealerTotal = live.reduce((sum, l) => sum + l.dealers, 0);
@@ -44,43 +44,19 @@ export default function DealerNetworkMap({ locations, className }: DealerNetwork
         />
 
         <FadeInOnScroll>
-          <div className="grid overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm lg:grid-cols-[1.5fr_1fr]">
-            <div className="p-5 md:p-8">
-              <IndiaMap locations={locations} activeName={activeName} onActivate={setActiveName} />
-              <Legend showOnboarding={onboardingTotal > 0} showApproximate={live.some((l) => l.approximate)} />
-            </div>
-            <CityList
-              locations={locations}
-              activeName={activeName}
-              onActivate={setActiveName}
-              className="border-t border-gray-100 lg:border-l lg:border-t-0"
-            />
-          </div>
+          <DealerMapCard locations={locations} onExpand={() => setExpanded(true)} />
         </FadeInOnScroll>
       </div>
-    </section>
-  );
-}
 
-function Legend({ showOnboarding, showApproximate }: { showOnboarding: boolean; showApproximate: boolean }) {
-  return (
-    <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-medium text-gray-600">
-      <span className="inline-flex items-center gap-2">
-        <span aria-hidden="true" className="h-3 w-3 rounded-full bg-brand-500 ring-2 ring-white shadow-sm" />
-        Live dealers
-      </span>
-      {showOnboarding && (
-        <span className="inline-flex items-center gap-2">
-          <span aria-hidden="true" className="h-3 w-3 rounded-full border-2 border-dashed border-accent-amber bg-white" />
-          In onboarding
-        </span>
-      )}
-      {showApproximate && (
-        <span className="inline-flex items-center gap-2">
-          <span aria-hidden="true" className="h-3 w-3 rounded-full border-2 border-brand-500 bg-brand-100" />
-          Town not yet placed, shown at state level
-        </span>
-      )}
-    </div>
+      {/* The expanded view is a fresh card instance: its own zoom starts at rest
+          and the page copy behind it stays exactly where it was. */}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="w-[calc(100%-1.5rem)] gap-3 bg-white p-4 sm:max-w-[min(96vw,80rem)] sm:p-6">
+          <DialogTitle className="pr-10 text-base font-semibold text-gray-900">Dealer network map</DialogTitle>
+          <DialogDescription className="sr-only">{subtitle}</DialogDescription>
+          <DealerMapCard locations={locations} expanded className="shadow-none" />
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }
