@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { useInView } from "react-intersection-observer";
@@ -28,9 +28,19 @@ interface PlacedLocation {
   fy: number;
 }
 
-/** Zoom levels at which pins earn a permanent label; the map has room by then. */
-const LABEL_LIVE_ZOOM = 2.2;
+/**
+ * Zoom levels at which pins earn a permanent label. At rest the map names the
+ * states instead; one zoom step (STEP is 1.6) brings the towns in. The 1.5 is
+ * deliberately just under that step so the comparison is not an equality test
+ * against a floating-point product.
+ */
+const LABEL_LIVE_ZOOM = 1.5;
 const LABEL_ONBOARDING_ZOOM = 3.6;
+
+/** Breathing room either side of a state name before it counts as fitting. */
+const LABEL_PADDING_PX = 8;
+/** Below this screen gap a state name and a dealer pin would print over each other. */
+const LABEL_PIN_GAP_PX = 30;
 
 export function locationKey(l: DealerLocation): string {
   return `${l.state}|${l.name}`;
@@ -61,6 +71,70 @@ function framePosition(fx: number, fy: number): CSSProperties {
   };
 }
 
+/**
+ * State names, written at each unit's pole of inaccessibility.
+ *
+ * Whether a name fits cannot be decided when the map data is generated: the
+ * same frame renders at roughly 300 px on a phone, 530 px inline and 755 px in
+ * the expanded dialog, and the text is a fixed pixel size in all three. So the
+ * build ships geometry only — the anchor and the clear radius around it, in
+ * canvas units — and the decision is made here against the measured frame.
+ */
+function StateLabels({ zoom, framePx, pins }: { zoom: number; framePx: number; pins: PlacedLocation[] }) {
+  const { width, height, states } = indiaMap;
+  const nodes = useRef(new Map<string, HTMLSpanElement>());
+  const [widths, setWidths] = useState<Map<string, number>>(new Map());
+
+  // Measured before paint, so nothing flashes on at first render. Webfonts can
+  // land later and change every width, hence the second pass.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const next = new Map<string, number>();
+      nodes.current.forEach((el, id) => next.set(id, el.offsetWidth));
+      setWidths(next);
+    };
+    measure();
+    void document.fonts?.ready.then(measure).catch(() => undefined);
+  }, []);
+
+  // Screen pixels per canvas unit: the exchange rate the fit test needs.
+  const pxPerUnit = framePx > 0 ? (framePx / width) * zoom : 0;
+
+  return (
+    <>
+      {states.map((state) => {
+        const [lx, ly, clear] = state.label;
+        const measured = widths.get(state.id);
+        const fits = measured != null && pxPerUnit > 0 && measured + LABEL_PADDING_PX <= 2 * clear * pxPerUnit;
+        // A pin on the anchor wins. Delhi's clear radius is 3.3 units and the
+        // NCR pin sits 1.8 from it, so without this the name prints through it.
+        const clashes =
+          fits &&
+          pins.some((p) => Math.hypot(p.fx * width - lx, p.fy * height - ly) * pxPerUnit < LABEL_PIN_GAP_PX);
+
+        return (
+          <span
+            key={state.id}
+            ref={(el) => {
+              if (el) nodes.current.set(state.id, el);
+              else nodes.current.delete(state.id);
+            }}
+            aria-hidden="true"
+            className={cn(
+              "dealer-map-pin pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap",
+              "text-[10px] font-semibold uppercase tracking-[0.12em] text-brand-800 transition-opacity duration-300",
+              fits && !clashes ? "opacity-100" : "opacity-0",
+            )}
+            style={framePosition(lx / width, ly / height)}
+          >
+            {state.name}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 export default function IndiaMap({ locations, activeName, onActivate, onExpand, className, style }: IndiaMapProps) {
   const { ref: inViewRef, inView } = useInView({ triggerOnce: true, threshold: 0.2 });
   const { width, height, states } = indiaMap;
@@ -82,6 +156,22 @@ export default function IndiaMap({ locations, activeName, onActivate, onExpand, 
   );
 
   const active = placed.find((p) => locationKey(p.location) === activeName) ?? null;
+
+  // The rendered frame width decides which state names fit. Each instance
+  // measures its own, so the inline card and the expanded dialog differ freely.
+  const [framePx, setFramePx] = useState(0);
+  const { frameRef } = viewport;
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    setFramePx(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setFramePx(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [frameRef]);
 
   const frameVars = {
     "--map-k": String(view.k),
@@ -130,6 +220,9 @@ export default function IndiaMap({ locations, activeName, onActivate, onExpand, 
             ))}
           </svg>
         </div>
+
+        {/* Before the pins, so a pin and its town label always paint on top. */}
+        <StateLabels zoom={view.k} framePx={framePx} pins={placed} />
 
         {placed.map((p, i) => (
           <Pin
@@ -203,11 +296,10 @@ function Pin({ placed, index, revealed, zoom, isActive, onActivate }: PinProps) 
   const { location, fx, fy } = placed;
   const key = locationKey(location);
   const live = location.status === "active";
-  // At rest only multi-dealer towns carry a label; zooming in makes room for the rest.
+  // At rest the map belongs to the state names; the first zoom step hands it to
+  // the towns. A hovered or focused pin always names itself, at any zoom.
   const showLabel =
-    isActive ||
-    (live && (location.dealers > 1 || zoom >= LABEL_LIVE_ZOOM)) ||
-    (!live && zoom >= LABEL_ONBOARDING_ZOOM);
+    isActive || (live && zoom >= LABEL_LIVE_ZOOM) || (!live && zoom >= LABEL_ONBOARDING_ZOOM);
 
   return (
     <motion.div
