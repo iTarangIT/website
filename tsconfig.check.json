@@ -11,7 +11,20 @@
   "compilerOptions": { "incremental": false, "noEmit": true },
   "files": [
     "scripts/build-india-map.ts",
+    "scripts/build-pincode-areas.ts",
+    "src/lib/geo/rings.ts",
+    "src/lib/dealers/crm.ts",
+    "src/lib/dealers/locations.ts",
+    "src/lib/dealers/nearest.ts",
+    "src/lib/dealers/locate.test.ts",
+    "src/lib/dealers/nearest.test.ts",
+    "src/app/api/dealers/nearest/route.ts",
+    "src/app/(marketing)/for-dealers/page.tsx",
     "src/components/partners/dealer-map/IndiaMap.tsx",
-    "src/lib/dealers/locate.test.ts"
+    "src/components/partners/dealer-map/useMapViewport.ts",
+    "src/components/partners/dealer-map/DealerMapCard.tsx",
+    "src/components/partners/dealer-map/DealerNetworkMap.tsx",
+    "src/components/partners/dealer-map/DealerSearch.tsx",
+    "src/components/partners/dealer-map/NearestDealerList.tsx"
   ]
 }

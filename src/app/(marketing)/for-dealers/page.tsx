@@ -25,7 +25,10 @@ export default async function ForDealersPage() {
         title: "Partner with iTarang as an E-Rickshaw Battery Dealer",
         intro:
           "Discuss a dealer workflow for battery enquiries, financing support, installation, monitoring, and service. The partnership team will confirm the products, responsibilities, and geography relevant to your business.",
-        afterHero: locations && locations.length > 0 ? <DealerNetworkMap locations={locations} /> : undefined,
+        // Rendered even when the CRM is unreachable and `locations` is null: the
+        // component drops the map card but keeps the nearest-dealer search,
+        // which reads the database on its own and may well succeed.
+        afterHero: <DealerNetworkMap locations={locations ?? []} />,
         sections: [
           {
             title: "What the partnership can cover",
