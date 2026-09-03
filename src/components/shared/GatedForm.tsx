@@ -5,6 +5,7 @@ import { CheckCircle, Download } from "lucide-react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
+import { EVENTS, trackEvent } from "@/lib/analytics";
 
 interface GatedFormData {
   name: string;
@@ -69,6 +70,16 @@ export default function GatedForm({
 
     // Call optional onSubmit callback
     onSubmit?.(formData);
+
+    // Reported for the same reason the WhatsApp clicks are: this is a hand
+    // raised by a named person with a stated role, and it was invisible.
+    // Note the submission itself never leaves the browser -- see the storage
+    // block above -- so this event is currently the ONLY trace that anyone
+    // asked for the deck.
+    trackEvent(EVENTS.deckRequest, {
+      role: formData.role || undefined,
+      asset: downloadUrl || "none",
+    });
 
     // Trigger download if URL is provided
     if (downloadUrl) {

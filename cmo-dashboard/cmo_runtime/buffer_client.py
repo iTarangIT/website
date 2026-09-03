@@ -68,6 +68,10 @@ PLATFORM_TO_SERVICE = {value: key for key, value in SERVICE_TO_PLATFORM.items()}
 #: posture is that an approved post joins the queue Buffer already schedules.
 SHARE_MODES = ("addToQueue", "shareNext")
 
+#: Instagram's own carousel ceiling. Buffer surfaces it as a rejection at send
+#: time; refusing here names the number instead of relaying "invalid input".
+MAX_CAROUSEL_ASSETS = 10
+
 _CHANNELS_QUERY = """
 query ConsoleChannels($input: ChannelsInput!) {
   channels(input: $input) {
@@ -115,6 +119,27 @@ query ConsolePost($input: PostInput!) {
   }
 }
 """
+
+
+def _image_asset(picture: Mapping[str, str]) -> dict[str, Any]:
+    """One `AssetInput` for an image Buffer will fetch over the public internet.
+
+    `ImageMetadataInput.altText` is non-null in the schema, so metadata is either
+    omitted entirely or carries real alt text — an empty string is a validation
+    error dressed up as politeness.
+    """
+    url = _clean(picture.get("url"))
+    if not url:
+        raise BufferRefused("An image was given with no URL for Buffer to fetch.")
+    if not url.lower().startswith(("http://", "https://")):
+        raise BufferRefused(
+            f"Buffer fetches images over the internet, so {url!r} cannot be posted."
+        )
+    image: dict[str, Any] = {"url": url}
+    alt = _clean(picture.get("alt"))
+    if alt:
+        image["metadata"] = {"altText": alt}
+    return {"image": image}
 
 
 class BufferRefused(RuntimeError):
@@ -309,6 +334,7 @@ class BufferClient:
         link: str = "",
         image_url: str = "",
         image_alt: str = "",
+        images: Sequence[Mapping[str, str]] = (),
         thread: Sequence[str] = (),
         mode: str = "addToQueue",
     ) -> BufferPost:
@@ -336,12 +362,13 @@ class BufferClient:
         if not text:
             raise BufferRefused("There is no copy to post.")
 
-        assets: list[dict[str, Any]] = []
+        # One image or many. `image_url`/`image_alt` remain the single-image
+        # shorthand every existing caller uses; `images` is how a carousel or an
+        # infographic arrives.
+        pictures = [dict(item) for item in images]
         if image_url:
-            image: dict[str, Any] = {"url": image_url}
-            if image_alt:
-                image["metadata"] = {"altText": image_alt}
-            assets.append({"image": image})
+            pictures.insert(0, {"url": image_url, "alt": image_alt})
+        assets = [_image_asset(picture) for picture in pictures]
 
         metadata: dict[str, Any] = {}
         if platform == "instagram":
@@ -350,7 +377,18 @@ class BufferClient:
                     "Instagram needs a picture. Publish the article so its cover "
                     "image is reachable, or bind a cover on the Files tab."
                 )
-            metadata["instagram"] = {"type": "post", "shouldShareToFeed": True}
+            if len(assets) > MAX_CAROUSEL_ASSETS:
+                raise BufferRefused(
+                    f"Instagram takes at most {MAX_CAROUSEL_ASSETS} cards in a "
+                    f"carousel; this one has {len(assets)}."
+                )
+            # `PostType` carries `carousel`, and `InstagramPostMetadataInput.type`
+            # is non-null, so the shape is chosen here rather than inferred by
+            # Buffer from the asset count.
+            metadata["instagram"] = {
+                "type": "carousel" if len(assets) > 1 else "post",
+                "shouldShareToFeed": True,
+            }
         elif platform == "x":
             items = [item for item in (_clean(part) for part in thread) if item]
             if items:
@@ -359,11 +397,24 @@ class BufferClient:
                 # `assets` is `[AssetInput!]!` on every thread item — non-null, so
                 # an item without one is a validation error, not a picture-less
                 # tweet. The empty list is the "no picture" value.
+                #
+                # The picture belongs on the first item, which is the one that has
+                # to earn the rest of the thread. Outer `assets` is left mirroring
+                # it for the same reason outer `text` does.
                 metadata["twitter"] = {
-                    "thread": [{"text": item, "assets": []} for item in items]
+                    "thread": [
+                        {"text": item, "assets": assets if index == 0 else []}
+                        for index, item in enumerate(items)
+                    ]
                 }
-        elif platform == "linkedin" and link:
-            metadata["linkedin"] = {"linkAttachment": {"url": link}}
+        elif platform == "linkedin":
+            # LinkedIn renders a link-preview card OR an image, never both, and
+            # `linkAttachment` is what produces the card. So an infographic
+            # replaces the preview rather than sitting beside it, and the URL
+            # travels in the post text instead — which is where `social_copy`
+            # already puts it.
+            if link and not assets:
+                metadata["linkedin"] = {"linkAttachment": {"url": link}}
 
         variables = {
             "input": {

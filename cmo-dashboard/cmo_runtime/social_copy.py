@@ -27,13 +27,15 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 #: Hard ceilings the networks enforce. A draft over one of these is refused
 #: here, where the reason can be shown beside the text a human can shorten.
+from cmo_runtime import social_tags
+
 PLATFORM_LIMITS = {"linkedin": 3000, "x": 280, "instagram": 2200}
 
 #: What a thread may run to. Longer than this is a blog post, which we have.
@@ -42,7 +44,6 @@ MAX_THREAD_ITEMS = 8
 #: The platforms this module writes for, in console display order.
 PLATFORMS = ("linkedin", "x", "instagram")
 
-_TAG = re.compile(r"[^a-z0-9]+")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -99,20 +100,61 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def _hashtags(summary: ArticleSummary, limit: int) -> str:
-    """Hashtags from the article's own keywords, never a generic block.
+def _tag_line(summary: ArticleSummary, platform: str) -> str:
+    """The curated industry tags for this article on this platform.
 
-    Multi-word keywords collapse to one tag; anything that survives as fewer than
-    three characters is dropped rather than posted as `#ev`.
+    Lives in `social_tags` rather than here because the tags are editorial
+    content — a reviewed list of rooms real practitioners are in — and not a
+    string transformation of the keywords. See that module for why the old
+    slugify-the-keywords approach produced `#evfinance` and, on a card with no
+    keywords, produced nothing at all.
     """
-    tags: list[str] = []
-    for keyword in (*summary.keywords, summary.category.replace("-", " ")):
-        tag = _TAG.sub("", _clean(keyword).lower().replace(" ", ""))
-        if len(tag) >= 3 and f"#{tag}" not in tags:
-            tags.append(f"#{tag}")
-        if len(tags) >= limit:
-            break
-    return " ".join(tags)
+    return social_tags.tag_line(
+        platform, category=summary.category, keywords=summary.keywords
+    )
+
+
+def with_tags(
+    drafts: Mapping[str, SocialDraft], summary: ArticleSummary
+) -> dict[str, SocialDraft]:
+    """Append the curated tags to every draft, whoever wrote the prose.
+
+    Applied after the producer rather than inside it, so the writer and the
+    fallback composer carry the same reviewed tags. A model asked to pick its own
+    would pick different ones every regeneration, and none of them assertable.
+
+    Tags are dropped one at a time until the post fits its limit, and dropped
+    entirely rather than overflowing it: a tag is worth less than the sentence it
+    would push off the end.
+    """
+    tagged: dict[str, SocialDraft] = {}
+    for platform, draft in drafts.items():
+        tags = social_tags.tags_for_platform(
+            platform, category=summary.category, keywords=summary.keywords
+        )
+        if platform == "x":
+            # The tags ride the last item, which is the one carrying the link.
+            # Anywhere earlier and they interrupt the argument mid-thread.
+            items = list(draft.thread) or [draft.body]
+            items[-1] = _append_tags(items[-1], tags, PLATFORM_LIMITS[platform])
+            tagged[platform] = replace(
+                draft, thread=tuple(items), body=items[0] if draft.thread else items[0]
+            )
+            continue
+        tagged[platform] = replace(
+            draft, body=_append_tags(draft.body, tags, PLATFORM_LIMITS[platform])
+        )
+    return tagged
+
+
+def _append_tags(text: str, tags: Sequence[str], limit: int) -> str:
+    """`text` with as many of `tags` as fit under `limit`, or `text` unchanged."""
+    body = text.rstrip()
+    for count in range(len(tags), 0, -1):
+        candidate = f"{body}\n\n{' '.join(tags[:count])}"
+        if len(candidate) <= limit:
+            return candidate
+    return body
 
 
 def summarise_article(
@@ -196,8 +238,7 @@ def compose(summary: ArticleSummary) -> dict[str, SocialDraft]:
     linkedin_body = _fit(
         f"{audience}{summary.title}\n\n{lead}"
         + (f"\n\n{support}" if support else "")
-        + f"\n\nRead the full piece: {summary.url}"
-        + (f"\n\n{_hashtags(summary, 4)}" if summary.keywords else ""),
+        + f"\n\nRead the full piece: {summary.url}",
         PLATFORM_LIMITS["linkedin"],
     )
 
@@ -210,8 +251,7 @@ def compose(summary: ArticleSummary) -> dict[str, SocialDraft]:
     items.append(_fit(f"Full article: {summary.url}", PLATFORM_LIMITS["x"]))
 
     instagram_body = _fit(
-        f"{summary.title}\n\n{lead}\n\nFull article linked in bio."
-        + (f"\n\n{_hashtags(summary, 8)}" if summary.keywords else ""),
+        f"{summary.title}\n\n{lead}\n\nFull article linked in bio.",
         PLATFORM_LIMITS["instagram"],
     )
 
@@ -277,12 +317,15 @@ with one concrete number or fact taken from the article, close with the link.
 Maximum {linkedin_limit} characters. No emoji.
 
 X_THREAD: a JSON array of 2 to {thread_cap} strings, each at most {x_limit}
-characters. The first earns the second. The last carries the link. No hashtags
-except at most one on the final item.
+characters. The first earns the second. The last carries the link.
 
 INSTAGRAM: a caption to sit under the cover image. Maximum {instagram_limit}
-characters. It may carry up to 8 hashtags. Instagram captions have no live link,
-so say the article is linked in bio rather than pasting a URL.
+characters. Instagram captions have no live link, so say the article is linked
+in bio rather than pasting a URL.
+
+Write NO hashtags anywhere, on any of the three. The console appends a reviewed
+set afterwards; tags you invent here would be dropped, and would cost you
+characters that are checked against the limits above.
 
 Invent nothing that is not in the article. Reply with exactly these sections:
 
@@ -385,11 +428,17 @@ def drafts_for(
     """
     if writer is not None and skill_text.strip():
         try:
-            return writer.write(task_id=task_id, summary=summary, skill_text=skill_text)
+            written = with_tags(writer.write(
+                task_id=task_id, summary=summary, skill_text=skill_text
+            ), summary)
+            # Re-checked after tagging: the writer's copy was validated against
+            # the limit before the tags were on it.
+            validate(written)
+            return written
         except SocialCopyRefused:
             pass
         except (OSError, subprocess.SubprocessError):
             pass
-    drafts = compose(summary)
+    drafts = with_tags(compose(summary), summary)
     validate(drafts)
     return drafts

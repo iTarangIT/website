@@ -11,7 +11,11 @@
 
 export const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID ?? "";
 
-/** The tag only loads when a measurement id is configured. */
+/**
+ * Whether the *direct* GA4 tag renders. This gates `GoogleAnalytics.tsx` only —
+ * it is deliberately not a gate on `trackEvent`, which reports through Google
+ * Tag Manager and works whether or not the direct tag is loaded.
+ */
 export const analyticsEnabled = GA_MEASUREMENT_ID.length > 0;
 
 type GtagArgs =
@@ -28,13 +32,44 @@ declare global {
 }
 
 /**
- * Send one GA4 event. Safe to call before the tag has loaded, on the server,
- * and when analytics is switched off — it simply does nothing.
+ * Send one event.
+ *
+ * This pushes to `window.dataLayer`, not to `window.gtag`. The difference is the
+ * whole reason events work at all: the root layout loads Google Tag Manager,
+ * which is what carries GA4 for this property, and `window.gtag` exists only
+ * when the *direct* GA4 tag is the one loading — which it is not, by default.
+ * Every event this file sent through `gtag` was therefore dropped on the floor
+ * in production, silently, for as long as the events have existed.
+ *
+ * `dataLayer` is created by GTM's own bootstrap and is safe to push to before
+ * the container has loaded; entries queued first are replayed once it does.
+ *
+ * A push is not the same as a measurement. GTM forwards an event to GA4 only
+ * when the container holds a GA4 Event tag with a custom-event trigger for that
+ * name, and GA4 counts it as a conversion only when it is marked a key event in
+ * GA4 admin. Both are container-side configuration; the names below are the
+ * contract with cmo-dashboard/analytics_readers.py (GA4_FUNNEL_STEPS and
+ * GA4_INTENT_EVENTS), and renaming one here silently empties a console panel.
  */
 export function trackEvent(name: string, params: Record<string, unknown> = {}): void {
-  if (typeof window === "undefined" || !analyticsEnabled) return;
-  window.gtag?.("event", name, params);
+  if (typeof window === "undefined") return;
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({ event: name, ...params });
 }
+
+/**
+ * The events the site reports, named once so a caller cannot invent a spelling
+ * the dashboard does not read.
+ */
+export const EVENTS = {
+  calculatorStart: "calculator_start",
+  otpRequested: "otp_requested",
+  otpVerified: "otp_verified",
+  generateLead: "generate_lead",
+  whatsappClick: "whatsapp_click",
+  deckRequest: "deck_request",
+  contactSubmit: "contact_submit",
+} as const;
 
 /** The share destinations we tag, mirrored by TRAFFIC_SOURCES in analytics_readers.py. */
 export type ShareChannel = "whatsapp" | "facebook" | "x" | "linkedin" | "copy_link";

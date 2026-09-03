@@ -98,10 +98,11 @@ class FakeBuffer:
         ]
 
     def create_post(self, *, channel_id, platform, text, link="", image_url="",
-                    image_alt="", thread=(), mode="addToQueue"):
+                    image_alt="", images=(), thread=(), mode="addToQueue"):
         self.posted.append(
             {"platform": platform, "text": text, "link": link,
-             "image_url": image_url, "thread": list(thread), "mode": mode}
+             "image_url": image_url, "images": [dict(item) for item in images],
+             "thread": list(thread), "mode": mode}
         )
         if platform in self.refuse:
             raise BufferRefused(f"Buffer would not take the {platform} post.")
@@ -404,3 +405,211 @@ class TheSend(SocialFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeImages:
+    """A Gemini that draws nothing and records every prompt it was given."""
+
+    def __init__(self, *, fail_after: int | None = None) -> None:
+        self.prompts: list[dict] = []
+        self.fail_after = fail_after
+
+    def generate(self, prompt, *, task_id="", aspect_ratio="16:9", image_size="1K"):
+        from cmo_runtime.image_gen import GeneratedImage, ImageGenRefused
+
+        if self.fail_after is not None and len(self.prompts) >= self.fail_after:
+            raise ImageGenRefused("blocked — month-to-date spend crosses the threshold")
+        self.prompts.append(
+            {"prompt": prompt, "task_id": task_id, "aspect_ratio": aspect_ratio}
+        )
+        return GeneratedImage(
+            webp=b"RIFFfake-card", width=1080, height=1080,
+            model="gemini-3.1-flash-image", image_size=image_size,
+            aspect_ratio=aspect_ratio, prompt=prompt, estimated_cost_usd=0.067,
+        )
+
+
+class TheCards(SocialFixture):
+    """The infographics and the carousel: planned, drawn, bound, and posted."""
+
+    def plan(self):
+        return ceo_social.plan_cards(self.profile, "TASK-900", website_root=self.website)
+
+    def draw(self, **overrides):
+        options = {
+            "actor": "ceo@itarang.test",
+            "website_root": self.website,
+            "client": FakeImages(),
+        }
+        options.update(overrides)
+        return ceo_social.generate_cards(self.profile, "TASK-900", **options)
+
+    def test_the_plan_spends_nothing_and_says_what_would_be_drawn(self):
+        """A human sees the set and its cost before a rupee is spent."""
+        cards, slug = self.plan()
+
+        self.assertTrue(slug)
+        self.assertTrue(cards)
+        self.assertEqual({card.platform for card in cards}, {"linkedin", "x", "instagram"})
+
+    def test_every_card_is_written_to_the_artifact_store(self):
+        self.generate()
+        result = self.draw()
+
+        for card in result["cards"]:
+            with self.subTest(variant=card["variant"]):
+                self.assertTrue((self.profile / "artifacts" / card["filename"]).is_file())
+
+    def test_each_card_is_asked_for_at_its_own_aspect_ratio(self):
+        """A square carousel card drawn at 16:9 is cropped by Instagram, not by us."""
+        self.generate()
+        client = FakeImages()
+        self.draw(client=client)
+
+        ratios = {
+            call["aspect_ratio"] for call in client.prompts
+        }
+        self.assertEqual(ratios, {"16:9", "1:1"})
+
+    def test_the_prompt_carries_the_planned_copy_rather_than_asking_for_copy(self):
+        """The model sets words it is given; it never writes them."""
+        self.generate()
+        client = FakeImages()
+        self.draw(client=client)
+
+        for call in client.prompts:
+            with self.subTest(prompt=call["prompt"][:40]):
+                self.assertIn("EXACTLY as given", call["prompt"])
+
+    def test_the_carousel_is_bound_to_instagram_in_swipe_order(self):
+        self.generate()
+        self.draw()
+        images = self.drafts()["instagram"]["images"]
+
+        self.assertGreater(len(images), 1, "instagram got a single card, not a carousel")
+        self.assertIn("-ig-cover", images[0]["url"])
+        self.assertIn("-ig-close", images[-1]["url"])
+
+    def test_linkedin_and_x_each_get_exactly_one_infographic(self):
+        self.generate()
+        self.draw()
+        drafts = self.drafts()
+
+        for platform in ("linkedin", "x"):
+            with self.subTest(platform=platform):
+                self.assertEqual(len(drafts[platform]["images"]), 1)
+
+    def test_every_bound_card_carries_alt_text(self):
+        """`ImageMetadataInput.altText` is non-null; Buffer 400s on an empty one."""
+        self.generate()
+        self.draw()
+
+        for platform, row in self.drafts().items():
+            for image in row["images"]:
+                with self.subTest(platform=platform, url=image["url"]):
+                    self.assertTrue(image["alt"].strip())
+
+    def test_the_bound_urls_are_public_and_not_artifact_paths(self):
+        """Buffer fetches over the internet; a profile path is not an image."""
+        self.generate()
+        self.draw()
+
+        for row in self.drafts().values():
+            for image in row["images"]:
+                with self.subTest(url=image["url"]):
+                    self.assertTrue(image["url"].startswith("http"))
+                    self.assertIn("/images/social/", image["url"])
+
+    def test_drawing_cards_does_not_disturb_the_copy(self):
+        """Two separate presses, two separate columns."""
+        self.generate()
+        before = {name: row["body"] for name, row in self.drafts().items()}
+        self.draw()
+
+        self.assertEqual({name: row["body"] for name, row in self.drafts().items()}, before)
+
+    def test_rewriting_the_copy_does_not_discard_the_cards(self):
+        """They cost money. A caption edit must not throw them away."""
+        self.generate()
+        self.draw()
+        before = self.drafts()["instagram"]["images"]
+        self.generate()
+
+        self.assertEqual(self.drafts()["instagram"]["images"], before)
+
+    def test_a_budget_refusal_says_how_many_cards_were_already_paid_for(self):
+        """Otherwise a retry pays for them twice with no way to know."""
+        self.generate()
+        with self.assertRaises(ceo_social.PublicationRefused) as caught:
+            self.draw(client=FakeImages(fail_after=2))
+
+        self.assertIn("2 of", str(caught.exception))
+
+    def test_cards_are_refused_outright_when_gemini_is_not_connected(self):
+        """The key the user supplies. Its absence is a sentence, not a stack trace."""
+        self.generate()
+        with self.assertRaises(ceo_social.PublicationRefused) as caught:
+            ceo_social.generate_cards(
+                self.profile, "TASK-900", actor="ceo@itarang.test",
+                website_root=self.website,
+            )
+
+        self.assertIn("Gemini not connected", str(caught.exception))
+
+
+class TheCardsOnTheWire(SocialFixture):
+    """What Buffer is actually handed once the cards exist."""
+
+    def draw_and_send(self, **overrides):
+        self.generate()
+        ceo_social.generate_cards(
+            self.profile, "TASK-900", actor="ceo@itarang.test",
+            website_root=self.website, client=FakeImages(),
+        )
+        return self.send(**overrides)
+
+    def posted(self) -> dict[str, dict]:
+        return {item["platform"]: item for item in self.buffer.posted}
+
+    def test_instagram_is_handed_the_carousel_not_the_article_cover(self):
+        self.draw_and_send()
+        instagram = self.posted()["instagram"]
+
+        self.assertGreater(len(instagram["images"]), 1)
+        self.assertEqual(instagram["image_url"], "", "the cover was sent beside the carousel")
+
+    def test_linkedin_and_x_are_handed_their_infographic(self):
+        self.draw_and_send()
+        posted = self.posted()
+
+        for platform in ("linkedin", "x"):
+            with self.subTest(platform=platform):
+                self.assertEqual(len(posted[platform]["images"]), 1)
+
+    def test_an_article_with_no_cards_still_sends_on_its_cover(self):
+        """Every article published before the cards existed relies on this."""
+        self.generate()
+        self.send()
+        instagram = self.posted()["instagram"]
+
+        self.assertEqual(instagram["images"], [])
+        self.assertIn("/images/blog/", instagram["image_url"])
+
+    def test_a_platform_whose_cards_are_not_live_yet_is_not_offered(self):
+        """Buffer would fetch a 404 and report it as a flat invalid input."""
+        self.generate()
+        ceo_social.generate_cards(
+            self.profile, "TASK-900", actor="ceo@itarang.test",
+            website_root=self.website, client=FakeImages(),
+        )
+
+        def nothing_is_reachable(request, timeout=0):
+            raise OSError("not deployed yet")
+
+        check = self.preflight(check_live=True, opener=nothing_is_reachable)
+
+        self.assertEqual(check.sendable, [])
+        self.assertTrue(
+            any("not on the live site yet" in note for note in check.notes),
+            check.notes,
+        )

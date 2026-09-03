@@ -164,9 +164,61 @@ def _audience(status: str = "ready") -> dict:
     }
 
 
+def _ga4(**overrides: object) -> dict:
+    """A connected property, as `ga4_technical_summary` returns it.
+
+    The engagement rate is deliberately 0.207 — the exact value www.itarang.com
+    reported when this panel was still printing raw ratios on screen.
+    """
+    metrics = {
+        "active_users": 24, "sessions": 29, "screen_page_views": 46,
+        "engagement_rate": 0.207, "new_users": 18, "engaged_sessions": 6,
+        "average_session_duration": 72.4, "screen_page_views_per_session": 1.586,
+        "bounce_rate": 0.793, "sessions_per_user": 1.208, "returning_users": 6,
+    }
+    payload = {
+        "status": "ready", "message": "", "required_variables": ["GA4_PROPERTY_ID"],
+        "range_days": 28, "device": "all",
+        "metrics": metrics,
+        "previous": metrics,
+        "deltas": {"active_users": 4, "engagement_rate": 0.05,
+                   "average_session_duration": 12.0, "engaged_sessions": 2,
+                   "screen_page_views_per_session": 0.21},
+        "pages": [{"page": "/how-it-works", "screen_page_views": 18,
+                   "sessions": 12, "engagement_rate": 0.41}],
+        "collection_start": "2026-08-04",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _events(**overrides: object) -> dict:
+    payload = {
+        "status": "ready", "message": "", "required_variables": ["GA4_PROPERTY_ID"],
+        "range_days": 28, "device": "all",
+        "events": [{"event": "page_view", "count": 46, "users": 24, "intent": False}],
+        "funnel": [
+            {"step": "Opened the calculator", "event": "calculator_start",
+             "count": None, "instrumented": False, "retention": None},
+            {"step": "Asked for an OTP", "event": "otp_requested",
+             "count": None, "instrumented": False, "retention": None},
+            {"step": "Verified the number", "event": "otp_verified",
+             "count": None, "instrumented": False, "retention": None},
+            {"step": "Became a lead", "event": "generate_lead",
+             "count": None, "instrumented": False, "retention": None},
+        ],
+        "key_events": None, "session_key_event_rate": None,
+        "key_event_message": "", "instrumented": False,
+        "scroll_depth": [], "scroll_message": "",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dict | None = None,
              archived: list | None = None, radar: dict | None = None,
-             social: dict | None = None, audience: dict | None = None) -> dict:
+             social: dict | None = None, audience: dict | None = None,
+             ga4: dict | None = None, ga4_events: dict | None = None) -> dict:
     series = [
         {"date": f"2026-08-{day:02d}", "impressions": day * 12, "clicks": day % 4, "ctr": 1.4, "position": 12.5}
         for day in range(1, 15)
@@ -229,8 +281,9 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
                 },
                 "search_console": {"status": "collecting"},
                 "ga4": {"status": "not_connected", "message": "Google Analytics is not connected yet",
-                        "required_variables": ["GA4_PROPERTY_ID"]},
+                        "required_variables": ["GA4_PROPERTY_ID"]} if ga4 is None else ga4,
                 "ga4_audience": _audience() if audience is None else audience,
+                "ga4_events": _events() if ga4_events is None else ga4_events,
                 "posts": {
                     "posts": [
                         {"slug": "emi", "title": "What an EMI actually costs", "url": "https://itarang.com/blog/emi",
@@ -673,3 +726,154 @@ class PerPostTableRenders(unittest.TestCase):
         row = body.split("Shared, never found", 1)[1]
         self.assertIn("—", row)
         self.assertNotIn(">0<", row)
+
+
+class Ga4TieringRenders(unittest.TestCase):
+    """The tiered Google Analytics panel, executed rather than grepped.
+
+    The reported defect was not a missing feature: it was four tiles printing a
+    number nobody could read. So the first test here is the number.
+    """
+
+    maxDiff = None
+
+    @classmethod
+    def render(cls, fixture: dict) -> dict:
+        return ConsoleRenders.run_console(fixture)
+
+    def test_an_engagement_rate_reads_as_a_percentage_not_a_ratio(self) -> None:
+        """Google Analytics reports engagement as a ratio between 0 and 1.
+
+        Printed through the default branch of `figure` it rendered as "0.207",
+        which is what www.itarang.com's console showed. It is a percentage, and
+        a CMO reading a percentage should not have to move a decimal point.
+        """
+        html = self.render(_fixture(ga4=_ga4()))["ga4"]
+
+        self.assertIn("20.7%", html)
+        self.assertNotIn("0.207", html)
+
+    def test_a_rate_delta_is_percentage_points_not_a_bare_decimal(self) -> None:
+        """0.05 between two ratios is five points, not five percent."""
+        html = self.render(_fixture(ga4=_ga4()))["ga4"]
+
+        self.assertIn("+5.0 pts", html)
+
+    def test_engagement_time_reads_in_minutes_and_seconds(self) -> None:
+        html = self.render(_fixture(ga4=_ga4()))["ga4"]
+
+        self.assertIn("1m 12s", html, "72.4 seconds is a minute and twelve")
+
+    def test_the_strip_leads_with_quality_and_puts_volume_one_click_down(self) -> None:
+        """Sessions and page views say how much arrived, not whether it was the
+        right traffic. They stay reachable, but they are not the glance."""
+        html = self.render(_fixture(ga4=_ga4()))["ga4"]
+        strip, drill = html.split("<details", 1)
+
+        for label in ("Active users", "Engaged sessions", "Engagement rate",
+                      "Avg engagement time", "Pages per session", "Key events"):
+            self.assertIn(label, strip, f"{label} belongs in the executive strip")
+        for label in ("Sessions", "Page views", "Sessions per user", "Bounce rate"):
+            self.assertIn(label, drill, f"{label} belongs in the drill-down")
+        self.assertEqual(strip.count('class="tile"'), 6)
+
+    def test_a_rate_is_shown_with_the_sample_it_was_computed_over(self) -> None:
+        """20.7% of 29 sessions is six sessions. A percentage that hides a
+        sample that small invites a trend reading it cannot support."""
+        html = self.render(_fixture(ga4=_ga4()))["ga4"]
+
+        self.assertIn("of 29 sessions", html)
+
+    def test_new_and_returning_are_separated_rather_than_summed(self) -> None:
+        html = self.render(_fixture(ga4=_ga4()))["ga4"]
+
+        self.assertIn("class=\"split-bar\"", html)
+        self.assertIn("New", html)
+        self.assertIn("Returning", html)
+
+    def test_an_uninstrumented_conversion_says_so_instead_of_showing_zero(self) -> None:
+        """"Nobody converted" and "nothing reports a conversion" are opposite
+        findings, and only the first is a marketing problem."""
+        panel = self.render(_fixture(ga4=_ga4()))["ga4Events"]
+
+        self.assertIn("not instrumented", panel)
+        self.assertNotIn(">0<", panel)
+        self.assertIn("Opened the calculator", panel)
+        self.assertIn("Became a lead", panel)
+
+    def test_a_measured_funnel_shows_where_it_loses_people(self) -> None:
+        events = _events(
+            instrumented=True,
+            events=[{"event": "generate_lead", "count": 27, "users": 25, "intent": True}],
+            funnel=[
+                {"step": "Opened the calculator", "event": "calculator_start",
+                 "count": 100, "instrumented": True, "retention": None},
+                {"step": "Asked for an OTP", "event": "otp_requested",
+                 "count": 40, "instrumented": True, "retention": 40.0},
+                {"step": "Verified the number", "event": "otp_verified",
+                 "count": 30, "instrumented": True, "retention": 75.0},
+                {"step": "Became a lead", "event": "generate_lead",
+                 "count": 27, "instrumented": True, "retention": 90.0},
+            ],
+            key_events=27,
+            session_key_event_rate=0.31,
+        )
+        out = self.render(_fixture(ga4=_ga4(), ga4_events=events))
+
+        self.assertIn("40.0% of the step above", out["ga4Events"])
+        self.assertNotIn("not instrumented", out["ga4Events"])
+        # The key-event tile is the one number on the tab tied to revenue intent.
+        self.assertIn("Key events", out["ga4"])
+        self.assertIn("31.0% of sessions", out["ga4"])
+
+    def test_reading_depth_separates_a_page_opened_from_a_page_read(self) -> None:
+        events = _events(scroll_depth=[
+            {"page": "/blog/emi", "views": 40, "reached_end": 10, "share": 25.0},
+            {"page": "/products", "views": 25, "reached_end": 0, "share": 0.0},
+        ])
+        html = self.render(_fixture(ga4=_ga4(), ga4_events=events))["ga4Events"]
+
+        self.assertIn("How far people read", html)
+        self.assertIn("/blog/emi", html)
+        self.assertIn("25.0%", html)
+
+    def test_the_page_table_renders_rows_that_were_already_being_fetched(self) -> None:
+        """These rows came back with the blog join and were thrown away."""
+        html = self.render(_fixture(ga4=_ga4()))["ga4Pages"]
+
+        self.assertIn("/how-it-works", html)
+        self.assertIn("41.0%", html, "engagement is a percentage here too")
+
+    def test_a_channel_is_weighed_by_engagement_and_not_only_by_volume(self) -> None:
+        audience = _audience()
+        audience["traffic_sources"][1].update(
+            {"engagement_rate": 0.11, "views_per_session": 1.02})
+        html = self.render(_fixture(audience=audience))["sources"]
+
+        self.assertIn("11.0%", html, "a channel that sends volume and no attention")
+        self.assertIn("1.02", html)
+
+    def test_first_touch_sits_behind_a_disclosure_beside_session_source(self) -> None:
+        audience = _audience()
+        audience["first_user_sources"] = [
+            {"source": "LinkedIn", "sessions": 22, "active_users": 20, "share": 40.0,
+             "engagement_rate": 0.5, "views_per_session": 2.0, "examples": ["lnkd.in"]},
+        ]
+        html = self.render(_fixture(audience=audience))["sources"]
+
+        self.assertIn("Which channel found them first", html)
+
+    def test_every_new_panel_names_the_missing_variable_when_disconnected(self) -> None:
+        """Three states, not two.
+
+        A property that is *not connected* must name the variable that would
+        connect it. A property that is connected and has simply recorded no
+        conversion is a different answer, and it is covered above -- conflating
+        them would send someone to check an environment variable that is fine.
+        """
+        disconnected = _events(status="not_connected",
+                               message="Google Analytics is not connected yet")
+        out = self.render(_fixture(ga4_events=disconnected))
+
+        for panel in ("ga4", "ga4Events", "ga4Pages"):
+            self.assertIn("GA4_PROPERTY_ID", out[panel], panel)

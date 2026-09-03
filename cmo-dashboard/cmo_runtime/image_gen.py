@@ -119,6 +119,95 @@ FIGURE_DIRECTION = (
 )
 
 
+#: Social cards are the one place where the house rules above are wrong.
+#:
+#: `HOUSE_RULES` forbids text, numbers, labels and charts, because an article
+#: illustration carrying baked-in words is unusable — it cannot be translated,
+#: it duplicates the caption, and the model spells it wrong. A social card is the
+#: opposite object: it is text, set in a picture, because that is the only thing
+#: a feed renders at full size. So it gets its own rules rather than an exception
+#: bolted onto the others.
+#:
+#: What stays forbidden is everything that made the first set strict: invented
+#: numbers, invented marks, invented sources. The copy is supplied verbatim and
+#: the model's job is to set it, not to write it.
+SOCIAL_CARD_RULES = """
+Typographic design card. Flat vector composition, no photography.
+Palette: deep navy-to-teal gradient background (#0A2A43 to #0E4059), off-white
+text, one cyan accent (#38A9DC) used at most once per card.
+Hard constraints, all mandatory:
+- Render the supplied text EXACTLY as given, spelled exactly, word for word.
+  Do not paraphrase it, do not translate it, do not add words to it.
+- Add NO text of your own: no extra headline, no invented statistic, no caption,
+  no page number, no source line, no watermark.
+- Set the wordmark as the plain word "iTarang" only. No logo, no icon, no
+  monogram, no emblem, and no other brand mark anywhere.
+- No photographs, no faces, no vehicles, no stock imagery, no 3D renders.
+- No charts, graphs, axes or data plots: the number in the copy is the graphic.
+- No UI, no browser frames, no device mockups, no drop shadows on text.
+Composition: generous margins, strong left alignment, one clear typographic
+hierarchy, large areas of empty background. The headline is the loudest thing
+on the card by a wide margin.
+""".strip()
+
+SOCIAL_CARD_DIRECTION = (
+    "A branded social card for one published article, to be read at a glance in a "
+    "feed on a phone. It carries a short piece of supplied copy and nothing else. "
+    "It is a typographic layout, not an illustration."
+)
+
+#: What each card is for, appended to the direction so the model lays out the
+#: three shapes differently rather than producing one template three times.
+CARD_ROLE_DIRECTION = {
+    "hook": "This is the first card a reader sees. The headline dominates; it must "
+            "stop a thumb. The supporting line is small and secondary.",
+    "point": "This is one card in the middle of a swipeable set. It makes a single "
+             "point. It must feel like part of the same set as the others.",
+    "close": "This is the last card in a swipeable set. It is the call to action, so "
+             "it is quiet and uncluttered: mostly empty space around one line.",
+    "wide": "This is a single wide card shown inline in a feed, not swiped. It "
+            "carries the whole claim on its own, so it must read complete.",
+}
+
+
+def social_card_prompt(
+    *,
+    role: str,
+    kicker: str,
+    headline: str,
+    support: str = "",
+    footer: str = "itarang.com",
+) -> str:
+    """The prompt for one social card, with the copy quoted for the model to set.
+
+    Each line is labelled and quoted rather than run together into a sentence,
+    because an unlabelled blob is how a model decides the footer is a subheading.
+    """
+    direction = CARD_ROLE_DIRECTION.get(role)
+    if direction is None:
+        raise ImageGenRefused(f"unknown social card role: {role}")
+    headline = " ".join(str(headline).split())
+    if not headline:
+        raise ImageGenRefused("a social card needs a headline")
+
+    lines = [f'EYEBROW, small letterspaced capitals at the top: "{_quotable(kicker)}"']
+    lines.append(f'HEADLINE, the largest text on the card: "{_quotable(headline)}"')
+    if str(support).strip():
+        lines.append(f'SUPPORTING PARAGRAPH, small, below the headline: "{_quotable(support)}"')
+    lines.append(f'FOOTER, small, bottom left: "iTarang"   bottom right: "{_quotable(footer)}"')
+    copy = "\n".join(lines)
+    return (
+        f"{SOCIAL_CARD_DIRECTION} {direction}\n\n"
+        f"Set exactly this copy, and no other words:\n{copy}\n\n"
+        f"{SOCIAL_CARD_RULES}"
+    )
+
+
+def _quotable(value: str) -> str:
+    """Collapse whitespace and neutralise quotes that would break the prompt."""
+    return " ".join(str(value or "").split()).replace('"', "'")
+
+
 class ImageGenRefused(Exception):
     """Raised for every refusal, with whatever was measured before the stop.
 

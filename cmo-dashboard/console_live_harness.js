@@ -28,7 +28,11 @@ const [, , scriptPath, planPath] = process.argv;
 const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
 
 const later = setTimeout;
-const report = { steps: [], requests: [] };
+/* `requests` keeps the URLs; `calls` keeps what was actually put on the wire.
+   A console can call the right route with the wrong body -- the Social tab did,
+   posting `task` to three routes that read `task_id` -- and a log of URLs alone
+   reports that as a pass. */
+const report = { steps: [], requests: [], calls: [] };
 
 /* ------------------------------------------------------------------ elements */
 
@@ -197,6 +201,9 @@ const document = {
     if (key === '.chart-wrap') return makeElement('', 'div');
     if (/^\[data-(approve|undo|queue|decision|revision|editor|form-submit|upload|publish)/.test(key)
         || key.startsWith('#publish-block')) return looseButton(key);
+    if (/^\[data-(social-generate|social-prepare|social-send|draft-save|draft-body|row)=/.test(key)) {
+      return looseButton(key);
+    }
     if (key.startsWith('[data-proposal=') || key.startsWith('[data-opportunity=')) return looseButton(key);
     if (key.startsWith('[data-form=')) return looseButton(key);
     return null;
@@ -238,10 +245,22 @@ let publishCheck = plan.publishCheck || {
   eligible: false, blockers: ['no Gate 1 approval is recorded for this card'],
   files: [], slug: '', category: '', request_id: '',
 };
+/* The same for Buffer's preflight: `sendSocial` refuses without the instruction
+   `/ceo/social-check` mints, so a test cannot reach the send without one. */
+let socialCheck = plan.socialCheck || {
+  eligible: false, blockers: ['that article is not live yet'],
+  sendable: [], notes: [], request_id: '',
+};
 
 async function fetchStub(path, options) {
   const url = String(path);
   report.requests.push(url);
+  const sent = (options || {}).body;
+  report.calls.push({
+    url,
+    method: String((options || {}).method || 'GET'),
+    body: typeof sent === 'string' ? JSON.parse(sent) : null,
+  });
   if (hangNext && url.startsWith(hangNext)) return new Promise(() => {});
   if (failNext && url.startsWith(failNext.path)) {
     return {
@@ -251,6 +270,7 @@ async function fetchStub(path, options) {
   }
   let payload = { ok: true };
   if (url.startsWith('/ceo/blog-publish-check')) payload = publishCheck;
+  if (url.startsWith('/ceo/social-check')) payload = socialCheck;
   if (url.startsWith('/api/session')) payload = { email: 'sanchit@itarang.com', role: 'ceo', console: '/ceo' };
   else if (url.startsWith('/ceo/api/state')) payload = currentState;
   else if (url.startsWith('/ceo/api/version')) payload = { version: currentVersion };
@@ -337,6 +357,22 @@ async function main() {
       await globalThis.__console.renderDetail(true);
     }
     if (step.do === 'fire') fire(step.event);
+    /* A real press, through the delegated handler the page actually installs.
+       Calling the action function directly would skip the dispatch, and the
+       dispatch is half of what "the button works" means. `step.button` is the
+       dataset the rendered control carries, e.g. {"socialGenerate": "TASK-1"}. */
+    if (step.do === 'click') {
+      Object.entries(step.values || {}).forEach(([selector, value]) => {
+        document.querySelector(selector).value = value;
+      });
+      const pressed = makeElement('', 'button');
+      Object.assign(pressed.dataset, step.button || {});
+      fire('click', { target: { closest: selector => (selector === 'button' ? pressed : null) } });
+      /* The handler is not async, so the action it started is still in flight.
+         Two turns of the timer queue drain the stubbed fetch and its renders. */
+      await settle();
+      await settle();
+    }
     // The news sweep, which may be left hanging on purpose: its whole point is
     // that the page keeps moving while the request is still out.
     if (step.do === 'scan') {
@@ -364,6 +400,7 @@ async function main() {
       name: step.name || step.do || 'step',
       immediate,
       requests: report.requests.slice(started),
+      calls: report.calls.slice(started),
       rowsBefore: before,
       rowsAfter: after,
       proposalsHtml: byId('proposal-list').innerHTML,

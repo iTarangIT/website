@@ -48,6 +48,7 @@ export default function HomeCTA() {
               <a
                 key={role.label}
                 href={`https://wa.me/${phoneNumber}?text=${encodeURIComponent(role.message)}`}
+                data-wa-location={`home_cta_${role.label.toLowerCase()}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group flex items-center justify-center gap-2.5 rounded-2xl bg-white/5 border border-white/10 px-4 py-4 text-sm font-medium text-white/80 hover:bg-white/15 hover:border-white/25 hover:text-white transition-all duration-300 backdrop-blur-sm"

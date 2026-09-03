@@ -260,11 +260,30 @@ function emptyState(title,text,actionLabel,actionAttribute){
  return `<div class="empty"><strong>${esc(title)}</strong><p>${esc(text)}</p>${actionLabel?`<button class="ghost" ${actionAttribute} type="button">${esc(actionLabel)}</button>`:''}</div>`;
 }
 const grouped=new Intl.NumberFormat('en-IN');
-/* A figure that has not been measured says so. It never reads as zero. */
+/* Seconds as a marketer reads them: 48s, 1m 12s, 1h 04m. */
+function duration(seconds){
+ const total=Math.round(Number(seconds));
+ if(!isFinite(total)||total<0)return null;
+ if(total<60)return total+'s';
+ const minutes=Math.floor(total/60),rest=total%60;
+ if(minutes<60)return rest?`${minutes}m ${rest}s`:`${minutes}m`;
+ return `${Math.floor(minutes/60)}h ${String(minutes%60).padStart(2,'0')}m`;
+}
+/* A figure that has not been measured says so. It never reads as zero.
+ *
+ * `rate` exists because Google Analytics returns engagement and bounce as a
+ * ratio between 0 and 1. Printed through the default branch, an engagement rate
+ * of 0.207 renders as "0.207" -- which is not wrong so much as unreadable, and
+ * was on the console for as long as the GA4 tiles have been there. Anything
+ * showing a GA4 ratio passes `rate` and gets "20.7%".
+ */
 function figure(value,kind){
  if(value===null||value===undefined||value==='')return null;
  if(kind==='ctr')return Number(value).toFixed(2)+'%';
  if(kind==='position')return Number(value).toFixed(1);
+ if(kind==='rate')return (Number(value)*100).toFixed(1)+'%';
+ if(kind==='duration')return duration(value);
+ if(kind==='decimal')return Number(value).toFixed(2);
  return typeof value==='number'?grouped.format(value):String(value);
 }
 function cell(value,kind){const text=figure(value,kind);return text===null?'—':esc(text);}
@@ -272,7 +291,15 @@ function deltaHtml(value,kind){
  if(value===null||value===undefined)return '';
  const better=kind==='position'?value<0:value>0;
  const worse=kind==='position'?value>0:value<0;
- const shown=(value>0?'+':'')+(kind==='ctr'||kind==='position'?Number(value).toFixed(kind==='position'?1:2):grouped.format(value));
+ /* A delta between two ratios is percentage *points*, not a percentage. Showing
+    "+5%" when engagement moved from 20.7% to 25.7% invites reading it as a 5%
+    relative gain, which is a different and smaller number. */
+ let shown;
+ if(kind==='rate')shown=(value>0?'+':'')+(Number(value)*100).toFixed(1)+' pts';
+ else if(kind==='duration')shown=(value>0?'+':'-')+duration(Math.abs(value));
+ else if(kind==='ctr'||kind==='decimal')shown=(value>0?'+':'')+Number(value).toFixed(2);
+ else if(kind==='position')shown=(value>0?'+':'')+Number(value).toFixed(1);
+ else shown=(value>0?'+':'')+grouped.format(value);
  return `<span class="delta ${better?'up':worse?'down':''}">${esc(shown)} vs previous window</span>`;
 }
 function findTask(id){return (state?.blogs||[]).find(item=>item.id===id);}
@@ -1121,6 +1148,53 @@ function showTip(index,target){
 }
 function hideTip(){const tip=$('#chart-tip');if(tip)tip.hidden=true;}
 
+/* The executive strip: six tiles that answer "is the marketing working".
+ *
+ * Volume moved down. Sessions and page views say how much traffic arrived and
+ * nothing about whether it was the right traffic, and a CMO reading six numbers
+ * at a glance should be reading the six that change a decision. They are one
+ * disclosure away, not gone.
+ *
+ * Every rate carries its denominator. An engagement rate of 20.7% over 29
+ * sessions is six sessions, and a percentage that hides a sample that small
+ * invites a trend reading it cannot support. */
+const GA4_PRIMARY=[
+ {key:'active_users',label:'Active users'},
+ {key:'engaged_sessions',label:'Engaged sessions',note:data=>{
+   const total=data.metrics?.sessions;
+   return total===null||total===undefined?'':`of ${figure(total)} sessions`;
+  }},
+ {key:'engagement_rate',label:'Engagement rate',kind:'rate'},
+ {key:'average_session_duration',label:'Avg engagement time',kind:'duration'},
+ {key:'screen_page_views_per_session',label:'Pages per session',kind:'decimal'}
+];
+const GA4_SECONDARY=[
+ {key:'sessions',label:'Sessions'},
+ {key:'screen_page_views',label:'Page views'},
+ {key:'sessions_per_user',label:'Sessions per user',kind:'decimal'},
+ {key:'bounce_rate',label:'Bounce rate',kind:'rate'}
+];
+function ga4Tile(data,spec){
+ const shown=figure(data.metrics?.[spec.key],spec.kind);
+ const note=spec.note?spec.note(data):'';
+ return `<article class="tile"><span class="tile-label">${esc(spec.label)}</span>`+
+  `<span class="tile-figure${shown===null?' absent':''}">${shown===null?'not yet':esc(shown)}</span>`+
+  (note?`<span class="tile-note">${esc(note)}</span>`:'')+
+  deltaHtml(data.deltas?.[spec.key],spec.kind)+`</article>`;
+}
+/* New against returning, as one bar. Twenty-four users who have never been here
+   before and twenty-four who keep coming back are different businesses, and the
+   single "Active users" figure cannot tell them apart. */
+function newReturningBar(data){
+ const fresh=data.metrics?.new_users,back=data.metrics?.returning_users;
+ if(fresh===null||fresh===undefined||back===null||back===undefined)return '';
+ const total=fresh+back;
+ if(!total)return '';
+ const share=Math.round(fresh*100/total);
+ return `<div class="split"><span class="split-label">New <b>${esc(figure(fresh))}</b></span>
+<span class="split-bar" role="img" aria-label="${esc(share)}% of visitors are new"><i style="width:${share}%"></i></span>
+<span class="split-label">Returning <b>${esc(figure(back))}</b></span></div>`;
+}
 function renderGa4(){
  const data=state.analytics?.ga4||{};
  if(data.status!=='ready'){
@@ -1129,11 +1203,47 @@ function renderGa4(){
    (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
   return;
  }
- const labels={active_users:'Active users',sessions:'Sessions',screen_page_views:'Page views',engagement_rate:'Engagement rate'};
- setHtml($('#ga4-panel'),`<div class="tiles">${Object.keys(labels).map(key=>{
-  const shown=figure(data.metrics?.[key]);
-  return `<article class="tile"><span class="tile-label">${esc(labels[key])}</span><span class="tile-figure${shown===null?' absent':''}">${shown===null?'not yet':esc(shown)}</span>${deltaHtml(data.deltas?.[key])}</article>`;
- }).join('')}</div>`);
+ const events=state.analytics?.ga4_events||{};
+ const keyTile=(()=>{
+  const shown=figure(events.key_events);
+  const rate=figure(events.session_key_event_rate,'rate');
+  return `<article class="tile"><span class="tile-label">Key events</span>`+
+   `<span class="tile-figure${shown===null?' absent':''}">${shown===null?'none yet':esc(shown)}</span>`+
+   (rate===null?'':`<span class="tile-note">${esc(rate)} of sessions</span>`)+
+   (shown===null?`<span class="tile-note">Nothing on the site reports a conversion yet.</span>`:'')+
+   `</article>`;
+ })();
+ setHtml($('#ga4-panel'),
+  `<div class="tiles six">${GA4_PRIMARY.map(spec=>ga4Tile(data,spec)).join('')}${keyTile}</div>`+
+  newReturningBar(data)+
+  `<details class="drill"><summary>Volume and reach</summary>
+<p class="footnote">How much traffic arrived. These say nothing about whether it was the right traffic, which is why they are not in the strip above.</p>
+<div class="tiles four">${GA4_SECONDARY.map(spec=>ga4Tile(data,spec)).join('')}</div></details>`);
+}
+/* Which pages were read. Already fetched for the blog join and, until now,
+   thrown away afterwards -- these rows cost nothing extra to show. */
+function renderGa4Pages(){
+ const host=$('#ga4-pages-panel');if(!host)return;
+ const data=state.analytics?.ga4||{};
+ if(data.status!=='ready'){
+  const vars=(data.required_variables||[]).join(', ');
+  setHtml(host,emptyState('Page performance needs Google Analytics',
+   (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
+  return;
+ }
+ const rows=data.pages||[];
+ if(!rows.length){
+  setHtml(host,emptyState('No page recorded yet',
+   (data.detail_message||'Google Analytics has recorded no page view in this window.')));
+  return;
+ }
+ setHtml(host,`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Page</th><th class="n">Views</th><th class="n">Sessions</th><th class="n">Engagement</th>
+</tr></thead><tbody>${rows.map(row=>`<tr>
+<td class="subject">${esc(row.page)}</td>
+<td class="n">${cell(row.screen_page_views)}</td>
+<td class="n">${cell(row.sessions)}</td>
+<td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')}</tbody></table></div>`);
 }
 /* ---------------------------------------------------------- blog performance */
 /* One row per published article, joined server-side from Search Console and
@@ -1194,6 +1304,23 @@ function shareCell(value){
  const width=Math.max(0,Math.min(100,Number(value)||0));
  return `<div class="share-cell"><span class="share-bar"><i style="width:${width}%"></i></span><span class="num">${value===null||value===undefined?'—':esc(Number(value).toFixed(1))+'%'}</span></div>`;
 }
+/* One channel table, used for both session source and first touch.
+   Volume alone cannot answer "should we keep spending here" -- a channel that
+   sends sessions which never engage is a line to cut, and that comparison needs
+   engagement and depth on the same row as the count. */
+function channelTable(rows){
+ return `<div class="table-scroll"><table class="data"><thead><tr>
+<th>Source</th><th class="n">Sessions</th><th class="n">Visitors</th><th>Share</th>
+<th class="n">Engagement</th><th class="n">Pages/session</th><th>Seen as</th>
+</tr></thead><tbody>${rows.map(row=>`<tr>
+<td class="subject">${esc(row.source)}</td>
+<td class="n">${cell(row.sessions)}</td>
+<td class="n">${cell(row.active_users)}</td>
+<td>${shareCell(row.share)}</td>
+<td class="n">${cell(row.engagement_rate,'rate')}</td>
+<td class="n">${cell(row.views_per_session,'decimal')}</td>
+<td class="source-examples">${esc((row.examples||[]).join(', ')||'—')}</td></tr>`).join('')}</tbody></table></div>`;
+}
 function renderSources(){
  const data=audience();
  if(data.status!=='ready'&&data.status!=='collecting'){audienceEmpty('#sources-panel','Traffic sources need Google Analytics');return;}
@@ -1203,14 +1330,10 @@ function renderSources(){
    'Once Google Analytics has recorded sessions in this window, the channels that sent them will be listed here.'));
   return;
  }
- setHtml($('#sources-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
-<th>Source</th><th class="n">Sessions</th><th class="n">Visitors</th><th>Share</th><th>Seen as</th>
-</tr></thead><tbody>${rows.map(row=>`<tr>
-<td class="subject">${esc(row.source)}</td>
-<td class="n">${cell(row.sessions)}</td>
-<td class="n">${cell(row.active_users)}</td>
-<td>${shareCell(row.share)}</td>
-<td class="source-examples">${esc((row.examples||[]).join(', ')||'—')}</td></tr>`).join('')}</tbody></table></div>`);
+ const first=data.first_user_sources||[];
+ setHtml($('#sources-panel'),channelTable(rows)+(first.length?`<details class="drill"><summary>Which channel found them first</summary>
+<p class="footnote">The table above credits the channel that delivered each session. This one credits the channel that first brought the visitor to the site at all. Direct and organic search routinely collect the credit for work another channel did, and only the two side by side show it.</p>
+${channelTable(first)}</details>`:''));
 }
 function renderPlaces(){
  const data=audience();
@@ -1222,9 +1345,10 @@ function renderPlaces(){
   return;
  }
  setHtml($('#places-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
-<th>Country</th><th class="n">Sessions</th><th class="n">Visitors</th>
+<th>Country</th><th class="n">Sessions</th><th class="n">Visitors</th><th class="n">Engagement</th>
 </tr></thead><tbody>${countries.map(row=>`<tr>
-<td class="subject">${esc(row.country)}</td><td class="n">${cell(row.sessions)}</td><td class="n">${cell(row.active_users)}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No country recorded yet.</td></tr>'}</tbody></table></div>
+<td class="subject">${esc(row.country)}</td><td class="n">${cell(row.sessions)}</td><td class="n">${cell(row.active_users)}</td>
+<td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')||'<tr><td colspan="4" class="meta">No country recorded yet.</td></tr>'}</tbody></table></div>
 <h4>Cities</h4>
 <div class="table-scroll"><table class="data"><thead><tr>
 <th>City</th><th>Country</th><th class="n">Sessions</th>
@@ -1244,7 +1368,7 @@ function renderDevices(){
 <th>Device</th><th class="n">Sessions</th><th class="n">Engagement</th>
 </tr></thead><tbody>${devices.map(row=>`<tr>
 <td class="subject">${esc(row.device)}</td><td class="n">${cell(row.sessions)}</td>
-<td class="n">${row.engagement_rate===null||row.engagement_rate===undefined?'—':esc((Number(row.engagement_rate)*100).toFixed(1)+'%')}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No device recorded yet.</td></tr>'}</tbody></table></div>
+<td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No device recorded yet.</td></tr>'}</tbody></table></div>
 <h4>Browser and operating system</h4>
 <div class="table-scroll"><table class="data"><thead><tr>
 <th>Browser</th><th>Operating system</th><th class="n">Sessions</th>
@@ -1265,9 +1389,50 @@ function renderJourney(){
 </tr></thead><tbody>${rows.map(row=>`<tr>
 <td class="subject">${esc(row.page)}</td>
 <td class="n">${cell(row.sessions)}</td>
-<td class="n">${row.engagement_rate===null||row.engagement_rate===undefined?'—':esc((Number(row.engagement_rate)*100).toFixed(1)+'%')}</td>
-<td class="n">${row.bounces===null||row.bounces===undefined?'—':esc((Number(row.bounces)*100).toFixed(1)+'%')}</td></tr>`).join('')}</tbody></table></div>
+<td class="n">${cell(row.engagement_rate,'rate')}</td>
+<td class="n">${cell(row.bounces,'rate')}</td></tr>`).join('')}</tbody></table></div>
 <p class="footnote">This is the entry point, not a full path. Google Analytics reports the page a session began on; a step-by-step journey needs an exploration in GA itself.</p>`);
+}
+/* Where the money path loses people.
+ *
+ * Steps with no row are `not instrumented`, never zero. "Nobody reached this
+ * step" is a marketing problem; "this step was never wired up" is an
+ * engineering one, and a zero would send a CMO chasing the wrong department. */
+function renderFunnel(){
+ const host=$('#ga4-events-panel');if(!host)return;
+ const data=state.analytics?.ga4_events||{};
+ if(data.status!=='ready'&&data.status!=='collecting'){
+  const vars=(data.required_variables||[]).join(', ');
+  setHtml(host,emptyState('Conversion events need Google Analytics',
+   (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
+  return;
+ }
+ const steps=data.funnel||[],events=data.events||[];
+ const top=Math.max(1,...steps.map(step=>Number(step.count)||0));
+ const funnelHtml=steps.map(step=>{
+  const measured=step.count!==null&&step.count!==undefined;
+  const width=measured?Math.max(2,Math.round(step.count*100/top)):0;
+  return `<li class="funnel-step${measured?'':' absent'}">
+<span class="funnel-label">${esc(step.step)}</span>
+<span class="funnel-bar"><i style="width:${width}%"></i></span>
+<span class="num">${measured?esc(figure(step.count)):'not instrumented'}</span>
+<span class="funnel-retention">${step.retention===null||step.retention===undefined?'':esc(step.retention.toFixed(1)+'% of the step above')}</span></li>`;
+ }).join('');
+ const notice=data.instrumented?'':
+  `<p class="footnote">No conversion event has reached this property yet. The calculator, the OTP gate, the WhatsApp buttons and the deck request all need to report to Google Tag Manager before these steps can carry a number, and a tag has to be configured in the container to forward them.</p>`;
+ const keyNotice=data.key_event_message?`<p class="footnote">${esc(data.key_event_message)}</p>`:'';
+ const depth=data.scroll_depth||[];
+ const depthTable=depth.length?`<details class="drill"><summary>How far people read</summary>
+<p class="footnote">Google Analytics fires a scroll event once a visitor reaches 90% of a page, and enhanced measurement collects it already. A page opened and a page read are different outcomes; only one is worth commissioning more of.${data.scroll_message?' '+esc(data.scroll_message):''}</p>
+<div class="table-scroll"><table class="data"><thead><tr><th>Page</th><th class="n">Views</th><th class="n">Reached the end</th><th>Share</th></tr></thead>
+<tbody>${depth.map(row=>`<tr>
+<td class="subject">${esc(row.page)}</td><td class="n">${cell(row.views)}</td>
+<td class="n">${cell(row.reached_end)}</td><td>${shareCell(row.share)}</td></tr>`).join('')}</tbody></table></div></details>`:'';
+ const eventRows=events.length?`<details class="drill"><summary>Every event this window (${esc(String(events.length))})</summary>
+<div class="table-scroll"><table class="data"><thead><tr><th>Event</th><th class="n">Count</th><th class="n">People</th></tr></thead>
+<tbody>${events.map(row=>`<tr class="${row.intent?'is-intent':''}">
+<td class="subject">${esc(row.event)}</td><td class="n">${cell(row.count)}</td><td class="n">${cell(row.users)}</td></tr>`).join('')}</tbody></table></div></details>`:'';
+ setHtml(host,`<ol class="funnel">${funnelHtml}</ol>${notice}${keyNotice}${depthTable}${eventRows}`);
 }
 /* --------------------------------------------------------------- social */
 /* Published articles and the copy that promotes them. Everything here is a read
@@ -1437,7 +1602,7 @@ async function generateSocial(taskId){
   failTitle:'The copy was not written.'
  });
  try{
-  await post('/ceo/api/social/generate',{task:taskId});
+  await post('/ceo/api/social/generate',{task_id:taskId});
   delete socialPlans[taskId];
   toast('Three drafts written. Read them before sending.');
   await refresh();
@@ -1461,7 +1626,7 @@ async function saveSocialDraft(key){
  try{
   const thread=platform==='x'?splitThread(text):[];
   await post('/ceo/api/social/draft',{
-   task:taskId,platform,
+   task_id:taskId,platform,
    body:platform==='x'?(thread[0]||''):text,
    thread
   });
@@ -1507,7 +1672,7 @@ async function sendSocial(taskId){
  });
  try{
   const result=await post('/ceo/api/social/send',
-   {task:taskId,request_id:plan.request_id,platforms:plan.platforms});
+   {task_id:taskId,request_id:plan.request_id,platforms:plan.platforms});
   /* An instruction is single use whatever happened to it, so it goes either way. */
   delete socialPlans[taskId];
   const queued=(result.queued||[]).length;
@@ -1594,7 +1759,8 @@ function renderSkeletons(){
 }
 function renderAll(){
  renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderPosts();
- renderGa4();renderSources();renderPlaces();renderDevices();renderJourney();renderSocial();
+ renderGa4();renderGa4Pages();renderFunnel();
+ renderSources();renderPlaces();renderDevices();renderJourney();renderSocial();
  renderCompetitor();applyFocus();
 }
 

@@ -5,6 +5,7 @@ import { CheckCircle, Send } from "lucide-react";
 import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
+import { EVENTS, trackEvent } from "@/lib/analytics";
 
 interface FormData {
   name: string;
@@ -55,6 +56,12 @@ export default function ContactForm() {
     } catch {
       // localStorage may not be available
     }
+
+    // The form writes to localStorage and nothing else -- there is no API route
+    // behind it and no email is sent, while the success screen promises a reply
+    // within 24 hours. That is a separate bug, but until it is fixed this event
+    // is the only signal anyone anywhere gets that someone tried to make contact.
+    trackEvent(EVENTS.contactSubmit, { role: formData.role || undefined });
 
     setSubmitted(true);
   };

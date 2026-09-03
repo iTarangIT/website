@@ -286,6 +286,65 @@ class ConsoleStaysCurrent(unittest.TestCase):
 
         self.assertEqual(steps[0]["socialList"], steps[1]["socialList"])
 
+    # ---- the Social tab's three actions, read off the wire -----------------
+    #
+    # Every one of these routes reads `task_id`. The console posted `task`, so
+    # all three answered "valid task_id is required" and the tab could do
+    # nothing at all. The suite still passed: it asserted the route strings were
+    # in the served page, which they were. What was never asserted is the only
+    # thing that was wrong -- the body. So these press the buttons through the
+    # real delegated handler and read what left the page.
+
+    def call(self, step: dict, route: str) -> dict:
+        """The one request this press put on the wire for `route`."""
+        matching = [call for call in step["calls"] if call["url"].startswith(route)]
+        self.assertEqual(len(matching), 1, f"{route}: {[c['url'] for c in step['calls']]}")
+        self.assertEqual(matching[0]["method"], "POST", route)
+        return matching[0]
+
+    def test_write_the_copy_asks_for_the_drafts_by_task_id(self) -> None:
+        step = self.steps({
+            "steps": [
+                {"do": "showView", "view": "social"},
+                {"do": "click", "button": {"socialGenerate": "TASK-1"}},
+            ],
+        })[1]
+
+        self.assertEqual(self.call(step, "/ceo/api/social/generate")["body"],
+                         {"task_id": "TASK-1"})
+
+    def test_saving_an_edited_draft_names_the_article_by_task_id(self) -> None:
+        step = self.steps({
+            "steps": [
+                {"do": "showView", "view": "social"},
+                {"do": "click", "button": {"draftSave": "TASK-1:linkedin"},
+                 "values": {'[data-draft-body="TASK-1:linkedin"]': "A claim, and the number."}},
+            ],
+        })[1]
+
+        body = self.call(step, "/ceo/api/social/draft")["body"]
+        self.assertEqual(body["task_id"], "TASK-1")
+        self.assertEqual(body["platform"], "linkedin")
+        self.assertEqual(body["body"], "A claim, and the number.")
+
+    def test_the_send_carries_the_task_id_and_the_instruction_it_was_given(self) -> None:
+        """Prepare, then send — the second press has to reuse the first's answer."""
+        steps = self.steps({
+            "socialCheck": {"eligible": True, "request_id": "req-1",
+                            "sendable": ["linkedin"], "blockers": [], "notes": []},
+            "steps": [
+                {"do": "showView", "view": "social"},
+                {"do": "click", "button": {"socialPrepare": "TASK-1"}},
+                {"do": "click", "button": {"socialSend": "TASK-1"}},
+            ],
+        })
+
+        self.assertIn("/ceo/social-check?task=TASK-1",
+                      " ".join(steps[1]["requests"]), "the check never ran")
+        self.assertEqual(self.call(steps[2], "/ceo/api/social/send")["body"],
+                         {"task_id": "TASK-1", "request_id": "req-1",
+                          "platforms": ["linkedin"]})
+
     def test_the_poll_interval_starts_at_three_seconds(self) -> None:
         step = self.steps({"steps": [{"do": "poll"}]})[0]
 

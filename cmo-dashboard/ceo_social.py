@@ -216,7 +216,29 @@ def preflight(
             continue
         if platform not in connected:
             continue
-        if platform == "instagram" and not instagram_has_picture:
+        cards = list(draft.get("images") or ())
+        if cards:
+            # Buffer fetches every asset over the open internet. A card that is
+            # generated but not yet merged and deployed is a 404 to Buffer, and
+            # Buffer reports that as a flat "invalid input" long after the press.
+            # Asking here turns it into a sentence about what to do next.
+            missing = (
+                [
+                    card["url"]
+                    for card in cards
+                    if not article_is_reachable(card["url"], opener=opener)
+                ]
+                if check_live
+                else []
+            )
+            if missing:
+                notes.append(
+                    f"The {platform} cards are not on the live site yet "
+                    f"({len(missing)} of {len(cards)} unreachable). Merge the commit "
+                    "that adds them and wait for the deploy before sending."
+                )
+                continue
+        elif platform == "instagram" and not instagram_has_picture:
             continue
         sendable.append(platform)
 
@@ -481,12 +503,19 @@ def send(
         for platform in asked:
             draft = by_platform[platform]
             try:
+                cards = list(draft.get("images") or ())
                 post = buffer.create_post(
                     channel_id=channel_for[platform],
                     platform=platform,
                     text=str(draft.get("body", "")),
                     link=str(draft.get("link", "")),
-                    image_url=check.cover_url if platform == "instagram" else "",
+                    # The generated cards, where this article has them. Instagram
+                    # falls back to the article cover, which is the behaviour
+                    # every article published before the cards existed relies on.
+                    images=cards,
+                    image_url=(
+                        check.cover_url if platform == "instagram" and not cards else ""
+                    ),
                     image_alt=str(draft.get("image_alt", "")),
                     thread=tuple(draft.get("thread") or ()),
                 )
@@ -532,3 +561,145 @@ def send(
         "drafts": drafts,
         "result": "queued" if not failures else ("partial" if queued else "refused"),
     }
+
+
+#: Where the published cards are served from, and the directory the publisher
+#: writes them into. The precedent is `97ddb9b`, which put one article's cards
+#: here by hand so Buffer could fetch them by URL.
+SOCIAL_IMAGE_DIR = "public/images/social"
+SOCIAL_IMAGE_ROUTE = "/images/social"
+
+
+def card_url(origin: str, filename: str) -> str:
+    return f"{origin.rstrip('/')}{SOCIAL_IMAGE_ROUTE}/{filename}"
+
+
+def plan_cards(
+    profile_dir: str | Path, task_id: str, *, website_root: str | Path = DEFAULT_WEBSITE_ROOT
+) -> tuple[list[Any], str]:
+    """The card set this article would get, and its slug. Generates nothing.
+
+    Separated from `generate_cards` so the console can show a human exactly what
+    would be drawn, and what it would cost, before a rupee is spent on it.
+    """
+    import console_board
+    from cmo_runtime import social_cards
+
+    profile_dir = Path(profile_dir)
+    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
+    task = next((item for item in board["tasks"] if item["id"] == task_id), None)
+    if task is None:
+        raise PublicationRefused(f"no such task: {task_id}")
+    article = console_board.artifact_for(task, profile_dir)
+    if article is None:
+        raise PublicationRefused("this card has no article to make social cards from")
+    slug = _slug_for(task, profile_dir)
+    if not slug:
+        raise PublicationRefused("this article has no slug, so its cards have no URL")
+
+    summary = social_copy.summarise_article(
+        article.read_text(encoding="utf-8"),
+        url=f"{live_origin()}/blog/{slug}",
+        keywords=_keywords(task),
+        cover_alt=str(task.get("Cover alt", "") or task.get("cover_alt", "") or "").strip(),
+    )
+    try:
+        return social_cards.plan_cards(summary), slug
+    except social_cards.CardPlanRefused as error:
+        raise PublicationRefused(str(error)) from error
+
+
+def generate_cards(
+    profile_dir: str | Path,
+    task_id: str,
+    *,
+    actor: str,
+    website_root: str | Path = DEFAULT_WEBSITE_ROOT,
+    client: Any | None = None,
+) -> dict[str, Any]:
+    """Draw the infographics and the carousel, and bind them to the drafts.
+
+    The words on every card were chosen by `social_cards.plan_cards` before this
+    runs; the model here is a typesetter. That ordering is what makes the set
+    reviewable — see `cmo_runtime/social_cards`.
+
+    The cards are written to the artifact store, and the URLs bound to the drafts
+    point at the website. They are two different places on purpose: the artifact
+    is what a human reviews and what the publisher later commits, and the URL is
+    what Buffer will fetch once that commit is merged and deployed. Binding the
+    URL early is not a claim that it resolves yet — `preflight` is what refuses a
+    send whose cards are not reachable.
+    """
+    from cmo_runtime import content_flow, image_gen
+
+    profile_dir = Path(profile_dir)
+    if not actor.strip():
+        raise PublicationRefused("generating social cards requires an authenticated human")
+
+    cards, slug = plan_cards(profile_dir, task_id, website_root=website_root)
+    try:
+        generator = client or image_gen.GeminiImageClient(profile_dir)
+    except image_gen.ImageGenRefused as refusal:
+        # "blocked — Gemini not connected" reads as a sentence on the card, which
+        # is the whole reason that refusal carries prose rather than a code.
+        raise PublicationRefused(str(refusal)) from refusal
+
+    written: list[dict[str, Any]] = []
+    for card in cards:
+        prompt = image_gen.social_card_prompt(
+            role=card.role,
+            kicker=card.kicker,
+            headline=card.headline,
+            support=card.support,
+            footer=card.footer,
+        )
+        try:
+            generated = generator.generate(
+                prompt, task_id=task_id, aspect_ratio=card.aspect_ratio
+            )
+        except image_gen.ImageGenRefused as refusal:
+            # A budget refusal on card four leaves three paid-for cards on disk.
+            # Reporting how far it got is the difference between "try again" and
+            # "try again and pay for those three twice".
+            raise PublicationRefused(
+                f"{refusal} — {len(written)} of {len(cards)} cards were drawn before this"
+            ) from refusal
+        name = card.filename(slug)
+        destination = content_flow._safe_artifact(profile_dir, name)
+        content_flow._atomic_artifact_set({destination: generated.webp})
+        written.append(
+            {
+                **card.as_dict(),
+                "filename": name,
+                "artifact": f"artifacts/{name}",
+                "url": card_url(live_origin(), name),
+            }
+        )
+
+    origin = live_origin()
+    database = ConsoleDB(profile_dir)
+    try:
+        for platform in CROSSPOST_PLATFORMS:
+            images = [
+                {"url": card_url(origin, item["filename"]), "alt": item["alt_text"]}
+                for item in written
+                if item["platform"] == platform
+            ]
+            database.save_crosspost_images(
+                task_id=task_id, platform=platform, images=images
+            )
+        stored = database.crosspost_drafts(task_id)
+    finally:
+        database.close()
+
+    ceo_publish._append_log(
+        profile_dir,
+        {
+            "event": "social-cards",
+            "task_id": task_id,
+            "actor": actor,
+            "cards": [item["variant"] for item in written],
+            "at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        },
+    )
+    return {"task_id": task_id, "slug": slug, "cards": written, "drafts": stored}
