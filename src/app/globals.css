@@ -40,6 +40,7 @@
   --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
   --animate-marquee: marquee var(--marquee-duration, 36s) linear infinite;
   --animate-marquee-reverse: marquee-reverse var(--marquee-duration, 36s) linear infinite;
+  --animate-pin-ping: pin-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 /* shadcn CSS variables mapped to iTarang brand */
@@ -112,6 +113,12 @@
 @keyframes glow-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+/* Slow ripple behind a live dealer pin on the India map. Tailwind's built-in
+   ping runs at 1s, which reads as an alert rather than a heartbeat. */
+@keyframes pin-ping {
+  75%, 100% { transform: scale(2.6); opacity: 0; }
 }
 
 /* Track holds the logo set twice over, so -50% lands on a seam-free repeat.

@@ -1,4 +1,6 @@
 import AudienceLandingPage from "@/components/partners/AudienceLandingPage";
+import DealerNetworkMap from "@/components/partners/dealer-map/DealerNetworkMap";
+import { cities } from "@/data/cities";
 import { createMetadata } from "@/lib/metadata";
 
 export const metadata = createMetadata({
@@ -16,6 +18,7 @@ export default function ForDealersPage() {
         title: "Partner with iTarang as an E-Rickshaw Battery Dealer",
         intro:
           "Discuss a dealer workflow for battery enquiries, financing support, installation, monitoring, and service. The partnership team will confirm the products, responsibilities, and geography relevant to your business.",
+        afterHero: <DealerNetworkMap locations={cities} />,
         sections: [
           {
             title: "What the partnership can cover",

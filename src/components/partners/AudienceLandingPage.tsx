@@ -5,6 +5,8 @@ export type AudiencePage = {
   eyebrow: string;
   title: string;
   intro: string;
+  /** Optional block rendered between the hero and the cards, e.g. the dealer map. */
+  afterHero?: ReactNode;
   sections: { title: string; body: ReactNode }[];
   primaryCta: string;
   primaryHref: string;
@@ -33,6 +35,8 @@ export default function AudienceLandingPage({ page }: { page: AudiencePage }) {
           </div>
         </div>
       </section>
+
+      {page.afterHero}
 
       <section className="bg-white px-4 py-16 md:py-24">
         <div className="mx-auto grid max-w-5xl gap-10 md:grid-cols-2">
