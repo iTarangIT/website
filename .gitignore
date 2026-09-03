@@ -45,3 +45,6 @@ cmo-dashboard/**/__pycache__/
 cmo-dashboard/*.pyc
 cmo-dashboard/state/
 cmo-dashboard/logs/
+
+# scratch downloads for scripts/geo/build-topo.sh
+scripts/geo/.work/
