@@ -1,6 +1,6 @@
 import AudienceLandingPage from "@/components/partners/AudienceLandingPage";
 import DealerNetworkMap from "@/components/partners/dealer-map/DealerNetworkMap";
-import { cities } from "@/data/cities";
+import { getDealerLocations } from "@/lib/dealers/locations";
 import { createMetadata } from "@/lib/metadata";
 
 export const metadata = createMetadata({
@@ -10,7 +10,14 @@ export const metadata = createMetadata({
   path: "/for-dealers",
 });
 
-export default function ForDealersPage() {
+// The dealer map reads the CRM database at request time (cached for an hour
+// in getDealerLocations). Rendering per request also keeps `next build` from
+// touching the database, where DATABASE_URL is only a placeholder.
+export const dynamic = "force-dynamic";
+
+export default async function ForDealersPage() {
+  const locations = await getDealerLocations();
+
   return (
     <AudienceLandingPage
       page={{
@@ -18,7 +25,7 @@ export default function ForDealersPage() {
         title: "Partner with iTarang as an E-Rickshaw Battery Dealer",
         intro:
           "Discuss a dealer workflow for battery enquiries, financing support, installation, monitoring, and service. The partnership team will confirm the products, responsibilities, and geography relevant to your business.",
-        afterHero: <DealerNetworkMap locations={cities} />,
+        afterHero: locations && locations.length > 0 ? <DealerNetworkMap locations={locations} /> : undefined,
         sections: [
           {
             title: "What the partnership can cover",
