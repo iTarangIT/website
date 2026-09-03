@@ -33,6 +33,18 @@ describe("reference data is consistent with the generated map", () => {
     for (const s of Object.values(STATE_ALIASES)) assert.ok(stateNames.has(s), `alias points at unknown state "${s}"`);
     for (const g of GAZETTEER) assert.ok(stateNames.has(g.state), `${g.name}: unknown state "${g.state}"`);
   });
+  it("every state carries a drawable label anchor", () => {
+    // build-india-map.ts already proves the anchor is inside its polygon, which
+    // needs the rings. What is worth guarding here is that a regenerated module
+    // still carries usable numbers at all: an anchor on the canvas, and a clear
+    // radius, without which the name would never be shown.
+    for (const s of indiaMap.states) {
+      const [x, y, clear] = s.label;
+      assert.ok(x > 0 && x < indiaMap.width, `${s.name}: label x ${x} is off canvas`);
+      assert.ok(y > 0 && y < indiaMap.height, `${s.name}: label y ${y} is off canvas`);
+      assert.ok(clear > 0, `${s.name}: label has no clearance`);
+    }
+  });
   it("gazetteer names are unique within a state and pincode prefixes are unique overall", () => {
     const names = new Set<string>();
     const pins = new Map<string, string>();

@@ -91,6 +91,73 @@ function ringToPath(ring: [number, number][]): string {
   return `M${head[0]} ${head[1]}L${rest.map(([x, y]) => `${x} ${y}`).join(" ")}Z`;
 }
 
+/** Distance from (px, py) to the segment (x1, y1)–(x2, y2). */
+function distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+/** Distance from a point to the nearest edge of any ring. */
+function clearance(x: number, y: number, rings: [number, number][][]): number {
+  let best = Infinity;
+  for (const ring of rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const d = distToSegment(x, y, ring[j][0], ring[j][1], ring[i][0], ring[i][1]);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Pole of inaccessibility: the interior point furthest from any edge, by grid
+ * search then local refinement. This is the label anchor.
+ *
+ * A centroid will not do. `center` above is the centroid of the largest ring —
+ * it is validated to be inside the polygon, but it is also exactly where a
+ * state-level dealer pin is drawn (see locations.ts), and on concave or
+ * multi-part units it can sit close to an edge. The pole stays clear of the
+ * outline on every shape, and its clearance radius tells the runtime how much
+ * room the name actually has.
+ */
+function labelAnchor(rings: [number, number][][]): { x: number; y: number; r: number } {
+  const xs = rings.flat().map((p) => p[0]);
+  const ys = rings.flat().map((p) => p[1]);
+  let minX = Math.min(...xs);
+  let maxX = Math.max(...xs);
+  let minY = Math.min(...ys);
+  let maxY = Math.max(...ys);
+
+  let best = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, r: -Infinity };
+  // One coarse sweep, then tighten the window around the winner three times.
+  for (let pass = 0, steps = 48; pass < 4; pass++, steps = 12) {
+    const stepX = (maxX - minX) / steps;
+    const stepY = (maxY - minY) / steps;
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps; j++) {
+        const x = minX + i * stepX;
+        const y = minY + j * stepY;
+        if (!pointInRings(x, y, rings)) continue;
+        const r = clearance(x, y, rings);
+        if (r > best.r) best = { x, y, r };
+      }
+    }
+    if (!isFinite(best.r)) break;
+    const spanX = (maxX - minX) / steps;
+    const spanY = (maxY - minY) / steps;
+    minX = best.x - spanX;
+    maxX = best.x + spanX;
+    minY = best.y - spanY;
+    maxY = best.y + spanY;
+  }
+
+  const round = (v: number) => Math.round(v * 10) / 10;
+  return { x: round(best.x), y: round(best.y), r: round(Math.max(best.r, 0)) };
+}
+
 /** Even-odd ray cast: inside if the point crosses an odd number of ring edges. */
 function pointInRings(x: number, y: number, rings: [number, number][][]): boolean {
   let inside = false;
@@ -126,6 +193,7 @@ function main(): void {
         id: slugify(f.properties.name),
         name: f.properties.name,
         center: representativePoint(ringsOf(f.geometry)),
+        label: labelAnchor(rings),
         rings,
       };
     })
@@ -170,6 +238,14 @@ function main(): void {
     if (!pointInRings(x, y, s.rings)) {
       problems.push(`state ${s.name}: representative point ${s.center.join(", ")} falls outside its polygon`);
     }
+    // The label anchor is drawn, not just stored: it has to be inside the shape
+    // and to have real room around it, or the name would sit over the outline.
+    if (!pointInRings(s.label.x, s.label.y, s.rings)) {
+      problems.push(`state ${s.name}: label anchor (${s.label.x}, ${s.label.y}) falls outside its polygon`);
+    }
+    if (!(s.label.r > 0)) {
+      problems.push(`state ${s.name}: label anchor has no clearance`);
+    }
   }
   if (problems.length) {
     throw new Error(`city/state mismatches:\n  - ${problems.join("\n  - ")}`);
@@ -190,6 +266,12 @@ function main(): void {
     "  d: string;",
     "  /** A point inside the state as [lng, lat]; where a state-level pin goes. */",
     "  center: readonly [number, number];",
+    "  /**",
+    "   * Where to write the state's name, as [x, y, clearance] in canvas units:",
+    "   * the pole of inaccessibility and its distance to the nearest edge. The map",
+    "   * shows the name once the zoom makes `clearance` wide enough to hold it.",
+    "   */",
+    "  label: readonly [number, number, number];",
     "}",
     "",
     "export interface IndiaMapData {",
@@ -211,7 +293,7 @@ function main(): void {
     "  states: [",
     ...states.map(
       (s) =>
-        `    { id: ${JSON.stringify(s.id)}, name: ${JSON.stringify(s.name)}, center: [${s.center[0]}, ${s.center[1]}], d: ${JSON.stringify(s.rings.map(ringToPath).join(""))} },`,
+        `    { id: ${JSON.stringify(s.id)}, name: ${JSON.stringify(s.name)}, center: [${s.center[0]}, ${s.center[1]}], label: [${s.label.x}, ${s.label.y}, ${s.label.r}], d: ${JSON.stringify(s.rings.map(ringToPath).join(""))} },`,
     ),
     "  ],",
     "};",
@@ -222,6 +304,14 @@ function main(): void {
 
   console.log(`wrote ${OUTPUT} (${(Buffer.byteLength(output) / 1024).toFixed(1)} KB, ${states.length} units)`);
   console.log(`canvas ${WIDTH}x${HEIGHT}, scale ${projection.scale.toFixed(2)}`);
+
+  // Label clearance drives when each name appears, so print it tightest-first:
+  // the units at the top are the ones that only get named when zoomed well in.
+  console.log("label clearance (canvas units), tightest first:");
+  for (const s of [...states].sort((a, b) => a.label.r - b.label.r)) {
+    console.log(`  ${s.name.padEnd(38)} r=${String(s.label.r).padStart(5)}  at (${s.label.x}, ${s.label.y})`);
+  }
+
   for (const city of cities.filter((c) => c.status === "active")) {
     const [x, y] = mercator(city.lng, city.lat, projection);
     console.log(`  ${city.name.padEnd(12)} -> (${x.toFixed(1)}, ${y.toFixed(1)}) in ${city.state}`);
