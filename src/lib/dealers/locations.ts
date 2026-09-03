@@ -7,43 +7,19 @@
  */
 import { unstable_cache } from "next/cache";
 import { eq, inArray, sql } from "drizzle-orm";
-import { indiaMap } from "@/data/india-map-paths";
 import { GAZETTEER } from "./gazetteer";
-import { STATE_BY_CODE } from "./india-states";
-import { gazetteerTowns, resolvePlace, type KnownTown, type PlaceInput, type StateCentre } from "./locate";
+import { INTERNAL_DEALER_IDS, REVALIDATE_SECONDS, getTowns, readAddress, stateCentres } from "./crm";
+import { resolvePlace, type KnownTown, type PlaceInput, type StateCentre } from "./locate";
 import type { DealerLocation } from "./types";
 
-/** Internal test / house accounts that exist in the dealers table. */
-const INTERNAL_DEALER_IDS = new Set(["ACC-ITARANG-DEALER", "ACC-ITARANG-HOUSE"]);
 /** Applications that are real submissions but not approved yet. */
 const PIPELINE_STATUSES = ["submitted", "correction_requested"];
 
-const REVALIDATE_SECONDS = 60 * 60;
 const FAILURE_BACKOFF_MS = 60 * 1000;
 
-/** Address blobs come as `{ "address": "..." }`, a JSON string of that, or plain text. */
-export function readAddress(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.startsWith("{")) {
-      try {
-        return readAddress(JSON.parse(trimmed));
-      } catch {
-        return trimmed;
-      }
-    }
-    return trimmed || null;
-  }
-  if (typeof value === "object" && "address" in value) {
-    return readAddress((value as { address?: unknown }).address);
-  }
-  return null;
-}
-
-function stateCentres(): Map<string, StateCentre> {
-  return new Map(indiaMap.states.map((s) => [s.name, { name: s.name, lng: s.center[0], lat: s.center[1] }]));
-}
+// Re-exported: the map's own tests and callers have imported it from here since
+// before the shared module existed.
+export { readAddress };
 
 interface Bucket extends DealerLocation {
   key: string;
@@ -93,9 +69,9 @@ function aggregate(
 async function fetchDealerLocations(): Promise<DealerLocation[]> {
   // Imported lazily so a missing DATABASE_URL fails this call, not the module graph.
   const { db } = await import("@/lib/db");
-  const { dealers, dealerOnboardingApplications, crmCities, crmCityAliases } = await import("@/lib/db/dealer-schema");
+  const { dealers, dealerOnboardingApplications } = await import("@/lib/db/dealer-schema");
 
-  const [dealerRows, pipelineRows, cityRows, aliasRows] = await Promise.all([
+  const [dealerRows, pipelineRows, towns] = await Promise.all([
     db
       .select({
         dealerId: dealers.dealerId,
@@ -117,23 +93,8 @@ async function fetchDealerLocations(): Promise<DealerLocation[]> {
       })
       .from(dealerOnboardingApplications)
       .where(inArray(dealerOnboardingApplications.onboardingStatus, PIPELINE_STATUSES)),
-    db.select({ id: crmCities.id, name: crmCities.name, stateCode: crmCities.stateCode, lat: crmCities.lat, lng: crmCities.lng }).from(crmCities),
-    db.select({ aliasLower: crmCityAliases.aliasLower, cityId: crmCityAliases.cityId }).from(crmCityAliases),
+    getTowns(),
   ]);
-
-  const aliasesByCity = new Map<string, string[]>();
-  for (const a of aliasRows) {
-    const list = aliasesByCity.get(a.cityId) ?? [];
-    list.push(a.aliasLower);
-    aliasesByCity.set(a.cityId, list);
-  }
-  const crmTowns: KnownTown[] = [];
-  for (const c of cityRows) {
-    const state = STATE_BY_CODE[c.stateCode?.toUpperCase() ?? ""];
-    if (!state) continue;
-    crmTowns.push({ name: c.name, state, lat: c.lat, lng: c.lng, aliases: aliasesByCity.get(c.id) ?? [] });
-  }
-  const towns = [...gazetteerTowns(), ...crmTowns];
 
   const live: PlaceInput[] = dealerRows
     .filter((d) => !INTERNAL_DEALER_IDS.has(d.dealerId ?? ""))

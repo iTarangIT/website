@@ -48,3 +48,6 @@ cmo-dashboard/logs/
 
 # scratch downloads for scripts/geo/build-topo.sh
 scripts/geo/.work/
+
+# scratch downloads for scripts/pincodes/fetch.sh
+scripts/pincodes/.work/

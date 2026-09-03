@@ -97,6 +97,18 @@ export function useMapViewport() {
   const zoomOut = useCallback(() => setView(zoomAt(viewRef.current, 1 / STEP, 0.5, 0.5), true), [setView]);
   const reset = useCallback(() => setView(REST, true), [setView]);
 
+  /**
+   * Centre a canvas fraction in the frame at zoom `k`. The inverse of zoomAt:
+   * put the point at 0.5, 0.5. clampView still applies, so a target near an
+   * edge — Kashmir, Kerala's tip — lands off-centre rather than pulling a blank
+   * strip into the frame. Callers should highlight the target as well as move
+   * to it, since it is not guaranteed to end up under the crosshair.
+   */
+  const focusOn = useCallback(
+    (fx: number, fy: number, k: number) => setView({ k, x: 0.5 - fx * k, y: 0.5 - fy * k }, true),
+    [setView],
+  );
+
   // Ctrl/⌘ + wheel (and trackpad pinch, which browsers report the same way)
   // zooms around the cursor. A plain wheel keeps scrolling the page: the map
   // must never trap the scroll. Registered natively because React marks wheel
@@ -269,6 +281,7 @@ export function useMapViewport() {
     zoomIn,
     zoomOut,
     reset,
+    focusOn,
     frameHandlers: { onPointerDown, onDoubleClick, onKeyDown },
   };
 }

@@ -16,6 +16,13 @@ interface IndiaMapProps {
   onActivate: (name: string | null) => void;
   /** Shows the expand control; the parent decides what "expand" opens. */
   onExpand?: () => void;
+  /**
+   * Ask the map to fly somewhere, e.g. to a search result. The nonce is what
+   * makes a repeat search of the same place move the map again; a request
+   * already present at mount is ignored, so the expanded dialog still opens at
+   * rest rather than jumping while its pins are still animating in.
+   */
+  focusRequest?: { lat: number; lng: number; nonce: number } | null;
   /** Wrapper around the map frame, e.g. to cap its width in a dialog. */
   className?: string;
   style?: CSSProperties;
@@ -135,7 +142,18 @@ function StateLabels({ zoom, framePx, pins }: { zoom: number; framePx: number; p
   );
 }
 
-export default function IndiaMap({ locations, activeName, onActivate, onExpand, className, style }: IndiaMapProps) {
+/** Zoom a search result is shown at: close enough to read the town around it. */
+const FOCUS_ZOOM = 4;
+
+export default function IndiaMap({
+  locations,
+  activeName,
+  onActivate,
+  onExpand,
+  focusRequest,
+  className,
+  style,
+}: IndiaMapProps) {
   const { ref: inViewRef, inView } = useInView({ triggerOnce: true, threshold: 0.2 });
   const { width, height, states } = indiaMap;
   const viewport = useMapViewport();
@@ -172,6 +190,16 @@ export default function IndiaMap({ locations, activeName, onActivate, onExpand, 
     observer.observe(el);
     return () => observer.disconnect();
   }, [frameRef]);
+
+  // Seeded with whatever nonce is already present, so mounting is never a move.
+  const servedFocus = useRef(focusRequest?.nonce ?? 0);
+  const { focusOn } = viewport;
+  useEffect(() => {
+    if (!focusRequest || focusRequest.nonce === servedFocus.current) return;
+    servedFocus.current = focusRequest.nonce;
+    const [x, y] = projectLatLng(focusRequest.lat, focusRequest.lng);
+    focusOn(x / width, y / height, FOCUS_ZOOM);
+  }, [focusRequest, focusOn, width, height]);
 
   const frameVars = {
     "--map-k": String(view.k),

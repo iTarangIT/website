@@ -20,6 +20,7 @@ import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from
 import { cities } from "../src/data/cities";
 import { GAZETTEER } from "../src/lib/dealers/gazetteer";
 import { fitMercator, mercator, type MercatorParams } from "../src/lib/geo/mercator";
+import { pointInRings } from "../src/lib/geo/rings";
 
 const ROOT = process.cwd();
 const SOURCE = resolve(ROOT, "scripts/geo/india-states.topo.json");
@@ -158,19 +159,6 @@ function labelAnchor(rings: [number, number][][]): { x: number; y: number; r: nu
   return { x: round(best.x), y: round(best.y), r: round(Math.max(best.r, 0)) };
 }
 
-/** Even-odd ray cast: inside if the point crosses an odd number of ring edges. */
-function pointInRings(x: number, y: number, rings: [number, number][][]): boolean {
-  let inside = false;
-  for (const ring of rings) {
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i];
-      const [xj, yj] = ring[j];
-      const crosses = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-      if (crosses) inside = !inside;
-    }
-  }
-  return inside;
-}
 
 function main(): void {
   const topology = JSON.parse(readFileSync(SOURCE, "utf8")) as Topology<{ states: GeometryCollection<StateProps> }>;

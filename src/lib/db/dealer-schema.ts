@@ -4,9 +4,18 @@
  * Like schema.ts, this declares columns of tables the CRM repo owns. The
  * website only SELECTs from them; never run migrations from here.
  *
- * Only location and status columns are declared on purpose. The real tables
- * also hold owner contact details, bank accounts and tax ids — leave those
- * out so the website cannot select them even by accident.
+ * Location, status and PUBLISHED CONTACT columns are declared on purpose.
+ * Everything else is left out so the website cannot select it even by accident.
+ *
+ * The contact columns are here because /for-dealers now answers "who do I
+ * call?": company_name, contact_phone and owner_phone are shown to the public
+ * in the nearest-dealer results, the way any store locator shows a dealer.
+ * Exactly those three, and only for dealers whose onboarding_status is active.
+ *
+ * Still deliberately absent, and to stay absent: bank_* , *_number (PAN, GST,
+ * CIN, Aadhaar), owner_email, and every operator, agreement and audit column.
+ * If you find yourself adding one, that is a decision to publish it — take it
+ * to a human first.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 import { boolean, doublePrecision, integer, jsonb, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
@@ -14,6 +23,10 @@ import { boolean, doublePrecision, integer, jsonb, pgTable, text, timestamp, uui
 export const dealers = pgTable("dealers", {
   id: integer("id").primaryKey(),
   dealerId: varchar("dealer_id", { length: 255 }),
+  /** Trading name, shown publicly in nearest-dealer results. */
+  companyName: varchar("company_name", { length: 255 }),
+  /** Published fallback when the application has no contact_phone. */
+  ownerPhone: varchar("owner_phone", { length: 255 }),
   onboardingStatus: varchar("onboarding_status", { length: 255 }).notNull(),
   applicationId: varchar("application_id", { length: 255 }),
   /** Either `{ "address": "..." }` or a bare JSON string; see readAddress(). */
@@ -30,6 +43,10 @@ export const dealerOnboardingApplications = pgTable("dealer_onboarding_applicati
   city: varchar("city", { length: 255 }),
   state: varchar("state", { length: 255 }),
   pincode: varchar("pincode", { length: 255 }),
+  /** Trading name as given on the application. */
+  companyName: text("company_name"),
+  /** The dealer's designated business contact; preferred over owner_phone. */
+  contactPhone: varchar("contact_phone", { length: 255 }),
   isBranchDealer: boolean("is_branch_dealer"),
   submittedAt: timestamp("submitted_at"),
 });

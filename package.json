@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "map:build": "tsx scripts/build-india-map.ts",
-    "test:unit": "tsx --test src/lib/dealers/locate.test.ts"
+    "test:unit": "tsx --test src/lib/dealers/locate.test.ts src/lib/dealers/nearest.test.ts",
+    "pincodes:build": "tsx scripts/build-pincode-areas.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1027.0",
