@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 DATABASE_NAME = "console.db"
 
 #: `archived` is not a soft rejection. A rejection is remembered by norm_key and
@@ -95,12 +95,13 @@ def utc_timestamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def norm_key(text: str) -> str:
-    """A fingerprint that survives rewording.
+def norm_tokens(text: str) -> list[str]:
+    """The content words of `text`: lowercased, stopword-free, crudely singularised.
 
-    Lowercase, drop stopwords, crudely singularise, sort the remaining tokens.
-    "Three wheeler battery data" and "Data on three wheeler batteries" collapse to
-    the same key, which is what makes a rejection stick against a paraphrase.
+    Split out of `norm_key` so a caller that needs to compare *token sets* -- does
+    this trending query name what this candidate is about? -- gets the same
+    normalisation the rejection fingerprint uses, rather than a second copy of it
+    that drifts the first time a word joins `_STOPWORDS`.
     """
     tokens: list[str] = []
     for token in re.findall(r"[a-z0-9]+", text.casefold()):
@@ -113,7 +114,17 @@ def norm_key(text: str) -> str:
         elif token.endswith("s") and not token.endswith("ss") and len(token) > 3:
             token = token[:-1]
         tokens.append(token)
-    return " ".join(sorted(set(tokens)))
+    return tokens
+
+
+def norm_key(text: str) -> str:
+    """A fingerprint that survives rewording.
+
+    Lowercase, drop stopwords, crudely singularise, sort the remaining tokens.
+    "Three wheeler battery data" and "Data on three wheeler batteries" collapse to
+    the same key, which is what makes a rejection stick against a paraphrase.
+    """
+    return " ".join(sorted(set(norm_tokens(text))))
 
 
 def _single_line(value: object, *, limit: int = 400) -> str:
@@ -174,6 +185,19 @@ CREATE TABLE IF NOT EXISTS research_runs (
     -- rows matched, which is a different fact from zero demand and is rendered
     -- as such. Added in schema 5; `_add_column` backfills existing databases.
     demand_json      TEXT NOT NULL DEFAULT '',
+    -- Which news-radar sweep drove this pass. Added in schema 7. `radar_mode` is
+    -- the sweep's own mode -- `due` is the unattended 07:00 IST run,
+    -- `manual`/`forced` is somebody pressing the button -- and both are empty for
+    -- a subject researched straight from the console.
+    --
+    -- This lives here and not on `subjects` on purpose. Subject rows are reused by
+    -- norm_key, so a subject the radar found in August is handed straight back
+    -- when a human types a paraphrase of it in September; a sweep stamped there
+    -- would make that hand-typed candidate claim a morning sweep found it. A
+    -- research run is created once per `propose()` call and never reused, so it is
+    -- the row that can answer "which sweep produced *this candidate*".
+    radar_mode       TEXT NOT NULL DEFAULT '',
+    radar_swept_at   TEXT NOT NULL DEFAULT '',
     cache_hit_of     INTEGER REFERENCES research_runs(id),
     status           TEXT NOT NULL,
     message          TEXT NOT NULL DEFAULT '',
@@ -360,6 +384,8 @@ class ConsoleDB:
         # table, so a column added to the schema above never reaches one. Every such
         # column needs a line here as well, and both must agree.
         self._add_column("subjects", "beat", "TEXT NOT NULL DEFAULT ''")
+        self._add_column("research_runs", "radar_mode", "TEXT NOT NULL DEFAULT ''")
+        self._add_column("research_runs", "radar_swept_at", "TEXT NOT NULL DEFAULT ''")
         self._add_column("radar_runs", "empty_beats_json", "TEXT NOT NULL DEFAULT '[]'")
         self._add_column("research_runs", "demand_json", "TEXT NOT NULL DEFAULT ''")
         for column, declaration in (
@@ -429,6 +455,11 @@ class ConsoleDB:
         itself except an empty beat: the radar finding a subject somebody had
         already entered by hand is the one case where we learn something new about
         a row that is otherwise unchanged.
+
+        Which *sweep* found it is deliberately not stored here: this row is shared
+        by every candidate ever proposed from the subject, including ones a human
+        typed months later, so a sweep stamped on it would be claimed by all of
+        them. That fact belongs on `research_runs`, one row per research pass.
         """
         text = _single_line(raw_text, limit=180)
         if not 3 <= len(text) <= 180:
@@ -488,13 +519,16 @@ class ConsoleDB:
         demand: Mapping[str, Any] | None = None,
         cache_hit_of: int | None = None,
         message: str = "",
+        radar_mode: str = "",
+        radar_swept_at: str = "",
     ) -> int:
         with self.write() as connection:
             cursor = connection.execute(
                 "INSERT INTO research_runs (subject_id, kind, pages_requested, pages_fetched,"
                 " credits_before, credits_after, credits_used, credits_remaining, gsc_rows_used,"
-                " demand_json, cache_hit_of, status, message, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " demand_json, radar_mode, radar_swept_at, cache_hit_of, status, message,"
+                " created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     subject_id,
                     kind,
@@ -506,6 +540,8 @@ class ConsoleDB:
                     credits_remaining,
                     gsc_rows_used,
                     json.dumps(dict(demand), sort_keys=True) if demand else "",
+                    _single_line(radar_mode, limit=20),
+                    _single_line(radar_swept_at, limit=40),
                     cache_hit_of,
                     status,
                     _single_line(message, limit=600),
@@ -1147,6 +1183,10 @@ class ConsoleDB:
         # pass matched no Search Console rows, carries `{}` -- which the console
         # renders as "no data", never as zero.
         record["demand"] = self._demand_for(record["version"])
+        # Which sweep produced this candidate, read through the same join and for
+        # the same reason: it is a fact about the research pass, not about the
+        # subject, which outlives every pass run against it.
+        record["provenance"] = self._provenance_for(record["version"])
         record["history"] = [
             self._version_payload(item)
             for item in self._query(
@@ -1163,6 +1203,27 @@ class ConsoleDB:
         subject = self._one("SELECT * FROM subjects WHERE id = ?", (record["subject_id"],))
         record["subject"] = dict(subject) if subject else None
         return record
+
+    def _provenance_for(self, version: dict[str, Any] | None) -> dict[str, str]:
+        """The sweep behind this version's research pass, or `{}`.
+
+        A version from before schema 7, or one researched straight from the
+        console, carries `{}` -- which the console renders as "not recorded" and
+        "you asked for this" respectively. Neither is ever guessed from a
+        timestamp: a sweep and a person can act in the same minute.
+        """
+        if not version or not version.get("research_run_id"):
+            return {}
+        run = self._one(
+            "SELECT radar_mode, radar_swept_at FROM research_runs WHERE id = ?",
+            (version["research_run_id"],),
+        )
+        if run is None:
+            return {}
+        mode = str(run["radar_mode"] or "").strip()
+        if not mode:
+            return {}
+        return {"radar_mode": mode, "radar_swept_at": str(run["radar_swept_at"] or "").strip()}
 
     def _demand_for(self, version: dict[str, Any] | None) -> dict[str, Any]:
         if not version or not version.get("research_run_id"):

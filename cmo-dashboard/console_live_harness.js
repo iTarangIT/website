@@ -165,7 +165,7 @@ const nestedButtons = ['read', 'files'].map(name => {
 /* Nodes the document ships with a `hidden` attribute already on them. The
    registry cannot know that, and a test asking "did it stay hidden?" would get a
    free pass if it started visible. */
-['topics-pending', 'topics-new', 'blogs-pending', 'blogs-new', 'competitor-result',
+['topics-pending', 'topics-new', 'blogs-pending', 'blogs-new',
  'editor-conflict', 'detail-pending', 'detail-error',
  'social-pending', 'social-new'].forEach(id => { byId(id).hidden = true; });
 const badges = new Map(['topics', 'blogs'].map(name => {
@@ -199,12 +199,12 @@ const document = {
     if (key === '.primary button.active') return primaryButtons.find(b => b.classList.contains('active')) || null;
     if (key === '.tab-indicator') return makeElement('', 'span');
     if (key === '.chart-wrap') return makeElement('', 'div');
-    if (/^\[data-(approve|undo|queue|decision|revision|editor|form-submit|upload|publish)/.test(key)
+    if (/^\[data-(approve|undo|unqueue|decision|revision|editor|form-submit|upload|publish)/.test(key)
         || key.startsWith('#publish-block')) return looseButton(key);
     if (/^\[data-(social-generate|social-prepare|social-send|draft-save|draft-body|row)=/.test(key)) {
       return looseButton(key);
     }
-    if (key.startsWith('[data-proposal=') || key.startsWith('[data-opportunity=')) return looseButton(key);
+    if (key.startsWith('[data-proposal=')) return looseButton(key);
     if (key.startsWith('[data-form=')) return looseButton(key);
     return null;
   },
@@ -415,6 +415,8 @@ async function main() {
         const badge = badges.get(`[data-badge="${name}"]`);
         return { view: name, text: badge.textContent, hidden: badge.hidden };
       }),
+      topicsFilters: byId('topics-filter').innerHTML,
+      topicsCount: byId('topics-count').textContent,
       proposeResult: byId('propose-result').textContent,
       editorText: globalThis.__console.editorText,
       editorInput: byId('editor-input').value,

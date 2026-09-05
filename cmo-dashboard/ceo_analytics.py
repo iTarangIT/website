@@ -1,8 +1,8 @@
 """Search Console, shaped for the one screen that reads it.
 
 `analytics_readers` answers "what are the totals"; this module answers the
-questions the Analytics tab actually asks: how did each day go, which queries and
-pages did the work, and which of them is worth writing about next.
+questions the Analytics tab actually asks: how did each day go, and which queries
+and pages did the work.
 
 Everything here is derived from rows Search Console returned. Nothing is
 estimated, and a figure that has not been measured stays `None` so the page can
@@ -157,95 +157,6 @@ def _subject_from_page(page: str) -> str:
     return segment[-1].replace("-", " ").replace("_", " ")
 
 
-def opportunities(
-    queries: Sequence[dict[str, Any]],
-    pages: Sequence[dict[str, Any]],
-    previous_queries: Sequence[dict[str, Any]] = (),
-) -> list[dict[str, Any]]:
-    """Rows that qualify for "worth writing about next", each with its reason.
-
-    Every rule is a plain statement about measured numbers. A query that meets no
-    rule is not listed — the panel would rather be short than speculative.
-    """
-    prior = {row["query"]: row for row in previous_queries if row.get("query")}
-    found: list[dict[str, Any]] = []
-    for row in queries:
-        subject = row["query"]
-        impressions = row["impressions"] or 0
-        clicks = row["clicks"] or 0
-        position = row["position"]
-        reason = ""
-        kind = ""
-        if impressions >= 20 and clicks == 0:
-            kind = "unclicked"
-            reason = (
-                f"Seen {impressions:g} times in search and clicked none. "
-                "Nothing we have answers this question directly."
-            )
-        elif position is not None and 10 < position <= 25 and impressions >= 10:
-            kind = "page_two"
-            reason = (
-                f"We sit at position {position:g} — page two. "
-                "A page written for this question could reach page one."
-            )
-        elif position is not None and position <= 10 and impressions >= 30 and (row["ctr"] or 0) < 2:
-            kind = "weak_title"
-            reason = (
-                f"We rank at position {position:g} but only {row['ctr'] or 0:g}% of people click. "
-                "The page appears, and then it does not look like the answer."
-            )
-        else:
-            earlier = prior.get(subject)
-            before = (earlier or {}).get("impressions") or 0
-            if impressions >= 15 and before and impressions >= before * 1.5:
-                kind = "rising"
-                reason = (
-                    f"Impressions went from {before:g} to {impressions:g} against the previous window. "
-                    "Interest is growing faster than our coverage."
-                )
-        if kind:
-            found.append(
-                {
-                    "kind": kind,
-                    "subject": subject,
-                    "source": "query",
-                    "reason": reason,
-                    "impressions": row["impressions"],
-                    "clicks": row["clicks"],
-                    "position": position,
-                }
-            )
-    for row in pages:
-        impressions = row["impressions"] or 0
-        position = row["position"]
-        if position is not None and 10 < position <= 25 and impressions >= 25:
-            found.append(
-                {
-                    "kind": "page_two",
-                    "subject": _subject_from_page(row["page"]),
-                    "source": "page",
-                    "reason": (
-                        f"This page averages position {position:g} on {impressions:g} impressions. "
-                        "A companion piece could pull the whole topic up."
-                    ),
-                    "impressions": row["impressions"],
-                    "clicks": row["clicks"],
-                    "position": position,
-                }
-            )
-    order = {"unclicked": 0, "rising": 1, "page_two": 2, "weak_title": 3}
-    found.sort(key=lambda item: (order[item["kind"]], -(item["impressions"] or 0)))
-    seen: set[str] = set()
-    unique = []
-    for item in found:
-        key = item["subject"].casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
-    return unique
-
-
 def _empty(window: dict[str, Any], device: str, status: str, message: str) -> dict[str, Any]:
     return {
         "status": status,
@@ -261,7 +172,6 @@ def _empty(window: dict[str, Any], device: str, status: str, message: str) -> di
         "series": [],
         "queries": [],
         "pages": [],
-        "opportunities": [],
     }
 
 
@@ -350,11 +260,7 @@ def search_console_report(
         page_rows = query(dimensions=["page"], rowLimit=ROW_LIMIT)
         indexed = _indexed_pages(client("sitemaps"))
         earlier = _previous_window(window)
-        previous_totals = None
-        previous_queries: list[dict[str, Any]] = []
-        if earlier:
-            previous_totals = _totals(query(rowLimit=1, **earlier))
-            previous_queries = _keyed_rows(query(dimensions=["query"], rowLimit=ROW_LIMIT, **earlier), "query")
+        previous_totals = _totals(query(rowLimit=1, **earlier)) if earlier else None
     except Exception as exc:  # never blank the console because a provider hiccuped
         return _empty(window, device, "error", f"Search Console read failed: {type(exc).__name__}.")
 
@@ -381,7 +287,6 @@ def search_console_report(
         "series": _series(series_rows),
         "queries": queries,
         "pages": pages,
-        "opportunities": opportunities(queries, pages, previous_queries),
     }
 
 

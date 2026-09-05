@@ -29,8 +29,8 @@ BODY = '''<main id="app">
 <div id="radar-status" class="radar-status"></div>
 <p id="propose-result" class="notice"></p>
 
-<details id="queued-box"><summary>Queued from Analytics <span id="queued-count" class="meta"></span></summary>
-<p class="meta">Subjects you sent over from the Analytics tab. Nothing has been spent on them yet.</p>
+<details id="queued-box"><summary>Queued subjects <span id="queued-count" class="meta"></span></summary>
+<p class="meta">Subjects queued earlier, waiting for you to research one. Nothing has been spent on them yet.</p>
 <div id="queued-list" class="rows"></div></details>
 
 <h3 class="rule">Candidate topics awaiting your decision</h3>
@@ -95,10 +95,6 @@ BODY = '''<main id="app">
 <div class="chart-wrap"><div id="chart"></div><div id="chart-tip" class="tip" role="status" hidden></div></div>
 </div>
 
-<h3 class="rule">Worth writing about next<span class="meta">Queries and pages that qualify on measured numbers. The button sends one to Topics &amp; Research.</span></h3>
-<div id="opportunity-list" class="rows" role="list"></div>
-<nav class="pager" id="opportunities-pager" aria-label="Opportunity pages"></nav>
-
 <h3 class="rule">What people searched for</h3>
 <div class="table-scroll"><table class="data" id="queries-table"><thead><tr>
 <th data-sort="query" aria-sort="none"><button type="button">Query</button></th>
@@ -138,9 +134,6 @@ BODY = '''<main id="app">
 <h3 class="rule">Did they convert?<span class="meta">The calculator is the only path on the site that ends in a lead. This is where it loses people.</span></h3>
 <div id="ga4-events-panel"></div>
 
-<h3 class="rule">Which pages were read<span class="meta">Every page by views, not only the blog. Engagement is the share of those sessions that stayed.</span></h3>
-<div id="ga4-pages-panel"></div>
-
 <h3 class="rule">Where the traffic came from<span class="meta">Sessions grouped by the channel that sent them. A share from the blog carries a UTM tag, so WhatsApp forwards land here rather than under Direct.</span></h3>
 <div id="sources-panel"></div>
 
@@ -152,12 +145,6 @@ BODY = '''<main id="app">
 
 <h3 class="rule">Where they came in<span class="meta">The page each session started on, and whether it held them. This is the front door, not the whole journey.</span></h3>
 <div id="journey-panel"></div>
-
-<h3 class="rule">Which website do you want to replicate?<span class="meta">Reads their sitemap free, then up to 10 of their pages, and scores each topic against our own Search Console position.</span></h3>
-<div class="subject-box"><label class="field">Competitor website<input id="competitor" type="text" maxlength="253" placeholder="example.com"></label><button id="analyse-competitor" type="button">Analyse</button></div>
-<p id="competitor-result" class="notice" hidden></p>
-<div id="competitor-panel"></div>
-<nav class="pager" id="competitor-pager" aria-label="Competitor finding pages"></nav>
 </section>
 
 <section id="panel-social" class="screen paper" hidden>

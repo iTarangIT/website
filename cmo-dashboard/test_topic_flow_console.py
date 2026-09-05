@@ -110,6 +110,21 @@ class TopicSubmissionIsNoLongerAWritingInstruction(unittest.TestCase):
     def test_suppressed_candidates_are_reported_not_hidden(self) -> None:
         self.assertIn("suppressed as previously rejected", SCRIPT)
 
+    def test_every_beat_the_radar_sweeps_has_words_on_the_console(self) -> None:
+        """A slug with no label is printed raw, which reads as a typo to a reader.
+
+        `beatLabel` falls back to the slug on purpose -- an unnamed beat is still a
+        true answer -- but a beat we ship should never need that fallback.
+        """
+        from cmo_runtime.news_radar import CORE_BEATS, ROTATING_BEATS
+
+        labels = SCRIPT.split("const BEAT_LABELS={", 1)[1].split("};", 1)[0]
+        for slug, _query in CORE_BEATS + ROTATING_BEATS:
+            self.assertIn(slug, labels, f"the {slug} beat has no wording on the console")
+        # `competitors` and `watchlist` are swept without sitting in either roster.
+        for slug in ("competitors", "watchlist"):
+            self.assertIn(slug, labels, slug)
+
     def test_a_candidate_without_a_source_says_so(self) -> None:
         self.assertIn("This candidate names no source.", SCRIPT)
 
@@ -233,11 +248,11 @@ class PageMakesNoExternalRequest(unittest.TestCase):
 class ProductFinish(unittest.TestCase):
     """Section 6: the craft, checked rather than asserted."""
 
-    def test_one_card_grammar_covers_proposals_blogs_and_competitor_findings(self) -> None:
+    def test_one_card_grammar_covers_proposals_and_blogs(self) -> None:
         # The whole builder, not its first N characters: a fixed window turns a
         # comment into a test failure, which teaches you to write shorter comments
         # rather than to keep the grammar shared.
-        for builder in ("function proposalCard(", "function gapRow(", "function blogCard("):
+        for builder in ("function proposalCard(", "function blogCard("):
             body = SCRIPT.split(builder, 1)[1].split("\nfunction ", 1)[0]
             self.assertIn('class="card"', body, builder)
 
@@ -245,7 +260,7 @@ class ProductFinish(unittest.TestCase):
         # Every pill renders a glyph and a word; the tone class only tints them.
         self.assertIn("data-glyph=", SCRIPT)
         self.assertIn(".pill::before{content:attr(data-glyph)}", CSS)
-        for key in ("proposed", "revising", "rejected", "uncontested", "weak_position"):
+        for key in ("proposed", "revising", "rejected", "in_preview", "published"):
             self.assertIn(f"{key}:" if ":" in key else key, SCRIPT)
         for tone in ("tone-wait", "tone-stop", "tone-mute"):
             self.assertIn(f".pill.{tone}", CSS)
@@ -300,7 +315,7 @@ class ProductFinish(unittest.TestCase):
         phone = CSS.split("@media(max-width:640px)", 1)[1]
         for rule in ("dialog{width:100%",
                      ".card-row{display:block}", ".chips{flex-wrap:nowrap;overflow-x:auto",
-                     ".opportunity{display:block}"):
+                     ".list-row{display:block}"):
             self.assertIn(rule, phone)
         # Every tile strip collapses to two columns on a phone, whatever it
         # counts on a desktop. The Google Analytics strip is six wide and its
@@ -341,29 +356,6 @@ class ProductFinish(unittest.TestCase):
         phone = CSS.split("@media(max-width:640px)", 1)[1]
         for rule in (".chip{flex:0 0 auto;min-height:40px", ".small{min-height:40px"):
             self.assertIn(rule, phone)
-
-
-class CompetitorPanelIsHonest(unittest.TestCase):
-    """Invariant 5 at the console layer."""
-
-    def test_an_unanalysed_competitor_renders_an_empty_state_not_zeroes(self) -> None:
-        renderer = SCRIPT.split("function renderCompetitor(", 1)[1].split("\n}", 1)[0]
-        self.assertIn("data.status==='none'", renderer)
-        self.assertIn("emptyState(", renderer)
-
-    def test_a_missing_position_says_so_rather_than_showing_zero(self) -> None:
-        row = SCRIPT.split("function gapRow(", 1)[1].split("\n}", 1)[0]
-        self.assertIn("finding.our_position==null", row)
-        self.assertIn("no Search Console data for this topic", row)
-
-    def test_the_volume_gap_is_surfaced_on_the_panel(self) -> None:
-        self.assertIn("data.volume_message", SCRIPT)
-
-    def test_the_panel_reports_what_the_analysis_cost(self) -> None:
-        renderer = SCRIPT.split("function renderCompetitor(", 1)[1].split("\n}", 1)[0]
-        self.assertIn("credits_used", renderer)
-        self.assertIn("sitemap_url_count", renderer)
-        self.assertIn("free", renderer)
 
 
 class WatchlistStillNeverCreatesACard(unittest.TestCase):

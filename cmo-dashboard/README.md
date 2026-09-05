@@ -296,8 +296,8 @@ Sanchit never presses refresh. Two separate mechanisms, because the two problems
 not the same problem.
 
 **An action he just triggered.** Every slow action — research a subject, suggest
-changes, ask for changes, save an edit, queue a subject, analyse a competitor, publish
-— goes through one helper, `runAction()` in `ceo_script.py`. There is no second way to
+changes, ask for changes, save an edit, scan the news, publish — goes through one
+helper, `runAction()` in `ceo_script.py`. There is no second way to
 look busy. It disables the button, relabels it (`Researching… 7s`, ticking), drops a
 skeleton at the real height where the results will land, and on failure leaves the
 reason on screen in that same space. `Firecrawl returned 402: monthly credits
@@ -845,9 +845,10 @@ one or the other depending on when it was created, so it tries both names in its
 own request. A rejected metric name there cannot blank the tiles.
 
 `ceo_console.state_payload` had been fetching `ga4_technical_summary` for the blog
-join and then sending the browser a second, smaller `ga4_summary` — the page rows
-were paid for and thrown away. It now sends the detail payload it already has, one
-round-trip fewer, and those rows render as "Which pages were read".
+join and then sending the browser a second, smaller `ga4_summary`. It now sends the
+detail payload it already has, one round-trip fewer. The page rows stay on the server:
+they are the GA4 half of the blog join, and no panel renders them since "Which pages
+were read" was removed.
 
 ### A step with no event is not a step nobody reached
 
@@ -897,7 +898,34 @@ production depend on an unset env var would take analytics dark); what is gated 
 where it runs. `NEXT_PUBLIC_GTM_ID` overrides the id. Preview is checked separately
 from `NODE_ENV` because Vercel builds previews in production mode.
 
+### Three sections came off the Analytics tab
+
+Removed whole, not hidden: **Worth writing about next**, **Which pages were read** and
+**Which website do you want to replicate?**. Each took its renderer, its paging state,
+its styles and its tests with it, and `test_served_bytes.py` asserts on the served page
+that neither the heading nor the panel nor the renderer behind it comes back.
+
+What went with them on the server: `ceo_analytics.opportunities()` and the whole rule
+set that turned Search Console rows into a recommendation, plus the second Search
+Console call that fetched the previous window's *queries* to feed the `rising` rule —
+the previous window's totals are still read, because the tiles' deltas need them. The
+GA4 page rows are still fetched, because the blog join needs them; they simply stop at
+the server now.
+
+**The research queue is remove-only.** The opportunity panel was the only thing that put
+a subject into it, so the Queued box on Topics keeps what is already there — researchable
+and removable — and nothing new arrives. `POST /ceo/api/research-queue` still accepts
+`add`; no console control sends it.
+
 ## Competitor analytics
+
+**The console panel is gone.** "Which website do you want to replicate?" was removed
+from the Analytics tab, along with `renderCompetitor`, `gapRow` and the analyse button.
+`POST /ceo/api/competitor` and the service behind it are kept on purpose: analysing a
+domain is the only thing that writes the `competitors` table, and the news radar builds
+its standing `competitors` beat from that table (see *The news radar*). Deleting the
+endpoint would quietly drop that beat to `COMPETITOR_FALLBACK_QUERY` as the existing
+domains age out. Nothing in the browser calls it today.
 
 `cmo_runtime/competitors.py` answers "which website do you want to replicate" from what
 we already have: their `sitemap.xml` (a plain GET, free), up to `COMPETITOR_PAGE_CAP` of

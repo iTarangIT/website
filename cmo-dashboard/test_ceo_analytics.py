@@ -1,9 +1,4 @@
-"""The Analytics tab's reader — ranges, series, tables and the opportunity rules.
-
-The rules in `opportunities` are the only place in this console that turns numbers
-into a recommendation, so each one is pinned to the numbers that trigger it. A
-query that meets no rule must not appear: an empty panel is the honest answer.
-"""
+"""The Analytics tab's reader — ranges, series, the tables and the blog join."""
 
 from __future__ import annotations
 
@@ -66,77 +61,6 @@ class RangeChips(unittest.TestCase):
         self.assertEqual(analytics._previous_window(settled)["end"], "2026-09-06")
 
 
-class OpportunityRules(unittest.TestCase):
-    def qualify(self, queries, pages=(), previous=()):
-        return analytics.opportunities(
-            analytics._keyed_rows([row(**item) for item in queries], "query"),
-            analytics._keyed_rows([row(**item) for item in pages], "page"),
-            analytics._keyed_rows([row(**item) for item in previous], "query"),
-        )
-
-    def test_impressions_with_no_clicks_qualify(self) -> None:
-        found = self.qualify([{"key": "battery price delhi", "impressions": 140, "clicks": 0, "position": 18.4}])
-
-        self.assertEqual(found[0]["kind"], "unclicked")
-        self.assertIn("clicked none", found[0]["reason"])
-        self.assertEqual(found[0]["subject"], "battery price delhi")
-
-    def test_a_page_two_position_qualifies(self) -> None:
-        found = self.qualify([{"key": "battery replacement", "impressions": 40, "clicks": 3, "position": 14.2}])
-
-        self.assertEqual(found[0]["kind"], "page_two")
-        self.assertIn("page two", found[0]["reason"])
-
-    def test_ranking_well_while_losing_the_click_qualifies(self) -> None:
-        found = self.qualify([{"key": "itarang emi", "impressions": 400, "clicks": 3, "position": 4.0}])
-
-        self.assertEqual(found[0]["kind"], "weak_title")
-        self.assertIn("does not look like the answer", found[0]["reason"])
-
-    def test_growth_against_the_previous_window_qualifies(self) -> None:
-        found = self.qualify(
-            [{"key": "e rickshaw finance", "impressions": 60, "clicks": 9, "position": 5.0}],
-            previous=[{"key": "e rickshaw finance", "impressions": 20, "clicks": 3, "position": 6.0}],
-        )
-
-        self.assertEqual(found[0]["kind"], "rising")
-        self.assertIn("20 to 60", found[0]["reason"])
-
-    def test_a_query_that_is_simply_working_does_not_qualify(self) -> None:
-        found = self.qualify([{"key": "itarang", "impressions": 400, "clicks": 260, "position": 1.1}])
-
-        self.assertEqual(found, [])
-
-    def test_thin_data_does_not_qualify(self) -> None:
-        found = self.qualify([{"key": "rare query", "impressions": 4, "clicks": 0, "position": 22.0}])
-
-        self.assertEqual(found, [])
-
-    def test_a_page_on_page_two_qualifies_and_names_a_readable_subject(self) -> None:
-        found = self.qualify([], pages=[
-            {"key": "https://itarang.com/blog/battery-replacement-cost", "impressions": 90, "clicks": 2, "position": 14.0}
-        ])
-
-        self.assertEqual(found[0]["subject"], "battery replacement cost")
-        self.assertEqual(found[0]["source"], "page")
-
-    def test_the_same_subject_is_listed_once(self) -> None:
-        found = self.qualify(
-            [{"key": "battery cost", "impressions": 140, "clicks": 0, "position": 18.0}],
-            pages=[{"key": "https://itarang.com/battery-cost", "impressions": 90, "clicks": 1, "position": 14.0}],
-        )
-
-        self.assertEqual(len(found), 1)
-
-    def test_unclicked_queries_are_ranked_above_page_two_ones(self) -> None:
-        found = self.qualify([
-            {"key": "second page", "impressions": 200, "clicks": 5, "position": 13.0},
-            {"key": "never clicked", "impressions": 30, "clicks": 0, "position": 20.0},
-        ])
-
-        self.assertEqual([item["kind"] for item in found], ["unclicked", "page_two"])
-
-
 class ReportShape(unittest.TestCase):
     def client(self, **overrides):
         def call(kind, **body):
@@ -171,7 +95,6 @@ class ReportShape(unittest.TestCase):
         self.assertEqual(report["series"][0]["date"], "2026-09-01")
         self.assertEqual(len(report["queries"]), 2)
         self.assertEqual(len(report["pages"]), 1)
-        self.assertTrue(report["opportunities"])
 
     def test_ctr_is_derived_from_clicks_and_impressions_not_reported_blind(self) -> None:
         report = self.report()
@@ -216,7 +139,6 @@ class ReportShape(unittest.TestCase):
         self.assertEqual(report["status"], "not_connected")
         self.assertIsNone(report["totals"]["impressions"])
         self.assertEqual(report["series"], [])
-        self.assertEqual(report["opportunities"], [])
         self.assertIn("GSC_CREDENTIALS_PATH", report["required_variables"])
 
     def test_a_provider_failure_reports_itself_without_blanking_the_shape(self) -> None:

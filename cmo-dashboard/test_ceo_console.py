@@ -409,5 +409,86 @@ class RenamingAnArticleMovesEveryCopyOfTheTitle(unittest.TestCase):
             ["# New", "## Section", "# Later heading"],
         )
 
+
+def _row(title, delta, *, source="Google Search", current=100):
+    return {"title": title, "source": source, "metric": "impressions",
+            "current": current, "previous": None, "delta": delta}
+
+
+class ATrendingBadgeIsEarned(unittest.TestCase):
+    """A wrong badge attaches a real, checkable number to the wrong subject.
+
+    That is worse than no badge, because the number is what invites a decision.
+    Every rule below exists to refuse a match rather than to find one.
+    """
+
+    def match(self, proposal, rows, window=7):
+        return ceo_console._trending_for(proposal, rows, window)
+
+    def candidate(self, title="EV Growth and Lithium Batteries", keywords=None):
+        return {"title": title,
+                "keywords": keywords if keywords is not None
+                else ["e rickshaw lithium battery market", "EV battery market India"]}
+
+    def test_a_query_the_candidate_is_about_earns_the_badge(self) -> None:
+        match = self.match(self.candidate(), [_row("lithium battery market", 240)])
+
+        self.assertEqual(match["query"], "lithium battery market")
+        self.assertEqual(match["delta"], 240)
+        self.assertEqual(match["window_days"], 7)
+
+    def test_an_unrelated_query_earns_nothing(self) -> None:
+        self.assertEqual(self.match(self.candidate(), [_row("solar inverter", 400)]), {})
+
+    def test_matching_is_whole_words_not_substrings(self) -> None:
+        """`ev` inside `seven` and `development` is the classic false badge."""
+        candidate = self.candidate("Seven development trends", keywords=["seven"])
+
+        self.assertEqual(self.match(candidate, [_row("ev", 900)]), {})
+
+    def test_one_word_trending_is_not_evidence_about_one_topic(self) -> None:
+        candidate = self.candidate("Battery care in summer", keywords=["battery"])
+
+        self.assertEqual(self.match(candidate, [_row("battery", 9998)]), {})
+
+    def test_a_measured_fall_is_not_a_rise(self) -> None:
+        self.assertEqual(self.match(self.candidate(), [_row("lithium battery market", -80)]), {})
+
+    def test_a_flat_query_is_not_a_rise(self) -> None:
+        self.assertEqual(self.match(self.candidate(), [_row("lithium battery market", 0)]), {})
+
+    def test_a_query_with_no_prior_period_is_withheld(self) -> None:
+        """The case that feels most trending is the one with no evidence: a query
+        new this window has nothing to have risen from."""
+        self.assertEqual(self.match(self.candidate(), [_row("lithium battery market", None)]), {})
+
+    def test_a_collector_row_that_measures_no_direction_is_withheld(self) -> None:
+        """X and Facebook rows carry no delta and no defined metric, so
+        "trending" can be neither true nor false of them."""
+        row = {"title": "lithium battery market", "source": "X", "summary": "hot"}
+
+        self.assertEqual(self.match(self.candidate(), [row]), {})
+
+    def test_the_largest_measured_rise_wins_so_a_card_carries_one_badge(self) -> None:
+        match = self.match(self.candidate(), [
+            _row("lithium battery market", 240),
+            _row("ev battery market india", 900),
+        ])
+
+        self.assertEqual(match["delta"], 900)
+
+    def test_the_outline_and_subject_are_not_matched_against(self) -> None:
+        """Both are prose. Matching prose is how false positives get in."""
+        candidate = {"title": "Warranty terms", "keywords": ["warranty"],
+                     "subject": "lithium battery market growth in India",
+                     "outline": "A note on the lithium battery market."}
+
+        self.assertEqual(self.match(candidate, [_row("lithium battery market", 240)]), {})
+
+    def test_a_candidate_with_nothing_to_match_on_is_not_badged(self) -> None:
+        self.assertEqual(self.match({"title": "", "keywords": []},
+                                    [_row("lithium battery market", 240)]), {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -414,11 +414,11 @@ class TheSweepHandsOnToTheExistingPipeline(RadarTestCase):
         original = radar.service.propose
         calls: list[str] = []
 
-        def flaky(subject, actor, beat=""):
+        def flaky(subject, actor, beat="", **stamp):
             calls.append(subject)
             if len(calls) == 1:
                 raise ProposalRefused("research refused for this one")
-            return original(subject, actor, beat)
+            return original(subject, actor, beat, **stamp)
 
         radar.service.propose = flaky
         sweep = radar.scan("news-radar")
@@ -495,6 +495,61 @@ class TheBeatIsSteerableWithoutARedeploy(RadarTestCase):
         }
         self.assertTrue(beats, "the sweep proposed nothing")
         self.assertEqual(set(beats.values()), {"policy", "battery-tech"})
+
+    def test_a_beat_the_triager_invented_never_reaches_the_console(self) -> None:
+        """The triager is a model, and it answered with beats of its own making.
+
+        The live database holds "batteries and cells" and "charging and swapping"
+        in this column -- neither of which anybody searched. The console printed
+        them as the beat, so a card claimed a provenance that never happened. A
+        beat has to be one this sweep actually ran.
+        """
+        radar, _root = self.make_radar(triager=FakeTriager([
+            {"subject": "CAQM bans new non-electric light goods vehicles",
+             "beat": "charging and swapping"},
+        ]))
+
+        radar.scan("news-radar")
+
+        beats = {item["beat"] for item in radar.service.state()["proposals"]}
+        self.assertTrue(beats, "the sweep proposed nothing")
+        self.assertNotIn("charging and swapping", beats)
+        # Empty is the honest answer, and the console already renders it as one.
+        self.assertEqual(beats, {""})
+
+    def test_an_invented_beat_falls_back_to_the_headline_it_cited(self) -> None:
+        """Better than dropping it: the sources say which beat found the story."""
+
+        class CitingTriager:
+            """Answers with an invented beat, but cites a real policy headline."""
+
+            def triage(self, *, headlines, **_kwargs):
+                cited = next(item for item in headlines if item.beat == "policy")
+                return [{
+                    "subject": "CAQM bans new non-electric light goods vehicles",
+                    "beat": "clean air rules",
+                    "sources": [cited.url],
+                }]
+
+        radar, _root = self.make_radar(triager=CitingTriager())
+
+        radar.scan("news-radar")
+
+        beats = {item["beat"] for item in radar.service.state()["proposals"]}
+        self.assertEqual(beats, {"policy"})
+
+    def test_a_candidate_records_which_sweep_produced_it(self) -> None:
+        radar, _root = self.make_radar(triager=FakeTriager([
+            {"subject": "CAQM bans new non-electric light goods vehicles", "beat": "policy"},
+        ]))
+
+        sweep = radar.scan("news-radar", mode="due")
+
+        proposals = radar.service.state()["proposals"]
+        self.assertTrue(proposals, "the sweep proposed nothing")
+        for item in proposals:
+            self.assertEqual(item["radar_mode"], "due")
+            self.assertEqual(item["radar_swept_at"], sweep.started_at)
 
     def test_a_subject_typed_by_hand_carries_no_beat(self) -> None:
         """Inventing one would be worse than leaving it blank: a manual subject

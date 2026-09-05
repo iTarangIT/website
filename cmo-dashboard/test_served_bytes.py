@@ -272,14 +272,25 @@ def seed_proposals(root: Path) -> dict[str, tuple[int, list[int]]]:
     database = ConsoleDB(root)
     fixtures: dict[str, tuple[int, list[int]]] = {}
     try:
-        for name in ("sweep", "restore", "refuse"):
-            subject = database.subject_for(f"served {name} fixture subject", CEO_EMAIL)
+        # `labelled` carries the sweep stamp; the rest are hand-entered, which is
+        # what makes "this one says morning sweep and those do not" a real result.
+        stamps = {"labelled": ("due", "2026-09-03T01:41:06Z")}
+        actors = {"labelled": "news-radar"}
+        for name in ("sweep", "restore", "refuse", "labelled", "typed"):
+            subject = database.subject_for(
+                f"served {name} fixture subject",
+                actors.get(name, CEO_EMAIL),
+                "policy" if name == "labelled" else "",
+            )
+            radar_mode, swept_at = stamps.get(name, ("", ""))
             run_id = database.record_research_run(
                 subject_id=int(subject["id"]),
                 kind="initial",
                 pages_requested=1,
                 pages_fetched=1,
                 status="completed",
+                radar_mode=radar_mode,
+                radar_swept_at=swept_at,
             )
             result = database.add_candidates(
                 subject_id=int(subject["id"]),
@@ -721,13 +732,48 @@ class ServedPageTests(unittest.TestCase):
         """
         page = self.text("/ceo")
 
-        for panel in ('id="ga4-panel"', 'id="ga4-events-panel"', 'id="ga4-pages-panel"'):
+        for panel in ('id="ga4-panel"', 'id="ga4-events-panel"'):
             self.assertIn(panel, page, panel)
-        for renderer in ("function renderGa4(", "function renderGa4Pages(",
-                         "function renderFunnel("):
+        for renderer in ("function renderGa4(", "function renderFunnel("):
             self.assertIn(renderer, page, renderer)
         # Every one of them has to be called, not merely defined.
-        self.assertIn("renderGa4();renderGa4Pages();renderFunnel();", page)
+        self.assertIn("renderGa4();renderFunnel();", page)
+
+    def test_the_three_removed_analytics_sections_are_gone_from_the_wire(self) -> None:
+        """Removed means absent from the bytes, not hidden by a style rule.
+
+        Each heading is checked with the element it owned: a heading could be
+        deleted while its panel, its renderer and the click handler behind it
+        stayed, which is a section that still runs and merely cannot be seen.
+        """
+        page = self.text("/ceo")
+
+        for gone in (
+            # Worth writing about next
+            "Worth writing about next", 'id="opportunity-list"', 'id="opportunities-pager"',
+            "function renderOpportunities(",
+            # Which pages were read
+            "Which pages were read", 'id="ga4-pages-panel"', "function renderGa4Pages(",
+            # Which website do you want to replicate?
+            "Which website do you want to replicate?", 'id="competitor-panel"',
+            'id="analyse-competitor"', "function renderCompetitor(", "function analyseCompetitor(",
+        ):
+            self.assertNotIn(gone, page, gone)
+
+    def test_the_queued_subjects_box_survives_the_removal_read_and_remove_only(self) -> None:
+        """Nothing on the console queues a subject any more, so nothing claims to.
+
+        The opportunity panel was the only thing that added one. What is already
+        queued still has to be researchable and removable, and the copy must not
+        send a reader to an Analytics control that no longer exists.
+        """
+        page = self.text("/ceo")
+
+        self.assertIn('id="queued-list"', page)
+        self.assertIn("data-unqueue=", page)
+        self.assertIn("data-research-queued=", page)
+        self.assertNotIn("The Analytics tab can send subjects here", page)
+        self.assertNotIn("data-queue=", page)
 
     def test_the_served_page_can_format_a_google_analytics_ratio(self) -> None:
         """The defect this work started from: engagement rate rendered as
@@ -1061,6 +1107,46 @@ class ServedPageTests(unittest.TestCase):
 
     def topics(self) -> dict:
         return json.loads(self.text("/ceo/api/state", auth=True))["topics"]
+
+    # ---- marker: what a candidate is labelled with, over the wire --------
+
+    def served_proposal(self, name: str) -> dict:
+        """The first candidate of one seeded subject, as the console receives it."""
+        wanted = f"Served {name} fixture candidate 1"
+        proposals = self.topics()["proposals"] + self.topics()["archived"]
+        return next(item for item in proposals if item["title"] == wanted)
+
+    def test_a_swept_candidate_is_served_with_the_sweep_that_found_it(self) -> None:
+        proposal = self.served_proposal("labelled")
+
+        self.assertEqual(proposal["radar_mode"], "due")
+        self.assertEqual(proposal["radar_swept_at"], "2026-09-03T01:41:06Z")
+        self.assertEqual(proposal["actor"], "news-radar")
+        self.assertEqual(proposal["beat"], "policy")
+
+    def test_a_hand_entered_candidate_is_served_claiming_no_sweep(self) -> None:
+        """Empty, not absent and not guessed: the console renders it as typed."""
+        proposal = self.served_proposal("typed")
+
+        self.assertEqual(proposal["radar_mode"], "")
+        self.assertEqual(proposal["radar_swept_at"], "")
+        self.assertEqual(proposal["actor"], CEO_EMAIL)
+
+    def test_no_candidate_is_served_a_trend_badge_without_a_connected_source(self) -> None:
+        """Nothing is connected in this profile, so no candidate may claim a rise."""
+        for proposal in self.topics()["proposals"]:
+            self.assertNotIn("trending", proposal, proposal["title"])
+
+    def test_the_console_ships_the_label_builders_it_renders_cards_with(self) -> None:
+        """The payload above is only useful if the page that reads it is served."""
+        page = self.text("/ceo")
+
+        for control in ("Morning sweep", "Subject typed by", "run not recorded",
+                        "Rising on", "Found today"):
+            self.assertIn(control, page, control)
+        # And the two filter chips the labels are worth having for.
+        self.assertIn('{value:\'trending\',label:\'Trending\'', page)
+        self.assertIn('{value:\'morning\',label:\'Morning sweep\'', page)
 
     def test_approving_a_topic_archives_its_siblings_over_the_wire(self) -> None:
         """The whole point of the sweep, measured on what the console is served.

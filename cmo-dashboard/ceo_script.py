@@ -56,11 +56,9 @@ const UI_DEFAULTS={
  archived:{page:1,size:10,search:'',filter:'all'},
  social:{page:1,size:10,search:'',filter:'all'},
  trends:{page:1,size:10},
- opportunities:{page:1,size:10},
  queries:{page:1,size:25,sort:'impressions',dir:'desc'},
  pages:{page:1,size:25,sort:'impressions',dir:'desc'},
  posts:{page:1,size:25,sort:'impressions',dir:'desc'},
- competitor:{page:1,size:10},
  analytics:{range:'28',device:'all',start:'',end:'',metric:'traffic'}
 };
 function loadUi(){
@@ -232,13 +230,6 @@ const STATUS={
  scheduled:{glyph:'◷',label:'scheduled',tone:''},
  in_preview:{glyph:'◎',label:'in preview',tone:'tone-wait'},
  published:{glyph:'▲',label:'published',tone:''},
- uncontested:{glyph:'◆',label:'uncontested',tone:''},
- weak_position:{glyph:'▲',label:'we rank weakly',tone:'tone-wait'},
- covered:{glyph:'✓',label:'we hold this',tone:'tone-mute'},
- unclicked:{glyph:'◆',label:'seen, never clicked',tone:'tone-wait'},
- page_two:{glyph:'▲',label:'page two',tone:'tone-wait'},
- weak_title:{glyph:'○',label:'ranks but loses the click',tone:'tone-mute'},
- rising:{glyph:'↑',label:'rising',tone:''},
  /* A cross-post's life. `draft` is copy nobody has sent; `queued` means Buffer
     holds a post id for it and it will go out in a scheduled slot; `failed` is a
     refusal Buffer gave, kept on the row with its reason. */
@@ -435,6 +426,84 @@ function beatPill(proposal){
     inventing one. It simply carries no tag. */
  return beat?`<span class="pill beat">${esc(beatLabel(beat))}</span>`:'';
 }
+/* ---- the labels a candidate carries ------------------------------------- */
+/* Four facts, each read off a stored column, each absent when the column is
+   empty. Nothing here infers: "we did not write this down" and "a person typed
+   this" are opposite answers, and a badge that guesses between them is worse
+   than no badge, because it is the badge people would act on. */
+
+/* The sweep clock is IST -- the radar runs at 07:00 IST -- so the stamp is read
+   back in IST rather than in whatever zone the browser happens to sit in. */
+const IST_STAMP=new Intl.DateTimeFormat('en-IN',
+ {timeZone:'Asia/Kolkata',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
+const IST_DAY=new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'});
+function istStamp(iso){
+ const when=Date.parse(String(iso||''));
+ return isFinite(when)?IST_STAMP.format(new Date(when))+' IST':'';
+}
+/* Whole days apart on the IST calendar, not elapsed 24-hour blocks: a sweep at
+   07:00 today and one at 07:00 yesterday are "today" and "1 day ago", however
+   many hours sit between them. */
+function daysAgoIST(iso){
+ const when=Date.parse(String(iso||''));
+ if(!isFinite(when))return null;
+ const asDay=value=>{const[d,m,y]=IST_DAY.format(value).split('/');return Date.UTC(+y,+m-1,+d);};
+ return Math.round((asDay(new Date())-asDay(new Date(when)))/86400000);
+}
+/* How this candidate got here. Exhaustive over what is stored, and every branch
+   names its own evidence. `radar_mode` comes off the research run that produced
+   this candidate, never off the subject, which is shared with every later pass
+   over the same words -- including one a person typed months afterwards. */
+function originPill(proposal){
+ if(proposal.source_kind==='legacy_board')
+  return `<span class="pill beat" data-glyph="▣">Carried over from the board</span>`;
+ const mode=(proposal.radar_mode||'').trim();
+ const actor=(proposal.actor||'').trim();
+ if(mode==='due'){
+  const when=istStamp(proposal.radar_swept_at);
+  return `<span class="pill beat" data-glyph="◷">Morning sweep${when?' · '+esc(when):''}</span>`;
+ }
+ if(mode==='manual'||mode==='forced'){
+  const when=istStamp(proposal.radar_swept_at);
+  return `<span class="pill beat" data-glyph="◷">Sweep run by ${esc(actor||'someone')}${when?' · '+esc(when):''}</span>`;
+ }
+ /* The radar found it, but before the run was recorded. Two independent proofs
+    of that -- it came off a beat, or the radar submitted it under its own name --
+    and either is enough. Falling through to "you typed this" would invent the one
+    fact we are missing, and it is the reading 12 live candidates would have got. */
+ if((proposal.beat||'').trim()||actor==='news-radar')
+  return `<span class="pill beat" data-glyph="◷">News radar · run not recorded</span>`;
+ return `<span class="pill beat" data-glyph="✎">Subject typed by ${esc(actor||'someone')}</span>`;
+}
+/* Measured market demand, or nothing at all. The server does the matching, with
+   the same normaliser the rejection fingerprint uses; this side only says it.
+   There is deliberately no "not trending" -- Search Console is asked for twenty
+   rows, so absence is a fact about the sample, not about the topic. */
+function trendingPill(proposal){
+ const trend=proposal.trending;
+ if(!trend||!(Number(trend.delta)>0))return '';
+ const metric=trend.metric||'impressions';
+ const words=`Rising on ${trend.source} · +${grouped.format(trend.delta)} ${metric}`;
+ const title=`"${trend.query}" is up ${grouped.format(trend.delta)} ${metric} on ${trend.source} `
+  +`versus the previous ${trend.window_days} days`;
+ return `<span class="pill wrap" data-glyph="↗" title="${esc(title)}">${esc(words)}</span>`;
+}
+/* When it arrived, and how much was read to write it. Both are counts off stored
+   rows; a candidate with no sources already says so in its own line and gains
+   no pill here rather than a "0 sources" one. */
+function freshnessPill(proposal){
+ const days=daysAgoIST(proposal.created_at);
+ if(days===null||days<0)return '';
+ const words=days===0?'Found today':days===1?'Found yesterday':`Found ${days} days ago`;
+ return `<span class="pill beat" data-glyph="○">${esc(words)}</span>`;
+}
+function evidencePill(proposal){
+ if(proposal.source_kind==='cache')
+  return `<span class="pill beat" data-glyph="◈">Cached research</span>`;
+ const count=(proposal.source_refs||[]).length;
+ if(!count)return '';
+ return `<span class="pill beat" data-glyph="◈">${count} source${count===1?'':'s'}</span>`;
+}
 function sourceLine(proposal){
  const refs=(proposal.source_refs||[]).map(ref=>{
   if(/^https?:\/\//i.test(ref))return `<a href="${esc(ref)}" target="_blank" rel="noopener">${esc(ref.replace(/^https?:\/\//,'').slice(0,60))}</a>`;
@@ -465,8 +534,9 @@ function proposalCard(proposal){
  const busyNote=proposal.status==='revising'?'<p class="meta">Re-researching this candidate…</p>':'';
  const history=(proposal.history||[]).length>1?`<details><summary>Earlier rounds</summary>${proposal.history.slice(0,-1).map(item=>`<div class="history-row"><strong>Round ${esc(item.round)}: ${esc(item.title)}</strong><p class="meta">${esc(item.outline)}</p></div>`).join('')}</details>`:'';
  return `<article class="card" role="listitem" data-key="${esc(proposal.id)}" data-row="${esc(proposal.id)}" data-proposal="${esc(proposal.id)}">
-<div class="card-row"><div class="card-main">${pill(proposal.status)} ${beatPill(proposal)} ${round}
+<div class="card-row"><div class="card-main">${pill(proposal.status)} ${beatPill(proposal)} ${trendingPill(proposal)} ${round}
 <h3>${esc(proposal.title)}</h3>
+<div class="labels">${originPill(proposal)} ${freshnessPill(proposal)} ${evidencePill(proposal)}</div>
 <p class="meta">${proposal.beat?`From the ${esc(beatLabel(proposal.beat))} beat`:'From your subject'}: ${esc(proposal.subject)}</p>
 <div class="keywords">${keywords}</div>
 ${demandLine(proposal)}
@@ -485,6 +555,18 @@ ${sourceLine(proposal)}${busyNote}${history}</div></div>
 <p class="form-error" data-form-error hidden></p>
 </div></article>`;
 }
+/* The label filters, sharing their predicate with the pill that renders them so
+   a chip count and the badges under it cannot disagree. `all` and the two status
+   values keep working exactly as before. */
+const TOPIC_FILTERS={
+ trending:proposal=>!!trendingPill(proposal),
+ morning:proposal=>(proposal.radar_mode||'').trim()==='due'
+};
+function matchesFilter(proposal,filter){
+ if(filter==='all')return true;
+ const label=TOPIC_FILTERS[filter];
+ return label?label(proposal):proposal.status===filter;
+}
 function matchesProposal(proposal,term){
  if(!term)return true;
  const hay=[proposal.title,proposal.subject,proposal.outline,...(proposal.keywords||[])].join(' ').toLocaleLowerCase();
@@ -498,9 +580,11 @@ function renderProposals(){
  chipRow('#topics-filter',[
   {value:'all',label:'All',count:all.length},
   {value:'proposed',label:'Awaiting you',count:counts.proposed||0},
-  {value:'revising',label:'Re-researching',count:counts.revising||0}
+  {value:'revising',label:'Re-researching',count:counts.revising||0},
+  {value:'trending',label:'Trending',count:all.filter(TOPIC_FILTERS.trending).length},
+  {value:'morning',label:'Morning sweep',count:all.filter(TOPIC_FILTERS.morning).length}
  ],ui.topics.filter,'topics-filter');
- const filtered=all.filter(item=>(ui.topics.filter==='all'||item.status===ui.topics.filter)&&matchesProposal(item,term));
+ const filtered=all.filter(item=>matchesFilter(item,ui.topics.filter)&&matchesProposal(item,term));
  const view=page(filtered,'topics');
  $('#topics-count').textContent=filtered.length===all.length
   ?`${grouped.format(all.length)} candidate${all.length===1?'':'s'}`
@@ -514,7 +598,7 @@ function renderProposals(){
 
  const queue=state.research_queue||[];
  $('#queued-count').textContent=queue.length?`(${queue.length})`:'(none)';
- setHtml($('#queued-list'),queue.map(item=>`<div class="list-row"><div class="card-main"><strong>${esc(item.subject)}</strong><p class="meta">${esc(item.reason||'Queued from Analytics.')}</p></div><div class="actions"><button class="small" data-research-queued="${esc(item.subject)}" type="button">Research this</button><button class="ghost small" data-unqueue="${esc(item.subject)}" type="button">Remove</button></div></div>`).join('')||'<p class="empty">Nothing is queued. The Analytics tab can send subjects here.</p>');
+ setHtml($('#queued-list'),queue.map(item=>`<div class="list-row"><div class="card-main"><strong>${esc(item.subject)}</strong><p class="meta">${esc(item.reason||'Queued from Analytics.')}</p></div><div class="actions"><button class="small" data-research-queued="${esc(item.subject)}" type="button">Research this</button><button class="ghost small" data-unqueue="${esc(item.subject)}" type="button">Remove</button></div></div>`).join('')||'<p class="empty">Nothing is queued.</p>');
 
  const rejected=topics.rejected||[];
  $('#rejected-count').textContent=rejected.length?`(${rejected.length})`:'(none)';
@@ -795,20 +879,21 @@ async function undoRejection(id){
  catch(error){action.fail(error.message);}
  finally{action.done();}
 }
-async function queueSubject(subject,reason,action){
+/* Remove-only. The Analytics tab used to queue subjects from the opportunity
+   panel; with that panel gone, what is already queued can still be researched or
+   dropped, and nothing new arrives. */
+async function unqueueSubject(subject){
  if(busy)return;
- const card=document.querySelector(`[data-opportunity="${CSS.escape(subject)}"]`);
  const run=runAction({
-  button:document.querySelector(`[data-queue="${CSS.escape(subject)}"]`),
-  label:action==='add'?'Queuing…':'Removing…',
-  surface:card?.querySelector('[data-card-error]'),
+  button:document.querySelector(`[data-unqueue="${CSS.escape(subject)}"]`),
+  label:'Removing…',
   failTitle:'The queue was not changed.'
  });
  try{
-  const result=await post('/ceo/api/research-queue',{subject,reason,action});
+  const result=await post('/ceo/api/research-queue',{subject,reason:'',action:'remove'});
   if(state)state.research_queue=result.research_queue;
-  toast(action==='add'?'Queued in Topics & Research.':'Removed from the queue.');
-  renderProposals();renderOpportunities();
+  toast('Removed from the queue.');
+  renderProposals();
  }catch(error){run.fail(error.message);}
  finally{run.done();}
 }
@@ -998,39 +1083,12 @@ ${deltas&&tile.key!=='indexed_pages'?deltaHtml(deltas[tile.key],tile.kind):''}</
   ?'<span><i></i>Impressions</span><span><i class="clicks"></i>Clicks</span>'
   :`<span><i></i>${esc(CHART_METRICS.find(item=>item.value===ui.analytics.metric).label)}</span>`);
  drawChart();
- renderOpportunities();
  renderDataTable('#queries-table','#queries-pager','queries',report.queries||[],'query','queries');
  renderDataTable('#pages-table','#pages-pager','pages',report.pages||[],'page','pages');
  const range=report.range||{};
  $('#analytics-footnote').textContent=
   `Collection started ${report.collection_start||'—'}. Search Console finalises a day about ${report.reporting_delay_days??2} days later, so this window ends ${range.end||'—'}.`
   +(range.start?` Showing ${range.start} to ${range.end}, ${range.days} day${range.days===1?'':'s'}, ${report.device==='all'?'all devices':report.device}.`:'');
-}
-function renderOpportunities(){
- const report=searchReport();
- const all=report.opportunities||[];
- const queued=new Set((state.research_queue||[]).map(item=>item.subject.toLocaleLowerCase()));
- const view=page(all,'opportunities');
- setHtml($('#opportunity-list'),view.items.map(item=>{
-  const isQueued=queued.has(item.subject.toLocaleLowerCase());
-  return `<article class="opportunity card kind-${esc(item.kind)}${isQueued?' is-queued':''}" role="listitem" data-row="op-${esc(item.subject)}" data-opportunity="${esc(item.subject)}">
-<div class="card-main">${pill(item.kind)} <span class="meta">${item.source==='page'?'page':'search query'}</span>
-<strong>${esc(item.subject)}</strong>
-<p class="why">${esc(item.reason)}</p></div>
-<div class="card-figures">
-<span><span class="stat">${cell(item.impressions)}</span><span class="label">impressions</span></span>
-<span><span class="stat">${cell(item.position,'position')}</span><span class="label">position</span></span></div>
-<button class="${isQueued?'ghost':''}" data-queue="${esc(item.subject)}" data-queue-action="${isQueued?'remove':'add'}" data-queue-reason="${esc(item.reason)}" type="button">${isQueued?'Queued ✓':'Research this'}</button>
-<p class="row-error" data-card-error hidden></p>
-</article>`;
- }).join('')||emptyState(
-  report.status==='ready'?'Nothing qualifies yet':'Nothing to suggest yet',
-  report.status==='ready'
-   ?'No query or page in this window met the thresholds for an opportunity. Widen the range to look further back.'
-   :'Once Search Console has recorded impressions, the queries worth writing about will be listed here.',
-  report.status==='ready'?'Show all time':'',
-  'data-range="all"'));
- renderPager('#opportunities-pager','opportunities',view,'opportunities');
 }
 function renderDataTable(tableId,pagerId,key,allRows,subjectField,noun){
  const table=$(tableId);if(!table)return;
@@ -1219,31 +1277,6 @@ function renderGa4(){
   `<details class="drill"><summary>Volume and reach</summary>
 <p class="footnote">How much traffic arrived. These say nothing about whether it was the right traffic, which is why they are not in the strip above.</p>
 <div class="tiles four">${GA4_SECONDARY.map(spec=>ga4Tile(data,spec)).join('')}</div></details>`);
-}
-/* Which pages were read. Already fetched for the blog join and, until now,
-   thrown away afterwards -- these rows cost nothing extra to show. */
-function renderGa4Pages(){
- const host=$('#ga4-pages-panel');if(!host)return;
- const data=state.analytics?.ga4||{};
- if(data.status!=='ready'){
-  const vars=(data.required_variables||[]).join(', ');
-  setHtml(host,emptyState('Page performance needs Google Analytics',
-   (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
-  return;
- }
- const rows=data.pages||[];
- if(!rows.length){
-  setHtml(host,emptyState('No page recorded yet',
-   (data.detail_message||'Google Analytics has recorded no page view in this window.')));
-  return;
- }
- setHtml(host,`<div class="table-scroll"><table class="data"><thead><tr>
-<th>Page</th><th class="n">Views</th><th class="n">Sessions</th><th class="n">Engagement</th>
-</tr></thead><tbody>${rows.map(row=>`<tr>
-<td class="subject">${esc(row.page)}</td>
-<td class="n">${cell(row.screen_page_views)}</td>
-<td class="n">${cell(row.sessions)}</td>
-<td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')}</tbody></table></div>`);
 }
 /* ---------------------------------------------------------- blog performance */
 /* One row per published article, joined server-side from Search Console and
@@ -1687,69 +1720,13 @@ async function sendSocial(taskId){
  }catch(error){delete socialPlans[taskId];action.fail(error.message);}
  finally{action.done();}
 }
-function gapRow(finding){
- const position=finding.our_position==null?'no Search Console data for this topic'
-  :`we average position ${Number(finding.our_position).toFixed(1)}${finding.our_impressions!=null?` on ${finding.our_impressions} impressions`:''}`;
- return `<article class="card" role="listitem" data-row="gap-${esc(finding.topic)}">
-<div class="card-row"><div class="card-main">${pill(finding.kind)}
-<h3>${esc(finding.topic)}</h3>
-<p class="meta">Them: <a href="${esc(finding.their_url)}" target="_blank" rel="noopener">${esc(String(finding.their_url).replace(/^https?:\/\//,'').slice(0,70))}</a></p>
-<p class="meta">Us: ${esc(position)}</p>
-<p class="outline">${esc(finding.recommendation)}</p></div>
-<button class="ghost small" data-queue="${esc(finding.topic)}" data-queue-action="add" data-queue-reason="${esc(finding.recommendation)}" type="button">Research this</button></div>
-<p class="row-error" data-card-error hidden></p></article>`;
-}
-function renderCompetitor(){
- const data=state.analytics?.competitor||{};
- const node=$('#competitor-panel');
- if(data.status==='none'){
-  setHtml(node,emptyState('No competitor analysed yet','Enter a website above to see which of their topics we do not cover.','Enter a website','data-focus="competitor"'));
-  setHtml($('#competitor-pager'),'');
-  return;
- }
- const counts=(data.findings||[]).reduce((total,item)=>{total[item.kind]=(total[item.kind]||0)+1;return total;},{});
- const chips=['uncontested','weak_position','covered'].filter(kind=>counts[kind])
-  .map(kind=>pill(kind,`${counts[kind]} ${STATUS[kind].label}`)).join(' ');
- const cost=data.credits_used?`${data.credits_used} credits`:'no credits';
- const view=page(data.findings||[],'competitor');
- setHtml(node,`<p class="meta">${esc(data.domain)} · <span class="num">${esc(data.sitemap_url_count??0)}</span> pages in their sitemap (free) · <span class="num">${esc(data.pages_fetched??0)}</span> read for ${esc(cost)} · measured ${esc(data.measured_at||'—')}</p>
-${data.message?`<p class="meta">${esc(data.message)}</p>`:''}
-<p class="meta">${esc(data.volume_message||'')}</p>
-<div class="keywords">${chips}</div>
-<div class="rows" role="list">${view.items.map(gapRow).join('')||emptyState('No comparable topic','Their pages produced no topic we could score against ours.')}</div>`);
- renderPager('#competitor-pager','competitor',view,'findings');
-}
-async function analyseCompetitor(){
- const target=$('#competitor').value.trim();
- const line=$('#competitor-result');
- if(!target){line.hidden=false;line.classList.add('error');line.textContent='Enter a competitor website first.';$('#competitor').focus();return;}
- if(busy)return;
- line.classList.remove('error');
- line.hidden=false;
- line.textContent='Reading their sitemap, then up to 10 of their pages.';
- const action=runAction({
-  button:'#analyse-competitor',label:'Analysing…',
-  slot:'#competitor-panel',shape:'card-h',count:4,surface:line,
-  failTitle:'The competitor read did not finish.'
- });
- try{
-  const result=await post('/ceo/api/competitor',{target});
-  setUi('competitor',{page:1});
-  await refresh();
-  line.classList.remove('error');
-  line.textContent=`${result.domain}: ${(result.findings||[]).length} topics scored for ${result.credits_used} credits.`;
- }catch(error){action.fail(error.message);}
- finally{action.done();}
-}
 
 function renderSkeletons(){
  setHtml($('#proposal-list'),skeleton(3,'card-h'));
  setHtml($('#blog-list'),skeleton(3,'card-h'));
- setHtml($('#opportunity-list'),skeleton(3,'card-h'));
  setHtml($('#stat-tiles'),skeleton(5,'tile-h'));
  setHtml($('#chart'),skeleton(1,'chart-h'));
  setHtml($('#trend-list'),skeleton(3,'row-h'));
- setHtml($('#competitor-panel'),skeleton(2,'card-h'));
  setHtml($('#archived-list'),skeleton(2,'card-h'));
  setHtml($('#social-list'),skeleton(2,'card-h'));
  setHtml($('#sources-panel'),skeleton(1,'card-h'));
@@ -1759,9 +1736,9 @@ function renderSkeletons(){
 }
 function renderAll(){
  renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderPosts();
- renderGa4();renderGa4Pages();renderFunnel();
+ renderGa4();renderFunnel();
  renderSources();renderPlaces();renderDevices();renderJourney();renderSocial();
- renderCompetitor();applyFocus();
+ applyFocus();
 }
 
 /* ------------------------------------------------------------- blog reading */
@@ -2341,7 +2318,7 @@ document.addEventListener('click',event=>{
  if(!button)return;
  const data=button.dataset;
  if(data.view)showView(data.view);
- if(data.focus){showView(data.focus==='competitor'?'analytics':'topics');$('#'+data.focus)?.focus();}
+ if(data.focus){showView('topics');$('#'+data.focus)?.focus();}
  if(data.open)openDetail(data.open);
  if(data.detail){detailTab=data.detail;renderDetail(true);}
  if(data.generate)generateImage(findTask(openTask),data.generate);
@@ -2356,8 +2333,7 @@ document.addEventListener('click',event=>{
  }
  if(data.device!==undefined){setUi('analytics',{device:data.device},false);refresh();}
  if(data.metric!==undefined){setUi('analytics',{metric:data.metric},false);renderSearchConsole();}
- if(data.queue!==undefined)queueSubject(data.queue,data.queueReason||'',data.queueAction||'add');
- if(data.unqueue!==undefined)queueSubject(data.unqueue,'','remove');
+ if(data.unqueue!==undefined)unqueueSubject(data.unqueue);
  if(data.researchQueued!==undefined){showView('topics');researchSubject(data.researchQueued);}
  if(data.unwatch)updateWatch(data.unwatch,'remove');
  if(data.approve)approveProposal(data.approve);
@@ -2450,8 +2426,6 @@ window.addEventListener('resize',()=>{
 });
 $('#research-subject').addEventListener('click',()=>researchSubject());
 $('#scan-news').addEventListener('click',scanNews);
-$('#analyse-competitor').addEventListener('click',analyseCompetitor);
-$('#competitor').addEventListener('keydown',event=>{if(event.key==='Enter')analyseCompetitor();});
 $('#subject').addEventListener('keydown',event=>{if(event.key==='Enter')researchSubject();});
 $('#watch-keyword').addEventListener('click',()=>{const keyword=$('#trend-keyword').value.trim();if(keyword)updateWatch(keyword,'add');});
 $('#apply-range').addEventListener('click',()=>{

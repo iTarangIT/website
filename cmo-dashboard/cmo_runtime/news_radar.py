@@ -520,7 +520,12 @@ class NewsRadar:
         except (RadarRefused, subprocess.SubprocessError) as error:
             return self._refuse(sweep, f"Triage failed: {_single_line(error)}")
 
-        chosen = self._subjects_from(rows, known)
+        chosen = self._subjects_from(
+            rows,
+            known,
+            sweep.beats,
+            {item.url: item.beat for item in sweep.headlines},
+        )
         sweep.subjects = [subject for subject, _beat in chosen]
         sweep.subject_beats = {subject: beat for subject, beat in chosen if beat}
         if not sweep.subjects:
@@ -547,7 +552,13 @@ class NewsRadar:
                 sweep.subjects = sweep.subjects[:index]
                 break
             try:
-                run = self.service.propose(subject, actor, sweep.subject_beats.get(subject, ""))
+                run = self.service.propose(
+                    subject,
+                    actor,
+                    sweep.subject_beats.get(subject, ""),
+                    radar_mode=sweep.mode,
+                    radar_swept_at=sweep.started_at,
+                )
             except ProposalRefused as error:
                 # One refused subject is not a failed sweep; the next may be fine.
                 sweep.messages.append(f"{subject!r}: {_single_line(error)}")
@@ -613,15 +624,31 @@ class NewsRadar:
 
     @staticmethod
     def _subjects_from(
-        rows: Sequence[dict[str, Any]], known: Sequence[str]
+        rows: Sequence[dict[str, Any]],
+        known: Sequence[str],
+        swept: Sequence[str] = (),
+        url_beats: Mapping[str, str] | None = None,
     ) -> list[tuple[str, str]]:
         """Enforce the caps here, not in the prompt. A model asked for three and
         returning nine must cost three subjects' worth of credits, not nine.
 
         Returns each subject with the beat it came off. The beat used to be dropped
         here, so a candidate on the console could not say which part of the beat
-        found it, and a beat that had gone quiet was invisible."""
+        found it, and a beat that had gone quiet was invisible.
+
+        The beat is *resolved against this sweep*, never taken on trust. The
+        triager is a model, and it answered with prose of its own invention --
+        "batteries and cells", "charging and swapping" -- neither of which is a
+        beat anybody searched. Those reached the database and the console printed
+        them as the beat, so a card claimed a provenance that never happened. A
+        beat now has to be one this sweep actually ran: the model's answer if it
+        names one, else the beat of a headline the subject cites, else empty --
+        which the console already renders honestly rather than guessing."""
         known_keys = {norm_key(item) for item in known}
+        # Match on the normalised slug so "EV industry" and "ev-industry" are the
+        # same answer, while an invented beat still matches nothing.
+        by_key = {norm_key(slug): slug for slug in swept if slug}
+        url_beats = url_beats or {}
         subjects: list[tuple[str, str]] = []
         seen: set[str] = set()
         for row in rows:
@@ -632,7 +659,14 @@ class NewsRadar:
             if not key or key in seen or key in known_keys:
                 continue
             seen.add(key)
-            subjects.append((subject, _single_line(row.get("beat") or "", limit=60)))
+            beat = by_key.get(norm_key(_single_line(row.get("beat") or "", limit=60)), "")
+            if not beat:
+                sources = row.get("sources")
+                for url in sources if isinstance(sources, list) else []:
+                    beat = url_beats.get(str(url).strip(), "")
+                    if beat:
+                        break
+            subjects.append((subject, beat))
             if len(subjects) >= RADAR_MAX_SUBJECTS:
                 break
         return subjects

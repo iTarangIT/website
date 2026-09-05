@@ -23,7 +23,7 @@ import ceo_version
 import console_board
 from ceo_page import page_build_header, render_page
 from cmo_runtime import competitors, news_radar, topic_proposals
-from cmo_runtime.console_db import ConsoleDBError
+from cmo_runtime.console_db import ConsoleDBError, norm_key, norm_tokens
 from cmo_runtime.decisions import DecisionConflict, DecisionError, DecisionStore
 from cmo_runtime.task_file import TaskFileError
 
@@ -109,11 +109,9 @@ def state_payload(
         # Read model only — every value here comes from the database or the board,
         # never from a live scrape at page load.
         topics = service.state()
-        competitor = competitors.CompetitorService(
-            PROFILE_DIR, database=service.database
-        ).latest()
     finally:
         service.database.close()
+    _label_topics(topics, rows, trend_days)
     search = ceo_analytics.cached_report(range_key, device, start=start, end=end)
     ga4_detail = analytics_readers.ga4_technical_summary(range_days, device)
     # The join is done here, once, rather than in the browser: the two halves come
@@ -137,17 +135,97 @@ def state_payload(
             "search": search,
             "search_console": dashboard_server.gsc_summary(),
             # `ga4_detail` is `ga4_summary` plus the page table and the collection
-            # start, so sending it costs nothing extra and saves a second summary
-            # round-trip. It was already fetched above for the blog join, and the
-            # page rows were being thrown away afterwards.
-            "ga4": ga4_detail,
+            # start, so reading it here saves a second summary round-trip. The page
+            # rows stay on this side: they are the GA4 half of the blog join above,
+            # and no panel renders them since "Which pages were read" was removed.
+            "ga4": {name: value for name, value in ga4_detail.items() if name != "pages"},
             "ga4_audience": analytics_readers.ga4_audience(range_days, device),
             "ga4_events": analytics_readers.ga4_events(range_days, device),
             "posts": posts,
-            "competitor": competitor,
         },
         "controls": {"range": range_key, "range_days": range_days, "device": device, "start": start, "end": end},
     }
+
+
+#: Trend rows come from three places and only one of them measures a direction.
+#: `_collector_rows` hands back whatever the X and Facebook collectors wrote, with
+#: no delta and no defined metric, so "trending" cannot be true or false of them.
+#: Only Google Search rows carry a measured previous period.
+TRENDING_SOURCE = "Google Search"
+
+
+def _trending_for(
+    proposal: dict[str, Any], rows: list[dict[str, Any]], window_days: int
+) -> dict[str, Any]:
+    """The trend row this candidate is actually about, or `{}`.
+
+    Deliberately hard to satisfy. A wrong "Trending" badge attaches a real,
+    checkable number to the wrong subject, which is worse than showing nothing:
+    the number invites a decision. Four conditions, each earning its place:
+
+    * Google Search only -- the other collectors measure no direction (above).
+    * A positive measured `delta`. `None` means the query is new this window and
+      has no prior period, which reads as the most trending case and is exactly
+      the one with no evidence behind it.
+    * Every content word of the query appears in the candidate's title or
+      keywords. Containment in that direction is the claim being made -- "this
+      candidate is about that query" -- and it is whole tokens, never substrings,
+      because substring matching is how `ev` matches `seven` and `development`.
+    * Two content words at least, unless the titles match outright. A single word
+      trending ("battery") is not evidence about any particular battery topic.
+
+    Matching is against the title and keywords only. The subject is a long
+    triager sentence and the outline is prose; both drag in enough generic words
+    to make containment meaningless.
+
+    There is no negative case. Search Console is asked for 20 rows, so absence
+    from the list means "not in a 20-row sample", never "not trending" -- and no
+    badge is the honest way to say that.
+    """
+    haystack = set(norm_tokens(str(proposal.get("title", ""))))
+    for keyword in proposal.get("keywords") or []:
+        haystack.update(norm_tokens(str(keyword)))
+    if not haystack:
+        return {}
+    best: dict[str, Any] = {}
+    for row in rows:
+        if row.get("source") != TRENDING_SOURCE:
+            continue
+        delta = row.get("delta")
+        if not isinstance(delta, (int, float)) or isinstance(delta, bool) or delta <= 0:
+            continue
+        title = str(row.get("title", ""))
+        tokens = set(norm_tokens(title))
+        if not tokens or not tokens <= haystack:
+            continue
+        if len(tokens) < 2 and norm_key(title) != norm_key(str(proposal.get("title", ""))):
+            continue
+        if not best or delta > best["delta"]:
+            best = {
+                "query": title,
+                "source": TRENDING_SOURCE,
+                "metric": str(row.get("metric", "") or ""),
+                "current": row.get("current"),
+                "delta": delta,
+                "window_days": window_days,
+            }
+    return best
+
+
+def _label_topics(topics: dict[str, Any], rows: list[dict[str, Any]], window_days: int) -> None:
+    """Attach the trend match to each candidate, in place.
+
+    The join happens here for the reason the blog join below does: both halves are
+    already in hand, the trend rows are cached for five minutes and the topics are
+    not, and a browser-side join would leave a badge disagreeing with the trends
+    table on the same screen. It also keeps `TopicProposalService.state()` a pure
+    database read, which the console's tests assert.
+    """
+    for group in ("proposals", "archived"):
+        for proposal in topics.get(group) or []:
+            match = _trending_for(proposal, rows, window_days)
+            if match:
+                proposal["trending"] = match
 
 
 def _slug_of(blog: dict[str, Any]) -> str:
@@ -423,6 +501,12 @@ def dispatch(handler: Any, method: str) -> bool:
             service = _service()
             try:
                 if path == "/ceo/api/competitor":
+                    # No console panel calls this any more -- "Which website do you
+                    # want to replicate?" was removed from the Analytics tab. It is
+                    # kept deliberately: analysing a domain is the only thing that
+                    # writes the `competitors` table, and the news radar builds its
+                    # standing competitor beat from that table. Deleting this would
+                    # quietly drop that beat back to its generic fallback query.
                     result = competitors.CompetitorService(
                         PROFILE_DIR, database=service.database
                     ).analyse(str(payload.get("target", "")), email)

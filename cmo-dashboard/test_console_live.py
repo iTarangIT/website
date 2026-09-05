@@ -38,7 +38,12 @@ NODE = shutil.which("node")
 HARNESS = HERE / "console_live_harness.js"
 
 
-def _proposal(number: int, title: str = "", status: str = "proposed") -> dict:
+def _utc_now() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _proposal(number: int, title: str = "", status: str = "proposed", **fields) -> dict:
     return {
         "id": number,
         "title": title or f"Candidate topic {number}",
@@ -50,6 +55,7 @@ def _proposal(number: int, title: str = "", status: str = "proposed") -> dict:
         "source_kind": "search_console",
         "source_refs": [f"gsc:battery {number}"],
         "history": [],
+        **fields,
     }
 
 
@@ -123,7 +129,6 @@ def _state(proposals: list[dict], blogs: list[dict], social: list[dict] | None =
                              "cities": [], "devices": [], "browsers": [], "landing_pages": []},
             "posts": {"posts": [], "measured": 0,
                       "totals": {"views": None, "clicks": None, "impressions": None}},
-            "competitor": {"status": "none"},
         },
         "controls": {"range": "28", "range_days": 28, "device": "all"},
         "social": {"connected": True, "counts": {}, "articles": list(social or ())},
@@ -235,6 +240,111 @@ class ConsoleStaysCurrent(unittest.TestCase):
         self.assertIn("/ceo/api/state", " ".join(step["requests"]),
                       "results have to arrive without a page load")
         self.assertTrue(step["topicsPendingHidden"], "the skeleton outlived the results")
+
+    # ---- the labels a candidate carries ------------------------------------
+    # Every assertion below runs the real card builder and reads the DOM it wrote.
+
+    def labelled(self, proposal: dict) -> str:
+        """The rendered candidate list for one proposal."""
+        state = json.loads(json.dumps(BASE))
+        state["topics"]["proposals"] = [proposal]
+        return self.drive({"state": state, "steps": [{"do": "refresh"}]})["steps"][0][
+            "proposalsHtml"
+        ]
+
+    def test_a_candidate_from_the_morning_sweep_says_so_on_the_card(self) -> None:
+        html = self.labelled(_proposal(
+            1, radar_mode="due", radar_swept_at="2026-09-03T01:41:06Z", beat="policy",
+        ))
+
+        self.assertIn("Morning sweep", html)
+        # 01:41 UTC is 07:11 IST, and the sweep clock is IST.
+        self.assertIn("07:11 IST", html)
+        self.assertNotIn("Subject typed by", html)
+
+    def test_a_candidate_somebody_typed_never_claims_a_sweep(self) -> None:
+        html = self.labelled(_proposal(1, actor="ceo@itarang.com"))
+
+        self.assertIn("Subject typed by ceo@itarang.com", html)
+        self.assertNotIn("Morning sweep", html)
+        self.assertNotIn("News radar", html)
+
+    def test_a_sweep_run_by_hand_is_not_reported_as_the_morning_one(self) -> None:
+        html = self.labelled(_proposal(
+            1, radar_mode="manual", radar_swept_at="2026-09-03T09:00:00Z",
+            beat="policy", actor="ceo@itarang.com",
+        ))
+
+        self.assertIn("Sweep run by ceo@itarang.com", html)
+        self.assertNotIn("Morning sweep", html)
+
+    def test_a_candidate_from_before_the_stamp_says_it_was_not_recorded(self) -> None:
+        """A beat but no mode. Calling this hand-typed would invent the missing fact."""
+        html = self.labelled(_proposal(1, beat="policy"))
+
+        self.assertIn("run not recorded", html)
+        self.assertNotIn("Subject typed by", html)
+        self.assertNotIn("Morning sweep", html)
+
+    def test_a_radar_candidate_with_no_beat_is_still_not_called_hand_typed(self) -> None:
+        """12 live candidates: found by the radar before the run was recorded, and
+        carrying no beat either. The submitting actor is the remaining proof."""
+        html = self.labelled(_proposal(1, actor="news-radar"))
+
+        self.assertIn("News radar", html)
+        self.assertNotIn("Subject typed by", html)
+
+    def test_a_trending_candidate_quotes_the_source_and_the_measured_change(self) -> None:
+        html = self.labelled(_proposal(1, trending={
+            "query": "lithium battery market", "source": "Google Search",
+            "metric": "impressions", "current": 940, "delta": 240, "window_days": 7,
+        }))
+
+        self.assertIn("Rising on Google Search", html)
+        self.assertIn("+240 impressions", html)
+        # The query is quoted so the claim can be checked against the trends table.
+        self.assertIn("lithium battery market", html)
+        self.assertIn("previous 7 days", html)
+
+    def test_a_candidate_with_no_trend_match_carries_no_trend_badge(self) -> None:
+        """Absence is not a claim. Search Console is asked for twenty rows, so
+        "not in the list" says nothing about the topic."""
+        html = self.labelled(_proposal(1))
+
+        self.assertNotIn("Rising on", html)
+        self.assertNotIn("not trending", html.lower())
+
+    def test_a_measured_fall_is_never_dressed_up_as_a_rise(self) -> None:
+        html = self.labelled(_proposal(1, trending={
+            "query": "lithium battery market", "source": "Google Search",
+            "metric": "impressions", "current": 10, "delta": -80, "window_days": 7,
+        }))
+
+        self.assertNotIn("Rising on", html)
+
+    def test_a_card_says_when_it_arrived_and_how_much_was_read(self) -> None:
+        html = self.labelled(_proposal(1, created_at=_utc_now()))
+
+        self.assertIn("Found today", html)
+        self.assertIn("1 source", html)
+
+    def test_the_label_filters_count_what_they_filter_to(self) -> None:
+        state = json.loads(json.dumps(BASE))
+        state["topics"]["proposals"] = [
+            _proposal(1, radar_mode="due", radar_swept_at="2026-09-03T01:41:06Z"),
+            _proposal(2, radar_mode="due", radar_swept_at="2026-09-03T01:41:06Z"),
+            _proposal(3),
+        ]
+        result = self.drive({"state": state, "steps": [
+            {"do": "refresh"},
+            {"do": "click", "button": {"topicsFilter": "morning"}},
+        ]})
+        chips, filtered = result["steps"][0], result["steps"][1]
+
+        self.assertIn('data-topics-filter="morning"', chips["topicsFilters"])
+        self.assertIn(">2<", chips["topicsFilters"], "the chip miscounted the sweep")
+        self.assertIn("Candidate topic 1", filtered["proposalsHtml"])
+        self.assertNotIn("Candidate topic 3", filtered["proposalsHtml"])
 
     # ---- invariant 2: a change made elsewhere arrives -----------------------
 

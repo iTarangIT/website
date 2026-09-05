@@ -209,15 +209,27 @@ class SearchConsoleReader(Protocol):
 
 
 class GoogleSearchConsoleReader:
-    """Free, unmetered demand evidence. Queried before a single credit is spent."""
+    """Free, unmetered demand evidence. Queried before a single credit is spent.
 
-    def __init__(self, *, days: int = 90, row_limit: int = 250) -> None:
+    The two keys are read through `read_env_value`, not `os.getenv`, for the
+    reason that function exists: `run-dashboard` sources `$PROFILE_DIR/.env`
+    and `run-news-radar` does not. Reading the environment alone meant every
+    sweep the radar ran got "Search Console is not connected" while the same
+    subject researched from the console got real figures -- so `demand_json`
+    was empty on every row the radar ever wrote, and the console's demand line
+    reported "no data yet" permanently rather than for a reason.
+    """
+
+    def __init__(
+        self, root: str | Path = ".", *, days: int = 90, row_limit: int = 250
+    ) -> None:
+        self.root = Path(root)
         self.days = days
         self.row_limit = row_limit
 
     def demand(self, subject: str) -> tuple[list[dict[str, Any]], str]:
-        credentials_path = os.getenv("GSC_CREDENTIALS_PATH", "").strip()
-        property_name = os.getenv("GSC_PROPERTY", "").strip()
+        credentials_path = _read_env_value(self.root, "GSC_CREDENTIALS_PATH")
+        property_name = _read_env_value(self.root, "GSC_PROPERTY")
         if not credentials_path or not property_name:
             return [], "Search Console is not connected."
         try:
@@ -568,7 +580,7 @@ class TopicProposalService:
         self.profile_dir = Path(profile_dir)
         self.database = database or ConsoleDB(self.profile_dir)
         self.researcher = researcher or FirecrawlProposalResearcher(self.profile_dir)
-        self.search_console = search_console or GoogleSearchConsoleReader()
+        self.search_console = search_console or GoogleSearchConsoleReader(self.profile_dir)
         self.proposer = proposer or HermesProposer(self.profile_dir)
         self.task_file = task_file or TaskFile(
             self.profile_dir / "tasks.md", lock_path=self.profile_dir / "state" / "tasks.lock"
@@ -880,13 +892,30 @@ class TopicProposalService:
             ]
         return whys, outlines, keywords
 
-    def propose(self, raw_subject: str, actor: str, beat: str = "") -> ProposalRun:
+    def propose(
+        self,
+        raw_subject: str,
+        actor: str,
+        beat: str = "",
+        *,
+        radar_mode: str = "",
+        radar_swept_at: str = "",
+    ) -> ProposalRun:
         """Turn one rough subject into a list of candidate topics. Writes no board card.
 
         `beat` is the radar beat this subject came off, and is empty for a subject
         typed into the console. It travels no further than the subject row: what it
         answers is "which part of the beat produced this candidate", which is a
         question about where the subject came from, not about the candidate.
+
+        `radar_mode` and `radar_swept_at` answer the other half of that question --
+        *which sweep* found it -- and are empty for a subject typed by hand. They
+        are stored rather than inferred from timestamps because "the 07:00 sweep
+        found this" and "somebody pressed Scan news now" are different facts about
+        the same minute, and a card that guesses between them is worse than one
+        that says nothing. They are recorded on the research run below, not on the
+        subject: the subject row is shared with every later pass over the same
+        text, including one a human types months afterwards.
         """
         subject = self.database.subject_for(raw_subject, actor, beat)
         subject_id = int(subject["id"])
@@ -910,6 +939,8 @@ class TopicProposalService:
             demand=research.demand,
             cache_hit_of=research.cache_hit_of,
             message=research.message,
+            radar_mode=radar_mode,
+            radar_swept_at=radar_swept_at,
         )
         rejected = [item["title"] for item in self.database.rejected_topics()]
         proposer_started = utc_timestamp()
@@ -1146,6 +1177,14 @@ def _proposal_payload(record: dict[str, Any]) -> dict[str, Any]:
         "subject_id": record["subject_id"],
         "subject": (record["subject"] or {}).get("raw_text", ""),
         "beat": (record["subject"] or {}).get("beat", ""),
+        # Who first asked for the subject, and which sweep produced this candidate.
+        # The sweep comes off the research run, not the subject -- see
+        # `ConsoleDB._provenance_for`. An empty `radar_mode` on a candidate that
+        # carries a beat means the pass predates schema 7, and the console says
+        # "not recorded" rather than calling it hand-typed.
+        "actor": (record["subject"] or {}).get("actor", ""),
+        "radar_mode": (record.get("provenance") or {}).get("radar_mode", ""),
+        "radar_swept_at": (record.get("provenance") or {}).get("radar_swept_at", ""),
         "demand": record.get("demand") or {},
         "created_at": record.get("created_at", ""),
         "updated_at": record.get("updated_at", ""),

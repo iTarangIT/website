@@ -117,8 +117,8 @@ background:#fff;color:var(--muted);font:600 var(--f-sm)/1.3 var(--sans);cursor:p
 text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
 
 /* ---- one card grammar ---------------------------------------------------- */
-/* A proposal, a blog row and an opportunity are the same object at different
-   stages. Same radius, same hairline, same pill vocabulary, same rhythm. */
+/* A proposal and a blog row are the same object at different stages. Same
+   radius, same hairline, same pill vocabulary, same rhythm. */
 .rows{display:flex;flex-direction:column;gap:8px}
 .card{position:relative;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;
 padding:var(--pad-tight) var(--pad);box-shadow:var(--shadow-sm)}
@@ -148,6 +148,15 @@ letter-spacing:.01em;vertical-align:middle}
 /* A beat is where a candidate came from, not how it is doing. Quieter than a
    status pill on purpose: it labels, it does not signal. */
 .pill.beat{background:var(--line-soft);color:var(--muted);font-weight:600}
+/* The labels under the title: where a candidate came from, when it arrived, how
+   much was read for it. They wrap rather than stretching the row, because the
+   origin label carries a timestamp and a name. */
+.labels{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 2px}
+/* A trending pill quotes a source and a figure, so it is the one pill allowed to
+   wrap its own text instead of forcing the header wider. It keeps the default
+   green: green already reads as "up" here (`.delta.up`), and clay -- the other
+   free accent -- already reads as "down", which would invert the meaning. */
+.pill.wrap{white-space:normal;text-align:left}
 .radar-status{margin:0 0 8px;display:grid;gap:4px}
 .radar-status p{margin:0;color:var(--muted);font-size:var(--f-sm)}
 .pill.tone-wait{background:var(--amber-soft);color:var(--amber)}
@@ -280,18 +289,6 @@ pointer-events:none;transform:translate(-50%,-100%)}
 .tip b{display:block;margin-bottom:3px;font-family:var(--mono);font-weight:700}
 .tip dl{display:grid;grid-template-columns:1fr auto;gap:1px 12px;margin:0}
 .tip dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
-
-/* The bridge between Analytics and Topics. The one control worth the trip. */
-.opportunity{display:flex;align-items:flex-start;gap:var(--pad);padding:12px 12px 12px 14px;
-border:1px solid var(--line);border-left:3px solid var(--green);border-radius:var(--radius-sm);
-background:#fff;box-shadow:var(--shadow-sm)}
-.opportunity.kind-page_two{border-left-color:var(--amber)}
-.opportunity.kind-weak_title{border-left-color:var(--clay)}
-.opportunity .card-main strong{display:block;font-size:var(--f-md);line-height:1.35}
-.opportunity .why{margin:3px 0 0;color:var(--muted);max-width:66ch}
-.opportunity .card-figures{align-self:center}
-.opportunity button{white-space:nowrap;align-self:center}
-.opportunity.is-queued{background:var(--green-soft);border-color:#cadfd3}
 
 /* ---- tables -------------------------------------------------------------- */
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -542,9 +539,6 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card-row{display:block}
 .card-figures{margin-top:9px;gap:18px;text-align:left}
 .card .actions button{flex:1 1 auto;min-width:calc(50% - 4px)}
-.opportunity{display:block}
-.opportunity .card-figures{margin-top:8px}
-.opportunity button{width:100%;margin-top:10px}
 .tiles,.tiles.six,.tiles.four{grid-template-columns:1fr 1fr;gap:8px}
 .tile-figure{font-size:21px}
 .legend{margin-left:0;flex-basis:100%}

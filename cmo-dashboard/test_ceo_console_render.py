@@ -266,18 +266,6 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
                     "pages": [
                         {"page": "https://itarang.com/blog/emi", "impressions": 90, "clicks": 4, "ctr": 4.4, "position": 15.5}
                     ],
-                    "opportunities": [
-                        {
-                            "kind": "unclicked",
-                            "subject": f"battery query {index}",
-                            "source": "query",
-                            "reason": "Seen 140 times in search and clicked none.",
-                            "impressions": 140 - index,
-                            "clicks": 0,
-                            "position": 18.4,
-                        }
-                        for index in range(14)
-                    ],
                 },
                 "search_console": {"status": "collecting"},
                 "ga4": {"status": "not_connected", "message": "Google Analytics is not connected yet",
@@ -298,7 +286,6 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
                     "measured": 2,
                     "totals": {"views": 325, "clicks": 4, "impressions": 90},
                 },
-                "competitor": {"status": "none"},
             },
             "controls": {"range": "28", "device": "all"},
         },
@@ -389,11 +376,8 @@ class ConsoleRenders(unittest.TestCase):
         self.assertEqual(self.out["queriesBody"].count("<tr>"), 25)
         self.assertIn("1–25 of 40 queries", self.out["queriesPager"])
 
-    def test_fourteen_opportunities_render_one_page_of_ten(self) -> None:
-        self.assertEqual(self.out["opportunities"].count('class="opportunity'), 10)
-
     def test_no_list_renders_unbounded(self) -> None:
-        for name in ("proposals", "blogs", "opportunities"):
+        for name in ("proposals", "blogs"):
             with self.subTest(list=name):
                 self.assertLessEqual(self.out[name].count('role="listitem"'), 25)
 
@@ -465,14 +449,6 @@ class ConsoleRenders(unittest.TestCase):
 
         self.assertNotIn('class="bar"', out["chart"])
         self.assertIn('class="line"', out["chart"])
-
-    def test_the_opportunity_row_carries_the_button_that_queues_it(self) -> None:
-        panel = self.out["opportunities"]
-
-        self.assertIn('data-queue="battery query 1"', panel)
-        self.assertIn("Research this", panel)
-        self.assertIn("Queued ✓", panel, "an already-queued subject says so")
-        self.assertIn("is-queued", panel)
 
     def test_the_footer_names_the_collection_start_and_the_reporting_delay(self) -> None:
         footnote = self.out["footnote"]
@@ -837,13 +813,6 @@ class Ga4TieringRenders(unittest.TestCase):
         self.assertIn("/blog/emi", html)
         self.assertIn("25.0%", html)
 
-    def test_the_page_table_renders_rows_that_were_already_being_fetched(self) -> None:
-        """These rows came back with the blog join and were thrown away."""
-        html = self.render(_fixture(ga4=_ga4()))["ga4Pages"]
-
-        self.assertIn("/how-it-works", html)
-        self.assertIn("41.0%", html, "engagement is a percentage here too")
-
     def test_a_channel_is_weighed_by_engagement_and_not_only_by_volume(self) -> None:
         audience = _audience()
         audience["traffic_sources"][1].update(
@@ -875,5 +844,5 @@ class Ga4TieringRenders(unittest.TestCase):
                                message="Google Analytics is not connected yet")
         out = self.render(_fixture(ga4_events=disconnected))
 
-        for panel in ("ga4", "ga4Events", "ga4Pages"):
+        for panel in ("ga4", "ga4Events"):
             self.assertIn("GA4_PROPERTY_ID", out[panel], panel)

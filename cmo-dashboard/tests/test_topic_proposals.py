@@ -690,6 +690,87 @@ class DemandIsMeasuredOrAbsent(ProposalFlowTestCase):
 
         self.assertIn("demand_json", columns)
 
+    def test_the_sweep_stamp_columns_are_added_to_an_existing_database(self) -> None:
+        """Schema 7 lands on a database that already holds every earlier run."""
+        import sqlite3
+        from cmo_runtime.console_db import ConsoleDB
+
+        service, root = self.make_service()
+        service.database.close()
+
+        path = root / "state" / "console.db"
+        with sqlite3.connect(path) as raw:
+            raw.execute("ALTER TABLE research_runs DROP COLUMN radar_mode")
+            raw.execute("ALTER TABLE research_runs DROP COLUMN radar_swept_at")
+            raw.execute("PRAGMA user_version=6")
+
+        reopened = ConsoleDB(root)
+        self.addCleanup(reopened.close)
+        columns = {
+            row["name"] for row in reopened._query("PRAGMA table_info(research_runs)")
+        }
+
+        self.assertIn("radar_mode", columns)
+        self.assertIn("radar_swept_at", columns)
+
+    def test_a_candidate_from_the_morning_sweep_says_which_sweep(self) -> None:
+        service, _root = self.make_service()
+        service.propose(
+            "India BESS tender news",
+            actor="news-radar",
+            beat="policy",
+            radar_mode="due",
+            radar_swept_at="2026-09-03T01:41:06Z",
+        )
+
+        proposal = service.state()["proposals"][0]
+
+        self.assertEqual(proposal["radar_mode"], "due")
+        self.assertEqual(proposal["radar_swept_at"], "2026-09-03T01:41:06Z")
+
+    def test_a_candidate_typed_by_hand_claims_no_sweep(self) -> None:
+        service, _root = self.make_service()
+        service.propose("India BESS tender news", actor="ceo@itarang.com")
+
+        proposal = service.state()["proposals"][0]
+
+        self.assertEqual(proposal["radar_mode"], "")
+        self.assertEqual(proposal["actor"], "ceo@itarang.com")
+
+    def test_the_sweep_stamp_belongs_to_the_pass_not_the_shared_subject(self) -> None:
+        """The reason the stamp is on `research_runs` and not on `subjects`.
+
+        Subject rows are reused by norm_key, so the subject the radar found in
+        August is handed straight back when somebody types a paraphrase of it in
+        September. Stamped on that shared row, every candidate proposed from it
+        ever after would claim a morning sweep produced it -- including the ones a
+        person asked for. Each research pass carries its own answer instead.
+        """
+        from cmo_runtime.console_db import ConsoleDB
+
+        service, root = self.make_service()
+        database: ConsoleDB = service.database
+
+        swept = database.subject_for("three wheeler battery data", "news-radar", "ev-industry")
+        sweep_run = database.record_research_run(
+            subject_id=swept["id"], kind="initial", pages_requested=5, pages_fetched=5,
+            status="completed", radar_mode="due", radar_swept_at="2026-08-10T01:41:06Z",
+        )
+        typed = database.subject_for("Data on three wheeler batteries", "ceo@itarang.com")
+        typed_run = database.record_research_run(
+            subject_id=typed["id"], kind="initial", pages_requested=5, pages_fetched=5,
+            status="completed",
+        )
+
+        # One subject row, shared -- that reuse is the hazard, and it is unchanged.
+        self.assertEqual(swept["id"], typed["id"])
+
+        self.assertEqual(
+            database._provenance_for({"research_run_id": sweep_run}),
+            {"radar_mode": "due", "radar_swept_at": "2026-08-10T01:41:06Z"},
+        )
+        self.assertEqual(database._provenance_for({"research_run_id": typed_run}), {})
+
 
 if __name__ == "__main__":
     unittest.main()
