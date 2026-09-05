@@ -347,7 +347,9 @@ class ConsoleStagesCDETests(unittest.TestCase):
         }
         pages = {"rows": [{
             "dimensionValues": [{"value": "/battery"}],
-            "metricValues": [{"value": "20"}, {"value": "12"}, {"value": "0.75"}],
+            "metricValues": [
+                {"value": "20"}, {"value": "12"}, {"value": "0.75"}, {"value": "9"},
+            ],
         }]}
         start = {"rows": [{
             "dimensionValues": [{"value": "20260715"}],
@@ -365,7 +367,7 @@ class ConsoleStagesCDETests(unittest.TestCase):
         analytics_readers._ga4_detail_cache.clear()
         self.assertEqual(value["pages"], [{
             "page": "/battery", "screen_page_views": 20,
-            "sessions": 12, "engagement_rate": 0.75,
+            "sessions": 12, "engagement_rate": 0.75, "active_users": 9,
         }])
         self.assertEqual(value["collection_start"], "2026-07-15")
         self.assertEqual(reader.call_args_list[0].args[2]["dimensions"], [{"name": "pagePath"}])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import mimetypes
 import os
@@ -11,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import ceo_actions
 import ceo_analytics
+import ceo_insights
 import ceo_social
 import console_auth
 import dashboard_server
@@ -123,6 +125,21 @@ def state_payload(
         ga4_detail.get("pages") or [],
         titles=_blog_titles(board["blogs"]),
     )
+    audience = analytics_readers.ga4_audience(range_days, device)
+    geography = analytics_readers.ga4_geography(range_days, device)
+    events = analytics_readers.ga4_events(range_days, device)
+    pages = ga4_detail.get("pages") or []
+    # The rules run here, on the server, for the same reason the blog join does:
+    # they read five payloads that each carry their own cache, and a browser
+    # running them would be reasoning across windows that expired apart.
+    found = ceo_insights.findings(
+        ga4=ga4_detail,
+        audience=audience,
+        geography=geography,
+        events=events,
+        pages=pages,
+        posts=posts.get("posts") or [],
+    )
     return {
         "topics": topics,
         "blogs": board["blogs"],
@@ -139,12 +156,42 @@ def state_payload(
             # rows stay on this side: they are the GA4 half of the blog join above,
             # and no panel renders them since "Which pages were read" was removed.
             "ga4": {name: value for name, value in ga4_detail.items() if name != "pages"},
-            "ga4_audience": analytics_readers.ga4_audience(range_days, device),
-            "ga4_events": analytics_readers.ga4_events(range_days, device),
+            "ga4_audience": audience,
+            "ga4_geography": geography,
+            "ga4_events": events,
+            # The page rows stopped at the server while they were only the GA4
+            # half of the blog join. They are a panel again, and the join still
+            # reads the same list — one request, two readers, one window.
+            "pages": pages,
             "posts": posts,
+            "insights": found,
+            "summary": ceo_insights.executive_summary(
+                found, ga4_detail, events, range_days=range_days
+            ),
+            "campaigns": ceo_insights.campaign_performance(audience, _crossposts_sent(range_days)),
         },
         "controls": {"range": range_key, "range_days": range_days, "device": device, "start": start, "end": end},
     }
+
+
+def _crossposts_sent(range_days: int) -> list[dict[str, Any]]:
+    """Posts Buffer accepted inside the analytics window.
+
+    Its own connection, opened and closed here, because `state_payload` already
+    opens one for the topic service and holding a second across that read would
+    keep a write lock waiting on a report nobody is blocked on.
+    """
+    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=range_days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    service = _service()
+    try:
+        return service.database.crossposts_sent_since(since)
+    except ConsoleDBError:
+        # A campaign panel is not worth failing the whole tab for.
+        return []
+    finally:
+        service.database.close()
 
 
 #: Trend rows come from three places and only one of them measures a direction.

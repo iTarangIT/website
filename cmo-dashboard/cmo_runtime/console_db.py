@@ -992,6 +992,31 @@ class ConsoleDB:
         rows.sort(key=lambda item: order.get(str(item.get("platform")), 99))
         return rows
 
+    def crossposts_sent_since(self, since: str) -> list[dict[str, Any]]:
+        """Posts Buffer accepted on or after `since`, as (platform, task, when).
+
+        `sent_at` is stamped when Buffer took the post, which is the only moment
+        this system can observe. It is not when the post went live -- Buffer
+        publishes into the account's own slots, sometimes hours later -- so a
+        window boundary here can put a post on either side of the sessions it
+        earned. The campaign panel says so rather than implying a join tighter
+        than the data supports.
+        """
+        if not since:
+            return []
+        return [
+            {
+                "platform": str(row["platform"]),
+                "task_id": str(row["task_id"]),
+                "sent_at": str(row["sent_at"]),
+            }
+            for row in self._query(
+                "SELECT platform, task_id, sent_at FROM crosspost_drafts"
+                " WHERE status = 'queued' AND sent_at >= ? ORDER BY sent_at DESC",
+                (since,),
+            )
+        ]
+
     def crosspost_summary(self) -> dict[str, int]:
         """How many drafts sit in each status, for the tab badge."""
         counts = {status: 0 for status in CROSSPOST_STATUSES}

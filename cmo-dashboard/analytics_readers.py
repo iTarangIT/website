@@ -51,6 +51,7 @@ _ga4_events_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _ga4_detail_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _gsc_trend_cache: dict[tuple[str, ...], tuple[float, tuple[list[dict[str, Any]], str]]] = {}
 _ga4_audience_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_ga4_geography_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -246,10 +247,14 @@ def _ga4_detail_payloads(days: int, device: str) -> tuple[dict[str, Any], dict[s
     pages: dict[str, Any] = {
         "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
         "dimensions": [{"name": "pagePath"}],
+        # activeUsers is appended rather than inserted: `_ga4_page_rows` reads
+        # values back by position, so a new metric in the middle would shift every
+        # column after it onto its neighbour's number.
         "metrics": [
             {"name": "screenPageViews"},
             {"name": "sessions"},
             {"name": "engagementRate"},
+            {"name": "activeUsers"},
         ],
         "orderBys": [{"metric": {"metricName": "screenPageViews"}, "desc": True}],
         "limit": "25",
@@ -295,6 +300,8 @@ def _ga4_page_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
             if len(metric_values) > 1 and isinstance(metric_values[1], dict) else None,
             "engagement_rate": _number(metric_values[2].get("value"))
             if len(metric_values) > 2 and isinstance(metric_values[2], dict) else None,
+            "active_users": _number(metric_values[3].get("value"))
+            if len(metric_values) > 3 and isinstance(metric_values[3], dict) else None,
         })
     return output
 
@@ -503,6 +510,23 @@ TRAFFIC_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # One row rather than five: at this volume "Bing 3, DuckDuckGo 2, Ecosia 1"
     # is noise, and the decision it informs is the same for all of them.
     ("Other search", ("bing", "msn", "duckduckgo", "yahoo", "ecosia", "brave")),
+    # An email service provider stamps its own name on the link it rewrites, so
+    # the source alone identifies the channel before any medium is consulted.
+    ("Email", ("mailchimp", "sendgrid", "mailerlite", "campaign-archive")),
+)
+
+#: Mediums that name a channel the source cannot. Consulted only after the
+#: substring table above, because the source is the more specific answer: a
+#: LinkedIn newsletter is LinkedIn traffic that happened to arrive by email, and
+#: filing it under Email would lose the channel that actually earned the visit.
+#:
+#: `Referral` is last on purpose. Every mapped host above also arrives with
+#: medium `referral`, so a referral rule consulted any earlier would swallow
+#: LinkedIn, Facebook and the rest into one undifferentiated row.
+MEDIUM_CHANNELS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Organic search", ("organic",)),
+    ("Email", ("email", "e-mail", "newsletter")),
+    ("Referral", ("referral",)),
 )
 
 #: GA4 reports an unattributed session as `(direct)`. It is a real answer, not a
@@ -514,8 +538,11 @@ def classify_source(source: str, medium: str = "") -> str:
     """Bucket one GA4 session source into a channel name.
 
     `Direct` is checked first because `(direct)` would otherwise never match a
-    substring rule, and `Other` is returned rather than guessed at — an unmapped
-    referrer named honestly is more useful than one filed under the wrong logo.
+    substring rule. The source is then tried against `TRAFFIC_SOURCES` and only
+    afterwards the medium against `MEDIUM_CHANNELS`, because the source is the
+    more specific of the two answers. `Other` is returned rather than guessed at
+    — an unmapped referrer named honestly is more useful than one filed under
+    the wrong logo.
     """
     value = (source or "").strip().casefold()
     if value in DIRECT_SOURCES:
@@ -523,8 +550,10 @@ def classify_source(source: str, medium: str = "") -> str:
     for label, needles in TRAFFIC_SOURCES:
         if any(needle in value for needle in needles):
             return label
-    if (medium or "").strip().casefold() == "organic":
-        return "Organic search"
+    channel = (medium or "").strip().casefold()
+    for label, needles in MEDIUM_CHANNELS:
+        if channel in needles:
+            return label
     return "Other"
 
 
@@ -566,9 +595,16 @@ def _audience_payload(
     *,
     limit: int = 25,
     order_by: str = "sessions",
+    previous: bool = False,
 ) -> dict[str, Any]:
     end = dt.date.today() - dt.timedelta(days=1)
     start = end - dt.timedelta(days=days - 1)
+    if previous:
+        # The window immediately before this one, same length. `ga4_summary`
+        # builds its comparison the same way; two different definitions of
+        # "previous" would let a tile and a table disagree about the same move.
+        end = start - dt.timedelta(days=1)
+        start = end - dt.timedelta(days=days - 1)
     payload: dict[str, Any] = {
         "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
         "dimensions": [{"name": name} for name in dimensions],
@@ -586,6 +622,42 @@ def _audience_payload(
     return payload
 
 
+def _ga4_read(
+    credentials_path: str,
+    property_id: str,
+    days: int,
+    device: str,
+    dimensions: Sequence[str],
+    metrics: Sequence[str],
+    *,
+    limit: int = 25,
+    order_by: str = "sessions",
+    previous: bool = False,
+) -> list[dict[str, Any]]:
+    """One GA4 report, read into plain dicts keyed by their GA4 names.
+
+    This was a closure inside `ga4_audience` for as long as that was the only
+    reader asking for dimensioned rows. It is module level now because
+    `ga4_geography` asks the same question of different dimensions, and two
+    copies of the request/parse pair would be two places for the window, the
+    device filter or the ordering to drift apart.
+    """
+    report = _ga4_request(
+        credentials_path,
+        property_id,
+        _audience_payload(
+            days,
+            device,
+            dimensions,
+            metrics,
+            limit=limit,
+            order_by=order_by,
+            previous=previous,
+        ),
+    )
+    return _ga4_rows(report, dimensions, metrics)
+
+
 def _empty_audience(days: int, device: str, base: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": base.get("status", "not_connected"),
@@ -595,9 +667,8 @@ def _empty_audience(days: int, device: str, base: dict[str, Any]) -> dict[str, A
         "range_days": days,
         "device": device,
         "traffic_sources": [],
+        "previous_traffic_sources": [],
         "first_user_sources": [],
-        "countries": [],
-        "cities": [],
         "devices": [],
         "browsers": [],
         "landing_pages": [],
@@ -664,11 +735,15 @@ def _fold_sources(
 
 
 def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
-    """Who arrived, from where, on what — the four questions the tiles cannot answer.
+    """Which channel, on what device, onto which page — what the tiles cannot say.
 
-    Five reports in one call, cached together for `CACHE_SECONDS`, because they
-    are always read together and five independent caches would let the panels
+    Six reports in one call, cached together for `CACHE_SECONDS`, because they
+    are always read together and six independent caches would let the panels
     disagree about which window they are describing.
+
+    Geography used to live here and now lives in `ga4_geography`, which needs
+    three levels and two windows of its own. One reader owning a subject is what
+    keeps a country total and the cities inside it describing the same sessions.
 
     `search_terms` is deliberately not GA4's `searchTerm`, which reports on-site
     search this website does not have. The search terms a marketer means are the
@@ -696,18 +771,35 @@ def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
     result = _empty_audience(days, device, base)
     result["status"] = base.get("status", "ready")
 
-    def read(dimensions: Sequence[str], metrics: Sequence[str], *, limit: int = 25) -> list[dict[str, Any]]:
-        report = _ga4_request(
+    def read(
+        dimensions: Sequence[str],
+        metrics: Sequence[str],
+        *,
+        limit: int = 25,
+        previous: bool = False,
+    ) -> list[dict[str, Any]]:
+        return _ga4_read(
             credentials_path,
             property_id,
-            _audience_payload(days, device, dimensions, metrics, limit=limit),
+            days,
+            device,
+            dimensions,
+            metrics,
+            limit=limit,
+            previous=previous,
         )
-        return _ga4_rows(report, dimensions, metrics)
 
     channel_metrics = ("sessions", "activeUsers", "engagedSessions", "screenPageViews")
     try:
         result["traffic_sources"] = _fold_sources(
             read(("sessionSource", "sessionMedium"), channel_metrics, limit=50)
+        )
+        # The same fold over the window before this one. A channel's share is
+        # only a decision once you know which way it moved, and the alternative
+        # -- asking the browser to remember last week -- would compare two
+        # windows nobody chose together.
+        result["previous_traffic_sources"] = _fold_sources(
+            read(("sessionSource", "sessionMedium"), channel_metrics, limit=50, previous=True)
         )
         # First touch answers a different question from session source: which
         # channel *recruited* a user, rather than which one delivered this visit.
@@ -718,27 +810,6 @@ def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
             source_key="firstUserSource",
             medium_key="firstUserMedium",
         )
-        result["countries"] = [
-            {
-                "country": row["country"],
-                "sessions": row["sessions"],
-                "active_users": row["activeUsers"],
-                "engagement_rate": row["engagementRate"],
-            }
-            for row in read(
-                ("country",), ("sessions", "activeUsers", "engagementRate"), limit=12
-            )
-            if row["country"]
-        ]
-        result["cities"] = [
-            {
-                "city": row["city"],
-                "country": row["country"],
-                "sessions": row["sessions"],
-            }
-            for row in read(("city", "country"), ("sessions",), limit=12)
-            if row["city"] and row["city"] != "(not set)"
-        ]
         result["devices"] = [
             {
                 "device": row["deviceCategory"],
@@ -778,6 +849,287 @@ def ga4_audience(days: int = 28, device: str = "all") -> dict[str, Any]:
 
     with _cache_lock:
         _ga4_audience_cache[key] = (now + CACHE_SECONDS, dict(result))
+    return result
+
+
+#: Countries this business sells into. Everything else is not wrong, it is
+#: unexplained -- and an unexplained country is the one thing on this tab worth
+#: interrupting a CMO for, because it moves every site-wide rate above it.
+EXPECTED_MARKETS = frozenset({"India"})
+
+#: GA4 answers "we could not resolve this" with `(not set)`. The row is dropped
+#: from a flat list, but never from the tree: a region removed from under its
+#: country makes the regions stop summing to the country, and a total that does
+#: not add up is worse than a level named honestly as unresolved.
+UNRESOLVED_PLACE = "Not reported"
+
+
+def _place(value: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned or cleaned in {"(not set)", "(not provided)"}:
+        return UNRESOLVED_PLACE
+    return cleaned
+
+
+def _rate(engaged: int, sessions: int) -> float | None:
+    """Engagement as GA4 reports it: a proportion, not a percentage."""
+    return engaged / sessions if sessions else None
+
+
+def _share(part: int, whole: int) -> float | None:
+    return round(part * 100 / whole, 1) if whole else None
+
+
+def _fold_places(rows: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Roll country/region/city rows into one tree, summing only what is additive.
+
+    Sessions, engaged sessions and views are counts and add up. `activeUsers`
+    does not: GA4 de-duplicates a visitor within whatever grouping it was asked
+    for, so a user who browsed from two cities is one user at country level and
+    two if you add the city rows. Visitors therefore come from the country-level
+    report, which GA4 de-duplicated itself, and the tree carries sessions and an
+    engagement rate rebuilt from the counts underneath it.
+    """
+    tree: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        country = _place(str(row.get("country", "")))
+        region = _place(str(row.get("region", "")))
+        city = _place(str(row.get("city", "")))
+        sessions = int(row.get("sessions") or 0)
+        engaged = int(row.get("engagedSessions") or 0)
+        node = tree.setdefault(country, {"sessions": 0, "engaged": 0, "regions": {}})
+        node["sessions"] += sessions
+        node["engaged"] += engaged
+        area = node["regions"].setdefault(region, {"sessions": 0, "engaged": 0, "cities": {}})
+        area["sessions"] += sessions
+        area["engaged"] += engaged
+        town = area["cities"].setdefault(city, {"sessions": 0, "engaged": 0})
+        town["sessions"] += sessions
+        town["engaged"] += engaged
+    return tree
+
+
+def _country_rows(
+    totals: Sequence[dict[str, Any]],
+    tree: dict[str, dict[str, Any]],
+    previous: dict[str, int],
+) -> list[dict[str, Any]]:
+    """One row per country, with the regions and cities inside it.
+
+    `sessions` and `active_users` are GA4's own country-level figures. The
+    regions hanging off each row are the tree's, and they sum to the tree's
+    country total rather than to GA4's -- the two are the same sessions counted
+    once each, but a sampled or thresholded row can make them differ by one, and
+    a drill-down that silently disagreed with the row above it would be the
+    harder bug to find. `tree_sessions` is carried so the console can say so.
+    """
+    total = sum(int(row.get("sessions") or 0) for row in totals)
+    output: list[dict[str, Any]] = []
+    for row in totals:
+        name = _place(str(row.get("country", "")))
+        node = tree.get(name, {"sessions": 0, "engaged": 0, "regions": {}})
+        sessions = row.get("sessions")
+        was = previous.get(name)
+        regions = []
+        for region_name, area in sorted(
+            node["regions"].items(), key=lambda item: -item[1]["sessions"]
+        ):
+            cities = [
+                {
+                    "city": city_name,
+                    "sessions": town["sessions"],
+                    "engagement_rate": _rate(town["engaged"], town["sessions"]),
+                    "share": _share(town["sessions"], area["sessions"]),
+                }
+                for city_name, town in sorted(
+                    area["cities"].items(), key=lambda item: -item[1]["sessions"]
+                )
+            ]
+            regions.append(
+                {
+                    "region": region_name,
+                    "sessions": area["sessions"],
+                    "engagement_rate": _rate(area["engaged"], area["sessions"]),
+                    "share": _share(area["sessions"], node["sessions"]),
+                    "cities": cities,
+                }
+            )
+        output.append(
+            {
+                "country": name,
+                "sessions": sessions,
+                "active_users": row.get("activeUsers"),
+                "engagement_rate": row.get("engagementRate"),
+                "share": _share(int(sessions or 0), total),
+                "expected": name in EXPECTED_MARKETS,
+                # None, not 0: a country GA4 never reported last window and one
+                # it reported as zero are different answers, and only the second
+                # supports "this is new".
+                "previous_sessions": was,
+                "delta_sessions": (int(sessions or 0) - was) if was is not None else None,
+                "tree_sessions": node["sessions"],
+                "regions": regions,
+            }
+        )
+    return output
+
+
+def _fold_country_sources(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Country x traffic source, folded per country by the one channel rule.
+
+    `_fold_sources` is reused rather than reimplemented so a channel is named and
+    a rate rebuilt exactly as the site-wide table does it. A cross-tab whose
+    "LinkedIn" meant something narrower than the row above would be worse than
+    no cross-tab.
+    """
+    by_country: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_country.setdefault(_place(str(row.get("country", ""))), []).append(row)
+    output = []
+    for name, country_rows in by_country.items():
+        channels = _fold_sources(country_rows)
+        output.append(
+            {
+                "country": name,
+                "sessions": sum(channel["sessions"] for channel in channels),
+                "channels": channels,
+            }
+        )
+    output.sort(key=lambda item: -item["sessions"])
+    return output
+
+
+def _fold_country_channels(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Country x GA4's own default channel group."""
+    by_country: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        name = _place(str(row.get("country", "")))
+        group = str(row.get("sessionDefaultChannelGroup", "")).strip() or "Unassigned"
+        bucket = by_country.setdefault(name, {}).setdefault(
+            group, {"channel": group, "sessions": 0, "engaged": 0}
+        )
+        bucket["sessions"] += int(row.get("sessions") or 0)
+        bucket["engaged"] += int(row.get("engagedSessions") or 0)
+    output = []
+    for name, groups in by_country.items():
+        channels = sorted(groups.values(), key=lambda item: -item["sessions"])
+        total = sum(channel["sessions"] for channel in channels)
+        for channel in channels:
+            channel["share"] = _share(channel["sessions"], total)
+            channel["engagement_rate"] = _rate(channel["engaged"], channel["sessions"])
+        output.append({"country": name, "sessions": total, "channels": channels})
+    output.sort(key=lambda item: -item["sessions"])
+    return output
+
+
+def _empty_geography(days: int, device: str, base: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": base.get("status", "not_connected"),
+        "message": base.get("message", ""),
+        "required_variables": list(GA4_REQUIRED_VARIABLES),
+        "missing_variables": base.get("missing_variables", []),
+        "range_days": days,
+        "device": device,
+        "countries": [],
+        "country_sources": [],
+        "country_channels": [],
+        "has_previous": False,
+    }
+
+
+def ga4_geography(days: int = 28, device: str = "all") -> dict[str, Any]:
+    """Where the sessions came from, three levels deep and two ways across.
+
+    Separate from `ga4_audience` and failing on its own, the way `ga4_events`
+    is: this is five reports, two of them cross-tabs at a cardinality GA4 can
+    threshold or reject, and a rejection here must not take the channel table
+    and the device panel down with it.
+
+    The two cross-tabs answer deliberately different questions. `country_sources`
+    uses `classify_source`, which is source-shaped -- LinkedIn, WhatsApp, the
+    names of the places we post. `country_channels` uses GA4's own
+    `sessionDefaultChannelGroup`, which is spend-shaped -- Organic Social,
+    Referral, Email, Paid Search. Where the two disagree, the disagreement is the
+    finding: it is usually a share that arrived untagged.
+    """
+    if days not in {7, 28, 90}:
+        days = 28
+    if device not in {"all", "desktop", "mobile", "tablet"}:
+        device = "all"
+    base = ga4_summary(days, device)
+    if base.get("status") not in {"ready", "collecting"}:
+        return _empty_geography(days, device, base)
+
+    config = {name: os.getenv(name, "").strip() for name in GA4_REQUIRED_VARIABLES}
+    key = tuple(config[name] for name in GA4_REQUIRED_VARIABLES) + (str(days), device, "geography")
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _ga4_geography_cache.get(key)
+        if cached and cached[0] > now:
+            return dict(cached[1])
+
+    credentials_path = config["GA4_CREDENTIALS_PATH"]
+    property_id = config["GA4_PROPERTY_ID"]
+    result = _empty_geography(days, device, base)
+    result["status"] = base.get("status", "ready")
+
+    def read(
+        dimensions: Sequence[str],
+        metrics: Sequence[str],
+        *,
+        limit: int = 25,
+        previous: bool = False,
+    ) -> list[dict[str, Any]]:
+        return _ga4_read(
+            credentials_path,
+            property_id,
+            days,
+            device,
+            dimensions,
+            metrics,
+            limit=limit,
+            previous=previous,
+        )
+
+    try:
+        totals = [
+            row
+            for row in read(("country",), ("sessions", "activeUsers", "engagementRate"), limit=25)
+            if row["country"]
+        ]
+        tree = _fold_places(
+            read(("country", "region", "city"), ("sessions", "engagedSessions"), limit=200)
+        )
+        previous_rows = read(("country",), ("sessions",), limit=25, previous=True)
+        previous = {
+            _place(str(row.get("country", ""))): int(row.get("sessions") or 0)
+            for row in previous_rows
+            if row.get("country")
+        }
+        result["countries"] = _country_rows(totals, tree, previous)
+        result["has_previous"] = bool(previous_rows)
+        result["country_sources"] = _fold_country_sources(
+            read(
+                ("country", "sessionSource", "sessionMedium"),
+                ("sessions", "activeUsers", "engagedSessions", "screenPageViews"),
+                limit=200,
+            )
+        )
+        result["country_channels"] = _fold_country_channels(
+            read(
+                ("country", "sessionDefaultChannelGroup"),
+                ("sessions", "engagedSessions"),
+                limit=100,
+            )
+        )
+    except Exception as exc:  # a geography failure must not blank the other panels
+        result = _empty_geography(days, device, base)
+        result["status"] = "error"
+        result["message"] = f"Google Analytics geography read failed: {type(exc).__name__}."
+        return result
+
+    with _cache_lock:
+        _ga4_geography_cache[key] = (now + CACHE_SECONDS, dict(result))
     return result
 
 

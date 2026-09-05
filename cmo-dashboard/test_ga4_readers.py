@@ -61,6 +61,7 @@ class ReaderCase(unittest.TestCase):
             readers._ga4_detail_cache,
             readers._ga4_audience_cache,
             readers._ga4_events_cache,
+            readers._ga4_geography_cache,
         ):
             cache.clear()
         patcher = mock.patch.dict(os.environ, ENVIRONMENT, clear=False)
@@ -361,3 +362,289 @@ class NotConnected(ReaderCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChannelNaming(unittest.TestCase):
+    """`classify_source`, including the two channels it used to have no name for."""
+
+    def test_an_email_medium_is_a_channel_and_a_bare_referral_is_another(self) -> None:
+        self.assertEqual(readers.classify_source("newsletter-sept", "email"), "Email")
+        self.assertEqual(readers.classify_source("some-blog.in", "referral"), "Referral")
+
+    def test_an_email_service_provider_is_named_by_its_source_alone(self) -> None:
+        """The link a provider rewrites carries its host and not always a medium."""
+        self.assertEqual(readers.classify_source("mailchimp", ""), "Email")
+
+    def test_the_source_beats_the_medium(self) -> None:
+        """A LinkedIn newsletter is LinkedIn traffic that happened to arrive by email.
+
+        Filing it under Email would lose the channel that earned the visit, and
+        every referral host below would collapse into one undifferentiated row.
+        """
+        self.assertEqual(readers.classify_source("linkedin.com", "email"), "LinkedIn")
+        self.assertEqual(readers.classify_source("lnkd.in", "referral"), "LinkedIn")
+        self.assertEqual(readers.classify_source("google", "organic"), "Google")
+
+    def test_an_unmapped_source_is_named_honestly(self) -> None:
+        self.assertEqual(readers.classify_source("partner-portal", "cpc"), "Other")
+
+
+def place_rows(*rows: tuple[tuple[str, ...], tuple[str, ...]]) -> dict[str, Any]:
+    return {"rows": [metric_row(*values, dimensions=dimensions) for dimensions, values in rows]}
+
+
+#: One window of geography, shaped like the property this console reads: India
+#: carrying the work, and an unexplained country that engages at almost nothing.
+COUNTRY_TOTALS = place_rows(
+    (("India",), ("300", "210", "0.31")),
+    (("Netherlands",), ("41", "39", "0.049")),
+)
+PLACE_TREE = place_rows(
+    (("India", "Delhi", "New Delhi"), ("180", "70")),
+    (("India", "Maharashtra", "Pune"), ("120", "33")),
+    (("Netherlands", "(not set)", "(not set)"), ("41", "2")),
+)
+PREVIOUS_COUNTRIES = place_rows((("India",), ("120",)))
+COUNTRY_SOURCES = place_rows(
+    (("India", "google", "organic"), ("200", "150", "80", "400")),
+    (("India", "lnkd.in", "referral"), ("100", "70", "55", "260")),
+    (("Netherlands", "(direct)", ""), ("38", "36", "2", "40")),
+    (("Netherlands", "some-host.nl", "referral"), ("3", "3", "0", "3")),
+)
+COUNTRY_CHANNELS = place_rows(
+    (("India", "Organic Search"), ("200", "80")),
+    (("India", "Organic Social"), ("100", "55")),
+    (("Netherlands", "Direct"), ("38", "2")),
+)
+
+
+def geography_responder(**overrides: Any):
+    """Route each outgoing report by the dimensions it asks for.
+
+    An unrecognised request raises rather than returning a plausible payload,
+    which is how the live API answers a dimension it does not know: a 400 for the
+    whole report. A responder that answered everything would let a typo in a
+    dimension name pass every test here and blank the panel in production.
+    """
+    answers: dict[tuple[str, ...], Any] = {
+        (): READY,
+        ("country", "region", "city"): PLACE_TREE,
+        ("country", "sessionSource", "sessionMedium"): COUNTRY_SOURCES,
+        ("country", "sessionDefaultChannelGroup"): COUNTRY_CHANNELS,
+    }
+    answers.update(overrides.pop("answers", {}))
+
+    def respond(_credentials: str, _property: str, payload: dict[str, Any]) -> dict[str, Any]:
+        names = tuple(item["name"] for item in payload.get("dimensions", []))
+        if names == ("country",):
+            # Same dimension, two windows: the previous one asks for sessions
+            # alone, because visitors and engagement are only ever read forward.
+            return (
+                PREVIOUS_COUNTRIES if len(payload["metrics"]) == 1 else COUNTRY_TOTALS
+            )
+        if names in answers:
+            return answers[names]
+        raise RuntimeError(f"no report for {names}")
+
+    return respond
+
+
+class Geography(ReaderCase):
+    def test_the_levels_add_up_to_the_country_above_them(self) -> None:
+        """The property the tree exists to have.
+
+        Regions and cities come from one report rolled up in Python rather than
+        three reports asked separately, precisely so a drill-down cannot disagree
+        with the row it opens from.
+        """
+        with mock.patch.object(readers, "_ga4_request", side_effect=geography_responder()):
+            result = readers.ga4_geography(28)
+
+        self.assertEqual(result["status"], "ready")
+        for country in result["countries"]:
+            self.assertEqual(
+                sum(region["sessions"] for region in country["regions"]),
+                country["tree_sessions"],
+                country["country"],
+            )
+            for region in country["regions"]:
+                self.assertEqual(
+                    sum(city["sessions"] for city in region["cities"]),
+                    region["sessions"],
+                    region["region"],
+                )
+
+    def test_an_unresolved_place_keeps_its_row_rather_than_its_name(self) -> None:
+        """Dropping `(not set)` from the tree would stop the levels summing.
+
+        A flat list can afford to drop it. A tree cannot: the sessions are real
+        and they belong to a country whose total would then exceed its parts.
+        """
+        with mock.patch.object(readers, "_ga4_request", side_effect=geography_responder()):
+            result = readers.ga4_geography(28)
+
+        netherlands = next(row for row in result["countries"] if row["country"] == "Netherlands")
+        self.assertEqual([region["region"] for region in netherlands["regions"]], ["Not reported"])
+        self.assertEqual(netherlands["regions"][0]["sessions"], 41)
+
+    def test_a_country_names_itself_expected_or_not_and_says_what_it_was(self) -> None:
+        with mock.patch.object(readers, "_ga4_request", side_effect=geography_responder()):
+            result = readers.ga4_geography(28)
+
+        india = next(row for row in result["countries"] if row["country"] == "India")
+        netherlands = next(row for row in result["countries"] if row["country"] == "Netherlands")
+
+        self.assertTrue(india["expected"])
+        self.assertEqual(india["previous_sessions"], 120)
+        self.assertEqual(india["delta_sessions"], 180)
+        self.assertFalse(netherlands["expected"])
+        # None, not zero. A country GA4 never reported and one it reported as
+        # zero are different answers, and only the second supports "this is new".
+        self.assertIsNone(netherlands["previous_sessions"])
+        self.assertIsNone(netherlands["delta_sessions"])
+
+    def test_visitors_come_from_the_country_report_and_never_from_the_tree(self) -> None:
+        """`activeUsers` is de-duplicated by GA4 and does not add up.
+
+        A visitor who browsed from two cities is one user at country level and
+        two if you sum the city rows, so the tree carries sessions only.
+        """
+        with mock.patch.object(readers, "_ga4_request", side_effect=geography_responder()):
+            result = readers.ga4_geography(28)
+
+        india = next(row for row in result["countries"] if row["country"] == "India")
+        self.assertEqual(india["active_users"], 210)
+        self.assertNotIn("active_users", india["regions"][0])
+        self.assertNotIn("active_users", india["regions"][0]["cities"][0])
+
+    def test_the_two_cross_tabs_ask_two_different_questions(self) -> None:
+        """One is source-shaped and ours; the other is spend-shaped and GA4's.
+
+        Where they disagree the disagreement is the finding, so the reader must
+        actually request `sessionDefaultChannelGroup` rather than deriving a
+        channel group from the sources it already has.
+        """
+        asked: list[tuple[str, ...]] = []
+
+        def capture(credentials: str, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+            asked.append(tuple(item["name"] for item in payload.get("dimensions", [])))
+            return geography_responder()(credentials, property_id, payload)
+
+        with mock.patch.object(readers, "_ga4_request", side_effect=capture):
+            result = readers.ga4_geography(28)
+
+        self.assertIn(("country", "sessionDefaultChannelGroup"), asked)
+        self.assertIn(("country", "sessionSource", "sessionMedium"), asked)
+
+        netherlands = next(
+            row for row in result["country_sources"] if row["country"] == "Netherlands"
+        )
+        # Folded by the same rule the site-wide channel table uses: a cross-tab
+        # whose "Direct" meant something narrower than the row above would be
+        # worse than no cross-tab.
+        self.assertEqual(
+            [(row["source"], row["sessions"]) for row in netherlands["channels"]],
+            [("Direct", 38), ("Referral", 3)],
+        )
+        groups = next(
+            row for row in result["country_channels"] if row["country"] == "Netherlands"
+        )
+        self.assertEqual([row["channel"] for row in groups["channels"]], ["Direct"])
+
+    def test_the_previous_window_is_the_one_immediately_before_this_one(self) -> None:
+        windows: list[tuple[str, str]] = []
+
+        def capture(credentials: str, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+            window = payload["dateRanges"][0]
+            windows.append((window["startDate"], window["endDate"]))
+            return geography_responder()(credentials, property_id, payload)
+
+        with mock.patch.object(readers, "_ga4_request", side_effect=capture):
+            readers.ga4_geography(7)
+
+        import datetime as dt
+
+        end = dt.date.today() - dt.timedelta(days=1)
+        start = end - dt.timedelta(days=6)
+        previous_end = start - dt.timedelta(days=1)
+        previous_start = previous_end - dt.timedelta(days=6)
+        self.assertIn((start.isoformat(), end.isoformat()), windows)
+        self.assertIn((previous_start.isoformat(), previous_end.isoformat()), windows)
+
+    def test_a_rejected_cross_tab_leaves_the_other_panels_standing(self) -> None:
+        """The reason this is its own reader.
+
+        Two of its five reports are cross-tabs at a cardinality GA4 can threshold
+        or reject outright, and a rejection there must not take the channel table
+        and the device panel down with it.
+        """
+        geography = geography_responder()
+
+        def respond(credentials: str, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+            names = tuple(item["name"] for item in payload.get("dimensions", []))
+            if names == ("country", "sessionDefaultChannelGroup"):
+                raise ValueError("400: dimension not supported")
+            try:
+                return geography(credentials, property_id, payload)
+            except RuntimeError:
+                # Whatever the audience reader asks for, answered emptily. This
+                # test is about one reader failing, not about the other's rows.
+                return {"rows": []}
+
+        with mock.patch.object(readers, "_ga4_request", side_effect=respond):
+            result = readers.ga4_geography(28)
+            audience = readers.ga4_audience(28)
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("ValueError", result["message"])
+        self.assertEqual(result["countries"], [])
+        # The reader that did not fail is unaffected, which is the whole point.
+        self.assertNotEqual(audience["status"], "error")
+
+    def test_an_unconnected_property_names_what_is_missing_rather_than_erroring(self) -> None:
+        with mock.patch.dict(os.environ, {"GA4_PROPERTY_ID": ""}):
+            readers._ga4_cache.clear()
+            readers._ga4_geography_cache.clear()
+            result = readers.ga4_geography(28)
+
+        self.assertEqual(result["status"], "not_connected")
+        self.assertIn("GA4_PROPERTY_ID", result["required_variables"])
+        self.assertEqual(result["countries"], [])
+
+
+class AudienceWindows(ReaderCase):
+    def test_the_channel_table_carries_the_window_before_it(self) -> None:
+        """A share is only a decision once you know which way it moved."""
+        current = place_rows(
+            (("google", "organic"), ("120", "90", "40", "260")),
+            (("lnkd.in", "referral"), ("51", "44", "21", "158")),
+        )
+        previous = place_rows((("google", "organic"), ("140", "100", "50", "300")))
+        seen: list[str] = []
+
+        def respond(_credentials: str, _property: str, payload: dict[str, Any]) -> dict[str, Any]:
+            names = tuple(item["name"] for item in payload.get("dimensions", []))
+            if not names:
+                return READY
+            if names == ("sessionSource", "sessionMedium"):
+                start = payload["dateRanges"][0]["startDate"]
+                seen.append(start)
+                return previous if len(seen) > 1 and start < max(seen) else current
+            return {"rows": []}
+
+        with mock.patch.object(readers, "_ga4_request", side_effect=respond):
+            result = readers.ga4_audience(28)
+
+        self.assertTrue(result["traffic_sources"])
+        self.assertTrue(result["previous_traffic_sources"])
+        self.assertLess(min(seen), max(seen))
+
+    def test_geography_no_longer_lives_here(self) -> None:
+        """One reader owns a subject.
+
+        Countries and cities moved to `ga4_geography`, which needs three levels
+        and two windows of its own. Leaving a second copy behind is how a country
+        total and the cities inside it come to describe different sessions.
+        """
+        self.assertNotIn("countries", readers._empty_audience(28, "all", {}))
+        self.assertNotIn("cities", readers._empty_audience(28, "all", {}))
