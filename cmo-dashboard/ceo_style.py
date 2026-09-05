@@ -453,6 +453,63 @@ color:var(--muted)}
 .drill>summary:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:3px}
 .drill[open]>summary{margin-bottom:8px}
 
+/* The summary, and the findings under each panel.
+
+   Green is a confirmed opportunity, clay a warning, muted a thing to watch --
+   the same three meanings the tokens carry everywhere else on this console. A
+   finding with no recommendation is deliberately the quietest of the three:
+   below MIN_SAMPLE the server sends no action, and a watch item styled like a
+   decision would be read as one. */
+.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap);
+align-items:start}
+.summary-block{background:var(--sheet);border:1px solid var(--line);
+border-radius:var(--radius-sm);padding:var(--pad-tight)}
+.summary-block h4{margin:0 0 8px;font-size:var(--f-xs);letter-spacing:.08em;
+text-transform:uppercase;color:var(--faint)}
+.summary-block ul,.summary-block ol{margin:0;padding-left:17px;display:grid;gap:7px}
+.summary-block li{font-size:var(--f-sm);line-height:1.5}
+.summary-block li .meta{display:block;margin-top:2px}
+.summary-block.do{background:var(--green-soft);border-color:#cfe2d7}
+.summary-block.do h4{color:var(--green-deep)}
+
+.findings{display:grid;gap:10px;margin-top:14px}
+.insight{border:1px solid var(--line);border-left:3px solid var(--green);
+border-radius:var(--radius-sm);padding:var(--pad-tight);background:var(--sheet)}
+.insight.tone-high{border-left-color:var(--clay);background:var(--clay-soft)}
+.insight.watch{border-left-color:var(--line);background:transparent}
+.insight h4{margin:0 0 6px;font-size:var(--f-sm)}
+.insight p{margin:0 0 5px;font-size:var(--f-sm);line-height:1.5}
+.insight-why{color:var(--muted)}
+.insight-do{color:var(--green-deep);font-weight:600}
+.insight-hold{color:var(--faint);font-style:italic}
+.insight-evidence{margin:0;padding-left:17px;display:grid;gap:4px;
+font-size:var(--f-xs);color:var(--muted)}
+
+/* Geography, three levels deep. One country per disclosure rather than a flat
+   list: the regions inside it are the answer to "where exactly", and a reader
+   who does not have that question should not have to scroll past it. */
+.drill.geo>summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;
+color:var(--ink);font-weight:600;font-size:var(--f-base)}
+.geo-name{display:inline-flex;align-items:center;gap:7px}
+.geo-figures{font-size:var(--f-sm);font-weight:400;color:var(--muted)}
+.geo-figures .n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.geo-figures .delta{margin-left:2px}
+tr.geo-region td{background:var(--bg);font-weight:600}
+tr.geo-city td.subject{padding-left:var(--pad);color:var(--muted)}
+
+/* Two namings of the same sessions, side by side. Reading them apart is the
+   point, so they do not merge into one table on a wide screen. */
+.crosstab{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);
+align-items:start}
+.crosstab-half h4{margin:0 0 8px;font-size:var(--f-sm)}
+tr.cross-country td{background:var(--bg);font-weight:700}
+td.cross-channel{padding-left:var(--pad);color:var(--muted)}
+
+/* A column that exists and was never measured. Not a zero, and not omitted --
+   the question was asked and the answer is in the footnote below it. */
+td.n.absent{color:var(--faint);font-style:italic;font-family:var(--sans);
+font-size:var(--f-xs)}
+
 /* The funnel. A step with no event is drawn as an empty track, never a zero bar
    -- a full-width zero and an unwired step must not look alike. */
 .funnel{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:8px}
@@ -515,6 +572,7 @@ dialog[open]{display:block;position:static;max-height:none;width:100%;border:0;b
 /* ---- phone --------------------------------------------------------------- */
 @media(max-width:820px){
 .tiles,.tiles.six,.tiles.four{grid-template-columns:repeat(2,minmax(0,1fr))}
+.summary,.crosstab{grid-template-columns:1fr}
 .tiles .tile:first-child{grid-column:1/-1}
 .editor-grid{grid-template-columns:1fr}
 .editor textarea,.editor .preview{min-height:34vh}

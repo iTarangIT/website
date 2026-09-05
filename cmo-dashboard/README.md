@@ -917,6 +917,127 @@ a subject into it, so the Queued box on Topics keeps what is already there — r
 and removable — and nothing new arrives. `POST /ceo/api/research-queue` still accepts
 `add`; no console control sends it.
 
+## The tab answers a decision, not a question
+
+The Analytics tab reported numbers well and concluded nothing. A CMO opening it
+got tiles, a funnel, a channel table, a flat country list and a flat city list, and
+had to do the reasoning themselves. Three things were missing outright: region-level
+geography and a country-to-city drill-down, any cross-tab saying which channel each
+country arrived through, and any sentence saying what happened, why, and what to do.
+
+The immediate trigger was unexplained foreign traffic the old tab could display but
+not characterise. It showed **Netherlands, 41 sessions** and nothing about whether
+those sessions engaged or which channel claimed them — the two facts that decide
+whether it is an audience or noise to filter out.
+
+**The tab opens on the conclusion.** `#insights-panel` sits under the range toolbar
+and above the first table, because evidence below a conclusion is a report and a
+conclusion below evidence is a footnote to it. `test_served_bytes.py` asserts that
+ordering on the served document; nothing else enforces it.
+
+### Geography, three levels deep and two ways across
+
+`analytics_readers.ga4_geography` is its own reader, separate from `ga4_audience`
+and failing on its own the way `ga4_events` does. Two of its five reports are
+cross-tabs at a cardinality GA4 can threshold or reject outright, and a rejection
+there must not take the channel table and the device panel down with it.
+
+Countries, regions and cities come from **one** report rolled up in Python rather
+than three asked separately, so a drill-down cannot disagree with the row it opens
+from — the tests assert the levels sum. `(not set)` keeps its row in the tree under
+an honest name for the same reason: dropping it, as the flat city list used to,
+would stop the regions summing to their country.
+
+**Visitors come from the country-level report and never from the tree.**
+`activeUsers` is de-duplicated by GA4 within whatever grouping it was asked for, so
+a user who browsed from two cities is one user at country level and two if you add
+the city rows. Sessions, engaged sessions and views are counts and do add up, so the
+tree carries those and rebuilds engagement from them.
+
+The two cross-tabs answer deliberately different questions. `country_sources` folds
+through `classify_source`, which is **source-shaped** — LinkedIn, WhatsApp, the names
+of the places we post. `country_channels` asks GA4 for its own
+`sessionDefaultChannelGroup`, which is **spend-shaped** — Organic Social, Referral,
+Email, Paid Search. Where the two disagree the disagreement is the finding: a country
+that is Direct on the left and Referral on the right arrived without a tag we set.
+Merging them would hide exactly that.
+
+`classify_source` gained **Email** and **Referral**, consulted after the source table
+rather than before it. A LinkedIn newsletter is LinkedIn traffic that happened to
+arrive by email, and filing it under Email would lose the channel that earned the
+visit. `Referral` is last of all: every mapped host above also arrives with medium
+`referral`, so a referral rule consulted any earlier would swallow LinkedIn, Facebook
+and the rest into one undifferentiated row.
+
+`ga4_audience` gained the window before this one, so a channel's share has a
+direction rather than only a level. The page report gained `activeUsers` — appended
+to the metric list, not inserted, because `_ga4_page_rows` reads values back by
+position and a metric in the middle shifts every column after it onto its
+neighbour's number.
+
+### The rules are rules, and that is the point
+
+`ceo_insights` is a rule engine and not a model. There is no text-model client in
+this process — `cmo_runtime/image_gen.py` is images — and `state_payload` runs on
+every `/ceo/api/state` poll, which is why commit `7e07d29` removed a whole panel for
+costing one round-trip per poll. Three rules govern every line of it:
+
+**Every sentence names the numbers it came from.** A finding that cannot quote its
+figures is an opinion, and an opinion on a marketing console is indistinguishable
+from a measurement once it has been read.
+
+**An unmeasured input produces no finding.** Not a hedged one, not a zero — none.
+This is the readers' rule carried one layer up: a channel nobody instrumented and a
+channel nobody engaged with are opposite findings, and only one is a marketing
+problem.
+
+**A sample too small to support a recommendation gets an observation instead.**
+20.7% of 29 sessions is six sessions. Below `MIN_SAMPLE` a finding keeps its numbers,
+loses its `action`, and renders its caveat in the space the recommendation would have
+occupied — a thing to watch and a thing to do must not look alike.
+
+Eight rules run: `unexpected_geography`, `funnel_break`, `device_gap`,
+`channel_shift`, `high_intent_channel`, `low_engagement_channel`, `page_opportunity`
+and `search_vs_analytics`. Two rules reaching the same channel collapse to one line,
+because "Direct grew" printed above "Direct does not engage" is one investigation and
+two lines make a short list look long.
+
+`funnel_break` keeps the distinction the funnel was built on. A step reading **not
+instrumented** is an engineering finding and says so — GTM forwards an event to GA4
+only when the container holds a tag with a trigger for that name. A measured collapse
+is a marketing finding. A zero would send a CMO to the wrong department.
+
+**Every panel carries its own finding.** `panelFindings(panel)` filters the one
+server-built list, so each table ends in the action it implies rather than sending
+the reader back to the top of the tab. The summary above never repeats a finding; it
+names the panel it came from.
+
+### What LinkedIn cannot tell us
+
+The campaign panel is **arrival-side and says so**. Sessions, visitors, engagement
+and pages-per-session are what GA4 recorded landing on the site, joined to the posts
+Buffer accepted via `ConsoleDB.crossposts_sent_since`. `sent_at` is stamped when
+Buffer *took* the post, not when it went live — Buffer publishes into the account's
+own slots, sometimes hours later — so a window boundary can put a post on either side
+of the sessions it earned, and the footnote says that rather than implying a tighter
+join than the data supports.
+
+Impressions, clicks and CTR are recorded by the platform, not by this site, and no
+credential in this profile can read them. The columns are **rendered, not omitted**,
+reading `not measured` and naming `LINKEDIN_ACCESS_TOKEN` and the LinkedIn Marketing
+API beneath. A table that quietly lacked the column would read as one where
+impressions were never relevant; a zero would read as a post that reached nobody.
+
+### Which pages earn the traffic
+
+The GA4 page rows were already fetched and thrown away — they are the GA4 half of the
+blog join. They are a panel again: views, sessions, visitors and engagement, one
+request serving two readers over one window. It is deliberately **not** the
+"Which pages were read" that came off the tab: that name, its panel id and its
+renderer stay banned by `test_the_three_removed_analytics_sections_are_gone_from_the_wire`,
+and the new panel is named differently so the tripwire keeps working rather than
+being relaxed.
+
 ## Competitor analytics
 
 **The console panel is gone.** "Which website do you want to replicate?" was removed

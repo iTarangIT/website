@@ -78,6 +78,9 @@ BODY = '''<main id="app">
 <div class="chip-group"><span class="label">Range</span><div class="chips" id="range-chips"></div></div>
 <div class="chip-group"><span class="label">Device</span><div class="chips" id="device-chips"></div></div>
 </div>
+
+<h3 class="rule">What happened, why, and what to do<span class="meta">Read from measured movements in the panels below. Every line names the numbers behind it, and a sample too small to act on says so instead of recommending something.</span></h3>
+<div id="insights-panel"></div>
 <div id="custom-range" class="subject-box" hidden>
 <label class="field">From<input id="range-start" type="date"></label>
 <label class="field">To<input id="range-end" type="date"></label>
@@ -137,11 +140,20 @@ BODY = '''<main id="app">
 <h3 class="rule">Where the traffic came from<span class="meta">Sessions grouped by the channel that sent them. A share from the blog carries a UTM tag, so WhatsApp forwards land here rather than under Direct.</span></h3>
 <div id="sources-panel"></div>
 
-<h3 class="rule">Where visitors are<span class="meta">Countries first, then the cities inside them.</span></h3>
+<h3 class="rule">How the posts we sent performed<span class="meta">What each channel delivered to the site, beside how many posts went to it. This is measured on arrival, not on the platform.</span></h3>
+<div id="campaign-panel"></div>
+
+<h3 class="rule">Where visitors are<span class="meta">Countries, and the regions and cities inside them. Open a country to see where in it the sessions came from.</span></h3>
 <div id="places-panel"></div>
+
+<h3 class="rule">How each country found us<span class="meta">The same sessions across two different namings of channel. Where the two disagree, the disagreement is the finding.</span></h3>
+<div id="geo-cross-panel"></div>
 
 <h3 class="rule">What they were using<span class="meta">Device, operating system and browser, for the same window.</span></h3>
 <div id="devices-panel"></div>
+
+<h3 class="rule">Which pages earn the traffic<span class="meta">Views, sessions and visitors per page, and what each row implies. A page read far better than it is promoted is a different problem from one that wastes the traffic it gets.</span></h3>
+<div id="pages-performance-panel"></div>
 
 <h3 class="rule">Where they came in<span class="meta">The page each session started on, and whether it held them. This is the front door, not the whole journey.</span></h3>
 <div id="journey-panel"></div>

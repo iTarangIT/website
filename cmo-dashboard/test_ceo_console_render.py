@@ -154,14 +154,86 @@ def _audience(status: str = "ready") -> dict:
              "examples": ["lnkd.in", "linkedin"]},
             {"source": "Direct", "sessions": 10, "active_users": 9, "share": 9.1, "examples": ["(direct)"]},
         ],
-        "countries": [{"country": "India", "sessions": 90, "active_users": 80}],
-        "cities": [{"city": "Gurugram", "country": "India", "sessions": 40}],
+        "previous_traffic_sources": [
+            {"source": "Google", "sessions": 80, "active_users": 70, "share": 72.7, "examples": ["google"]},
+            {"source": "LinkedIn", "sessions": 30, "active_users": 28, "share": 27.3, "examples": ["lnkd.in"]},
+        ],
         "devices": [{"device": "mobile", "sessions": 70, "engagement_rate": 0.62}],
         "browsers": [{"browser": "Chrome", "operating_system": "Android", "sessions": 65}],
         "landing_pages": [
             {"page": "/blog/emi", "sessions": 30, "engagement_rate": 0.58, "bounces": 0.42}
         ],
     }
+
+
+def _geography(status: str = "ready") -> dict:
+    """One window of geography, shaped the way `ga4_geography` returns it.
+
+    India carries the work and the Netherlands is the country nobody planned
+    for -- the case the drill-down and the unexpected-geography rule were both
+    built for, so the fixture is that case rather than a neutral one.
+    """
+    return {
+        "status": status,
+        "message": "" if status == "ready" else "Google Analytics is not connected yet",
+        "required_variables": ["GA4_PROPERTY_ID"],
+        "range_days": 28,
+        "device": "all",
+        "has_previous": True,
+        "countries": [
+            {
+                "country": "India", "sessions": 90, "active_users": 80,
+                "engagement_rate": 0.31, "share": 68.7, "expected": True,
+                "previous_sessions": 70, "delta_sessions": 20, "tree_sessions": 90,
+                "regions": [
+                    {"region": "Haryana", "sessions": 60, "engagement_rate": 0.34, "share": 66.7,
+                     "cities": [{"city": "Gurugram", "sessions": 40, "engagement_rate": 0.36, "share": 66.7},
+                                {"city": "Faridabad", "sessions": 20, "engagement_rate": 0.30, "share": 33.3}]},
+                    {"region": "Maharashtra", "sessions": 30, "engagement_rate": 0.25, "share": 33.3,
+                     "cities": [{"city": "Pune", "sessions": 30, "engagement_rate": 0.25, "share": 100.0}]},
+                ],
+            },
+            {
+                "country": "Netherlands", "sessions": 41, "active_users": 39,
+                "engagement_rate": 0.049, "share": 31.3, "expected": False,
+                "previous_sessions": None, "delta_sessions": None, "tree_sessions": 41,
+                "regions": [
+                    {"region": "Not reported", "sessions": 41, "engagement_rate": 0.049, "share": 100.0,
+                     "cities": [{"city": "Not reported", "sessions": 41,
+                                 "engagement_rate": 0.049, "share": 100.0}]},
+                ],
+            },
+        ],
+        "country_sources": [
+            {"country": "India", "sessions": 90, "channels": [
+                {"source": "Google", "sessions": 60, "share": 66.7, "engagement_rate": 0.34},
+                {"source": "LinkedIn", "sessions": 30, "share": 33.3, "engagement_rate": 0.41}]},
+            {"country": "Netherlands", "sessions": 41, "channels": [
+                {"source": "Direct", "sessions": 41, "share": 100.0, "engagement_rate": 0.049}]},
+        ],
+        "country_channels": [
+            {"country": "India", "sessions": 90, "channels": [
+                {"channel": "Organic Search", "sessions": 60, "share": 66.7, "engagement_rate": 0.34},
+                {"channel": "Organic Social", "sessions": 30, "share": 33.3, "engagement_rate": 0.41}]},
+            {"country": "Netherlands", "sessions": 41, "channels": [
+                {"channel": "Referral", "sessions": 41, "share": 100.0, "engagement_rate": 0.049}]},
+        ],
+    }
+
+
+def _insight(**overrides: object) -> dict:
+    payload = {
+        "kind": "unexpected_geography", "panel": "places", "subject": "Netherlands",
+        "severity": "high",
+        "headline": "Netherlands sent traffic we did not plan for",
+        "what": "Netherlands sent 41 sessions, 31% of everything recorded in this window.",
+        "why": "They engage at 4.9% against 20.7% across the site.",
+        "action": "Open the country in GA4 and check the landing pages behind it.",
+        "evidence": ["Netherlands: 41 sessions, new this window."],
+        "confidence": "measured", "sample": 41, "caveat": "",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _ga4(**overrides: object) -> dict:
@@ -185,7 +257,7 @@ def _ga4(**overrides: object) -> dict:
                    "average_session_duration": 12.0, "engaged_sessions": 2,
                    "screen_page_views_per_session": 0.21},
         "pages": [{"page": "/how-it-works", "screen_page_views": 18,
-                   "sessions": 12, "engagement_rate": 0.41}],
+                   "sessions": 12, "engagement_rate": 0.41, "active_users": 9}],
         "collection_start": "2026-08-04",
     }
     payload.update(overrides)
@@ -218,7 +290,9 @@ def _events(**overrides: object) -> dict:
 def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dict | None = None,
              archived: list | None = None, radar: dict | None = None,
              social: dict | None = None, audience: dict | None = None,
-             ga4: dict | None = None, ga4_events: dict | None = None) -> dict:
+             ga4: dict | None = None, ga4_events: dict | None = None,
+             geography: dict | None = None, insights: list | None = None,
+             summary: dict | None = None, pages: list | None = None) -> dict:
     series = [
         {"date": f"2026-08-{day:02d}", "impressions": day * 12, "clicks": day % 4, "ctr": 1.4, "position": 12.5}
         for day in range(1, 15)
@@ -271,7 +345,32 @@ def _fixture(*, proposals: int = 28, blogs: int = 33, queries: int = 40, ui: dic
                 "ga4": {"status": "not_connected", "message": "Google Analytics is not connected yet",
                         "required_variables": ["GA4_PROPERTY_ID"]} if ga4 is None else ga4,
                 "ga4_audience": _audience() if audience is None else audience,
+                "ga4_geography": _geography() if geography is None else geography,
                 "ga4_events": _events() if ga4_events is None else ga4_events,
+                "pages": [
+                    {"page": "/blog/emi", "screen_page_views": 300, "sessions": 250,
+                     "active_users": 210, "engagement_rate": 0.19},
+                    {"page": "/products", "screen_page_views": 60, "sessions": 50,
+                     "active_users": 45, "engagement_rate": 0.62},
+                ] if pages is None else pages,
+                "insights": [_insight()] if insights is None else insights,
+                "summary": {
+                    "what": ["341 sessions from 268 visitors over 28 days."],
+                    "why": ["Netherlands sent traffic we did not plan for."],
+                    "actions": [{"action": "Open the country in GA4.",
+                                 "kind": "unexpected_geography", "panel": "places"}],
+                    "caveats": [],
+                } if summary is None else summary,
+                "campaigns": {
+                    "rows": [{"channel": "LinkedIn", "posts_sent": 2, "sessions": 40,
+                              "active_users": 37, "engagement_rate": 0.41,
+                              "views_per_session": 3.1, "impressions": None,
+                              "clicks": None, "ctr": None, "engagements": None}],
+                    "measured": "Google Analytics, on arrival",
+                    "unavailable": ["impressions", "clicks", "ctr", "engagements"],
+                    "unavailable_reason": "LinkedIn needs an app with organization access "
+                                          "and a LINKEDIN_ACCESS_TOKEN.",
+                },
                 "posts": {
                     "posts": [
                         {"slug": "emi", "title": "What an EMI actually costs", "url": "https://itarang.com/blog/emi",
@@ -659,10 +758,71 @@ class AudiencePanelsRender(unittest.TestCase):
         self.assertIn("width:54.5%", html)
         self.assertIn("54.5%", html)
 
-    def test_locations_render_countries_and_the_cities_inside_them(self):
+    def test_a_country_opens_onto_the_regions_and_cities_inside_it(self):
+        """Three levels, and the lower two behind a disclosure.
+
+        A flat city list cannot answer "where in India", and a reader who does
+        not have that question should not have to scroll past the answer.
+        """
         html = self.render(_fixture())["places"]
-        self.assertIn(">India</td>", html)
+        self.assertIn("India", html)
+        self.assertIn(">Haryana</td>", html)
         self.assertIn(">Gurugram</td>", html)
+        self.assertIn("Share of country", html)
+
+    def test_a_country_outside_our_markets_is_marked_on_its_own_row(self):
+        html = self.render(_fixture())["places"]
+        self.assertIn("outside our markets", html)
+        # It has no previous window, which is what makes it new rather than grown.
+        self.assertIn("new this window", html)
+
+    def test_the_two_cross_tabs_are_rendered_apart_and_say_why(self):
+        """Merging them would hide the finding.
+
+        A country that is Direct under our naming and Referral under Google's
+        arrived without a tag we set, and only the two side by side show it.
+        """
+        html = self.render(_fixture())["geoCross"]
+        self.assertIn("By the channel that sent the session", html)
+        self.assertIn("By Google&#39;s own channel group", html)
+        self.assertIn(">Organic Search</td>", html)
+        self.assertIn("arrived without a tag we set", html)
+
+    def test_a_panel_carries_the_finding_that_belongs_to_it(self):
+        """Every chart leads to an action, in the place the chart is."""
+        html = self.render(_fixture())["places"]
+        self.assertIn("Netherlands sent traffic we did not plan for", html)
+        self.assertIn("Open the country in GA4", html)
+
+    def test_a_watched_finding_shows_its_caveat_where_the_action_would_be(self):
+        """A recommendation and a thing to watch must not look alike."""
+        watched = _insight(action="", confidence="too_small", sample=12,
+                           caveat="A sample of 12 is too small to act on.")
+        html = self.render(_fixture(insights=[watched]))["places"]
+        self.assertIn("too small to act on", html)
+        self.assertIn('class="insight tone-high watch"', html)
+
+    def test_the_summary_answers_what_then_why_then_what_to_do(self):
+        html = self.render(_fixture())["insights"]
+        self.assertIn("What happened", html)
+        self.assertIn("Why", html)
+        self.assertIn("What to do", html)
+        # The action names the panel it was read from rather than restating it.
+        self.assertIn("Where visitors are", html)
+
+    def test_page_performance_reports_views_sessions_and_visitors(self):
+        html = self.render(_fixture(ga4=_ga4()))["pagesPerformance"]
+        self.assertIn(">/products</td>", html)
+        self.assertIn(">300<", html)
+        self.assertIn("62.0%", html)
+
+    def test_a_campaign_column_nobody_can_measure_says_so_rather_than_showing_zero(self):
+        """A zero in this column would read as a post that reached nobody."""
+        html = self.render(_fixture())["campaign"]
+        self.assertIn(">LinkedIn</td>", html)
+        self.assertIn("not measured", html)
+        self.assertNotIn(">0<", html)
+        self.assertIn("LINKEDIN_ACCESS_TOKEN", html)
 
     def test_devices_render_with_their_browsers(self):
         html = self.render(_fixture())["devices"]
@@ -676,9 +836,12 @@ class AudiencePanelsRender(unittest.TestCase):
         self.assertIn("/blog/emi", html)
         self.assertIn("not a full path", html)
 
-    def test_every_panel_reports_the_same_missing_tag_rather_than_four_stories(self):
-        report = self.render(_fixture(audience=_audience(status="not_connected")))
-        for key in ("sources", "places", "devices", "journey"):
+    def test_every_panel_reports_the_same_missing_tag_rather_than_several_stories(self):
+        report = self.render(_fixture(
+            audience=_audience(status="not_connected"),
+            geography=_geography(status="not_connected"),
+        ))
+        for key in ("sources", "places", "geoCross", "devices", "journey"):
             self.assertIn("GA4_PROPERTY_ID", report[key], key)
 
 

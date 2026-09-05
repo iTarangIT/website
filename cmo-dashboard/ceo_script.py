@@ -273,6 +273,7 @@ function figure(value,kind){
  if(kind==='ctr')return Number(value).toFixed(2)+'%';
  if(kind==='position')return Number(value).toFixed(1);
  if(kind==='rate')return (Number(value)*100).toFixed(1)+'%';
+ if(kind==='share')return Number(value).toFixed(1)+'%';
  if(kind==='duration')return duration(value);
  if(kind==='decimal')return Number(value).toFixed(2);
  return typeof value==='number'?grouped.format(value):String(value);
@@ -1327,6 +1328,59 @@ function renderPosts(){
    the same status, because four independent empty states saying four different
    things about one missing tag is how a console stops being believed. */
 function audience(){return state.analytics?.ga4_audience||{};}
+function geography(){return state.analytics?.ga4_geography||{};}
+function findings(){return state.analytics?.insights||[];}
+/* The findings that belong under one panel.
+   Each table carries its own conclusion rather than sending the reader back to
+   the top of the tab, which is the difference between a page of numbers and a
+   page that recommends something. The summary above never repeats these; it
+   names the panel instead. */
+function panelFindings(panel){
+ const rows=findings().filter(item=>item.panel===panel);
+ return rows.length?`<div class="findings">${rows.map(findingHtml).join('')}</div>`:'';
+}
+function findingHtml(item){
+ const evidence=(item.evidence||[]).length?`<details class="drill"><summary>What this is read from</summary>
+<ul class="insight-evidence">${item.evidence.map(line=>`<li>${esc(line)}</li>`).join('')}</ul></details>`:'';
+ /* A recommendation and a thing to watch look different on purpose. Below
+    MIN_SAMPLE the server sends no action at all, and printing the caveat in the
+    space the action would have occupied is what stops the two being read alike. */
+ const decision=item.action
+  ?`<p class="insight-do"><b>Do:</b> ${esc(item.action)}</p>`
+  :`<p class="insight-hold">${esc(item.caveat||'Too small a sample to act on.')}</p>`;
+ return `<article class="insight tone-${esc(item.severity)}${item.action?'':' watch'}">
+<h4>${esc(item.headline)}</h4>
+<p class="insight-what">${esc(item.what)}</p>
+<p class="insight-why"><b>Why:</b> ${esc(item.why)}</p>
+${decision}${evidence}</article>`;
+}
+/* What happened, why, and what to do -- in that order and no other.
+   The three blocks are the whole reason this tab exists; the panels below are
+   the evidence for them. */
+function renderInsights(){
+ const host=$('#insights-panel');if(!host)return;
+ const summary=state.analytics?.summary||{};
+ const what=summary.what||[],why=summary.why||[],actions=summary.actions||[],caveats=summary.caveats||[];
+ if(!what.length&&!why.length&&!actions.length&&!caveats.length){
+  setHtml(host,emptyState('Nothing to summarise yet',
+   'This reads from the panels below. Once Google Analytics has recorded a window, what changed and what to do about it appear here.'));
+  return;
+ }
+ const block=(title,items,ordered)=>items.length
+  ?`<section class="summary-block"><h4>${esc(title)}</h4><${ordered?'ol':'ul'}>${items.map(line=>`<li>${esc(line)}</li>`).join('')}</${ordered?'ol':'ul'}></section>`
+  :'';
+ const doing=actions.length
+  ?`<section class="summary-block do"><h4>What to do</h4><ol>${actions.map(item=>
+     `<li>${esc(item.action)} <span class="meta">${esc(PANEL_NAMES[item.panel]||item.panel)}</span></li>`).join('')}</ol></section>`
+  :'';
+ setHtml(host,`<div class="summary">${block('What happened',what)}${block('Why',why)}${doing}</div>`
+  +(caveats.length?`<p class="footnote">${caveats.map(esc).join(' ')}</p>`:''));
+}
+/* Which panel an action was read from, so the summary can point at the evidence
+   rather than restating it. */
+const PANEL_NAMES={places:'Where visitors are',sources:'Where the traffic came from',
+ devices:'What they were using',pages:'Which pages earn the traffic',
+ funnel:'Did they convert?',posts:'How each article is doing',campaigns:'How the posts we sent performed'};
 function audienceEmpty(host,title){
  const data=audience();
  const vars=(data.required_variables||[]).join(', ');
@@ -1366,27 +1420,89 @@ function renderSources(){
  const first=data.first_user_sources||[];
  setHtml($('#sources-panel'),channelTable(rows)+(first.length?`<details class="drill"><summary>Which channel found them first</summary>
 <p class="footnote">The table above credits the channel that delivered each session. This one credits the channel that first brought the visitor to the site at all. Direct and organic search routinely collect the credit for work another channel did, and only the two side by side show it.</p>
-${channelTable(first)}</details>`:''));
+${channelTable(first)}</details>`:'')+panelFindings('sources'));
+}
+function geoEmpty(host,title){
+ const data=geography();
+ const vars=(data.required_variables||[]).join(', ');
+ setHtml($(host),emptyState(title,
+  (data.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
+}
+/* The regions and cities inside one country.
+   Both levels come from one report rolled up on the server, so these rows sum
+   to the country above them. When GA4 could not resolve a level it keeps its
+   row under an honest name rather than being dropped, because a drill-down that
+   quietly stopped adding up would be the harder thing to notice. */
+function placeRows(country){
+ return (country.regions||[]).map(region=>{
+  const head=`<tr class="geo-region"><td class="subject" colspan="2">${esc(region.region)}</td>
+<td class="n">${cell(region.sessions)}</td><td>${shareCell(region.share)}</td>
+<td class="n">${cell(region.engagement_rate,'rate')}</td></tr>`;
+  return head+(region.cities||[]).map(city=>`<tr class="geo-city">
+<td aria-hidden="true"></td><td class="subject">${esc(city.city)}</td>
+<td class="n">${cell(city.sessions)}</td><td>${shareCell(city.share)}</td>
+<td class="n">${cell(city.engagement_rate,'rate')}</td></tr>`).join('');
+ }).join('');
+}
+function countryBlock(row){
+ const flag=row.expected?'':'<span class="pill tone-wait">outside our markets</span>';
+ const moved=row.delta_sessions===null||row.delta_sessions===undefined
+  ?'<span class="meta">new this window</span>'
+  :deltaHtml(row.delta_sessions);
+ /* The country total and the tree under it are the same sessions counted once
+    each, but a thresholded row can make them differ. Saying so beats letting a
+    reader discover it by adding the rows up. */
+ const drift=row.tree_sessions!==undefined&&row.sessions!==null&&row.tree_sessions!==row.sessions
+  ?`<p class="footnote">Google Analytics reports ${esc(figure(row.sessions))} sessions for this country and ${esc(figure(row.tree_sessions))} across the regions below; the difference is rows it withheld as too small to report.</p>`
+  :'';
+ return `<details class="drill geo"><summary>
+<span class="geo-name">${esc(row.country)}${flag}</span>
+<span class="geo-figures"><b class="n">${cell(row.sessions)}</b> sessions · <span class="n">${cell(row.active_users)}</span> visitors · ${cell(row.engagement_rate,'rate')} engaged · ${cell(row.share,'share')} of traffic ${moved}</span>
+</summary>
+<div class="table-scroll"><table class="data"><thead><tr>
+<th>Region</th><th>City</th><th class="n">Sessions</th><th>Share of country</th><th class="n">Engagement</th>
+</tr></thead><tbody>${placeRows(row)||'<tr><td colspan="5" class="meta">No region recorded yet.</td></tr>'}</tbody></table></div>${drift}</details>`;
 }
 function renderPlaces(){
- const data=audience();
- if(data.status!=='ready'&&data.status!=='collecting'){audienceEmpty('#places-panel','Visitor locations need Google Analytics');return;}
- const countries=data.countries||[],cities=data.cities||[];
- if(!countries.length&&!cities.length){
+ const data=geography();
+ if(data.status!=='ready'&&data.status!=='collecting'){geoEmpty('#places-panel','Visitor locations need Google Analytics');return;}
+ const countries=data.countries||[];
+ if(!countries.length){
   setHtml($('#places-panel'),emptyState('No location recorded yet',
    'Google Analytics reports a country once it has sessions to report. Nothing has arrived in this window.'));
   return;
  }
- setHtml($('#places-panel'),`<div class="table-scroll"><table class="data"><thead><tr>
-<th>Country</th><th class="n">Sessions</th><th class="n">Visitors</th><th class="n">Engagement</th>
-</tr></thead><tbody>${countries.map(row=>`<tr>
-<td class="subject">${esc(row.country)}</td><td class="n">${cell(row.sessions)}</td><td class="n">${cell(row.active_users)}</td>
-<td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')||'<tr><td colspan="4" class="meta">No country recorded yet.</td></tr>'}</tbody></table></div>
-<h4>Cities</h4>
+ setHtml($('#places-panel'),countries.map(countryBlock).join('')+panelFindings('places'));
+}
+/* The same sessions across two namings of "channel".
+   Ours is source-shaped -- LinkedIn, WhatsApp, the places we post. Google's is
+   spend-shaped -- Organic Social, Referral, Email. A session tagged by us and a
+   session Google grouped by referrer land in different rows, and that gap is
+   almost always traffic that arrived untagged. */
+function crossTable(rows,label,key){
+ const body=rows.map(country=>`<tr class="cross-country"><td class="subject">${esc(country.country)}</td>
+<td class="n">${cell(country.sessions)}</td><td></td><td></td></tr>`+
+ (country.channels||[]).map(channel=>`<tr><td class="cross-channel">${esc(channel[key])}</td>
+<td class="n">${cell(channel.sessions)}</td><td>${shareCell(channel.share)}</td>
+<td class="n">${cell(channel.engagement_rate,'rate')}</td></tr>`).join('')).join('');
+ return `<section class="crosstab-half"><h4>${esc(label)}</h4>
 <div class="table-scroll"><table class="data"><thead><tr>
-<th>City</th><th>Country</th><th class="n">Sessions</th>
-</tr></thead><tbody>${cities.map(row=>`<tr>
-<td class="subject">${esc(row.city)}</td><td>${esc(row.country)}</td><td class="n">${cell(row.sessions)}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No city recorded yet.</td></tr>'}</tbody></table></div>`);
+<th>Country and channel</th><th class="n">Sessions</th><th>Share of country</th><th class="n">Engagement</th>
+</tr></thead><tbody>${body}</tbody></table></div></section>`;
+}
+function renderGeoCross(){
+ const data=geography();
+ if(data.status!=='ready'&&data.status!=='collecting'){geoEmpty('#geo-cross-panel','Country breakdowns need Google Analytics');return;}
+ const sources=(data.country_sources||[]).slice(0,5),channels=(data.country_channels||[]).slice(0,5);
+ if(!sources.length&&!channels.length){
+  setHtml($('#geo-cross-panel'),emptyState('No country breakdown yet',
+   'This needs sessions carrying both a country and a source. Nothing has arrived in this window.'));
+  return;
+ }
+ setHtml($('#geo-cross-panel'),`<div class="crosstab">
+${crossTable(sources,'By the channel that sent the session','source')}
+${crossTable(channels,"By Google's own channel group",'channel')}</div>
+<p class="footnote">Five countries each, largest first. The left table names channels the way the rest of this tab does, by matching the source and our own UTM tags; the right one reports what Google Analytics grouped the session as. A row that is Direct on the left and Referral on the right arrived without a tag we set.</p>`);
 }
 function renderDevices(){
  const data=audience();
@@ -1402,11 +1518,71 @@ function renderDevices(){
 </tr></thead><tbody>${devices.map(row=>`<tr>
 <td class="subject">${esc(row.device)}</td><td class="n">${cell(row.sessions)}</td>
 <td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No device recorded yet.</td></tr>'}</tbody></table></div>
+${panelFindings('devices')}
 <h4>Browser and operating system</h4>
 <div class="table-scroll"><table class="data"><thead><tr>
 <th>Browser</th><th>Operating system</th><th class="n">Sessions</th>
 </tr></thead><tbody>${browsers.map(row=>`<tr>
 <td class="subject">${esc(row.browser)}</td><td>${esc(row.operating_system)}</td><td class="n">${cell(row.sessions)}</td></tr>`).join('')||'<tr><td colspan="3" class="meta">No browser recorded yet.</td></tr>'}</tbody></table></div>`);
+}
+/* How the posts we sent performed, as far as anything here can measure it.
+   The unavailable columns are rendered rather than omitted. A CMO looking for
+   impressions needs to see that the question was asked and what the answer
+   depends on; a table that quietly lacked the column would read as a table
+   where impressions were never relevant. */
+function renderCampaigns(){
+ const host=$('#campaign-panel');if(!host)return;
+ const data=state.analytics?.campaigns||{};
+ const rows=data.rows||[];
+ if(!rows.length){
+  setHtml(host,emptyState('No post and no session to match yet',
+   'A channel appears here once a post has been sent to it or it has delivered a session in this window.'));
+  return;
+ }
+ setHtml(host,`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Channel</th><th class="n">Posts sent</th><th class="n">Sessions</th><th class="n">Visitors</th>
+<th class="n">Engagement</th><th class="n">Pages/session</th>
+<th class="n">Impressions</th><th class="n">Clicks</th><th class="n">CTR</th>
+</tr></thead><tbody>${rows.map(row=>`<tr>
+<td class="subject">${esc(row.channel)}</td>
+<td class="n">${cell(row.posts_sent)}</td>
+<td class="n">${cell(row.sessions)}</td>
+<td class="n">${cell(row.active_users)}</td>
+<td class="n">${cell(row.engagement_rate,'rate')}</td>
+<td class="n">${cell(row.views_per_session,'decimal')}</td>
+<td class="n absent">not measured</td>
+<td class="n absent">not measured</td>
+<td class="n absent">not measured</td></tr>`).join('')}</tbody></table></div>
+<p class="footnote">${esc(data.unavailable_reason||'')} Sessions, visitors and engagement are ${esc(data.measured||'measured on arrival')}, and a post Buffer accepted inside this window may publish into a slot outside it.</p>`
+ +panelFindings('campaigns'));
+}
+/* Views, sessions and visitors per page, and the decision each row implies.
+   These are the same rows the blog join reads, rendered rather than thrown
+   away: one request, two readers, one window. */
+function renderPagePerformance(){
+ const host=$('#pages-performance-panel');if(!host)return;
+ const ga4=state.analytics?.ga4||{};
+ if(ga4.status!=='ready'&&ga4.status!=='collecting'){
+  const vars=(ga4.required_variables||[]).join(', ');
+  setHtml(host,emptyState('Page performance needs Google Analytics',
+   (ga4.message||'Google Analytics is not connected yet.')+(vars?` Required environment variables: ${vars}.`:'')));
+  return;
+ }
+ const rows=state.analytics?.pages||[];
+ if(!rows.length){
+  setHtml(host,emptyState('No page recorded yet',
+   'A page appears here once Google Analytics has recorded a view of it in this window.'));
+  return;
+ }
+ setHtml(host,`<div class="table-scroll"><table class="data"><thead><tr>
+<th>Page</th><th class="n">Views</th><th class="n">Sessions</th><th class="n">Visitors</th><th class="n">Engagement</th>
+</tr></thead><tbody>${rows.map(row=>`<tr>
+<td class="subject">${esc(row.page)}</td>
+<td class="n">${cell(row.screen_page_views)}</td>
+<td class="n">${cell(row.sessions)}</td>
+<td class="n">${cell(row.active_users)}</td>
+<td class="n">${cell(row.engagement_rate,'rate')}</td></tr>`).join('')}</tbody></table></div>`
+ +panelFindings('pages'));
 }
 function renderJourney(){
  const data=audience();
@@ -1729,15 +1905,20 @@ function renderSkeletons(){
  setHtml($('#trend-list'),skeleton(3,'row-h'));
  setHtml($('#archived-list'),skeleton(2,'card-h'));
  setHtml($('#social-list'),skeleton(2,'card-h'));
+ setHtml($('#insights-panel'),skeleton(1,'card-h'));
  setHtml($('#sources-panel'),skeleton(1,'card-h'));
+ setHtml($('#campaign-panel'),skeleton(1,'card-h'));
  setHtml($('#places-panel'),skeleton(1,'card-h'));
+ setHtml($('#geo-cross-panel'),skeleton(1,'card-h'));
  setHtml($('#devices-panel'),skeleton(1,'card-h'));
+ setHtml($('#pages-performance-panel'),skeleton(1,'card-h'));
  setHtml($('#journey-panel'),skeleton(1,'card-h'));
 }
 function renderAll(){
  renderProposals();renderArchived();renderTrends();renderBlogs();renderSearchConsole();renderPosts();
  renderGa4();renderFunnel();
- renderSources();renderPlaces();renderDevices();renderJourney();renderSocial();
+ renderInsights();renderSources();renderCampaigns();renderPlaces();renderGeoCross();
+ renderDevices();renderPagePerformance();renderJourney();renderSocial();
  applyFocus();
 }
 

@@ -739,6 +739,79 @@ class ServedPageTests(unittest.TestCase):
         # Every one of them has to be called, not merely defined.
         self.assertIn("renderGa4();renderFunnel();", page)
 
+    def test_the_decision_panels_reach_the_browser_and_are_called(self) -> None:
+        """A renderer defined and never called is the regression this catches.
+
+        Asserted on the served bytes rather than on the module for the same
+        reason as the tiering above: every regression this console has had was a
+        name being present in a module while the thing it named never reached a
+        browser.
+        """
+        page = self.text("/ceo")
+
+        for panel in ('id="insights-panel"', 'id="campaign-panel"',
+                      'id="geo-cross-panel"', 'id="pages-performance-panel"'):
+            self.assertIn(panel, page, panel)
+        for renderer in ("function renderInsights(", "function renderCampaigns(",
+                         "function renderGeoCross(", "function renderPagePerformance(",
+                         "function panelFindings(", "function findingHtml("):
+            self.assertIn(renderer, page, renderer)
+        self.assertIn(
+            "renderInsights();renderSources();renderCampaigns();renderPlaces();renderGeoCross();",
+            page,
+        )
+        self.assertIn("renderDevices();renderPagePerformance();renderJourney();", page)
+
+    def test_the_tab_opens_on_what_to_do_rather_than_on_a_number(self) -> None:
+        """The heading order is the argument this tab makes.
+
+        Evidence below a conclusion is a report; a conclusion below evidence is
+        a footnote to it. The summary therefore sits under the range toolbar and
+        above the first table, and the ordering is asserted on the served
+        document because nothing else enforces it.
+        """
+        page = self.text("/ceo")
+        panel = page.split('id="panel-analytics"', 1)[1].split("</section>", 1)[0]
+
+        self.assertLess(
+            panel.index("What happened, why, and what to do"),
+            panel.index("What people searched for"),
+        )
+        self.assertIn("Which pages earn the traffic", panel)
+        self.assertIn("How each country found us", panel)
+        self.assertIn("How the posts we sent performed", panel)
+
+    def test_every_panel_that_has_a_rule_behind_it_carries_its_own_finding(self) -> None:
+        """Decision-shaped means the action sits with the chart, not above it.
+
+        `panelFindings` filters the one server-built list by panel, so a rule
+        added later appears under its table without another renderer.
+        """
+        page = self.text("/ceo")
+
+        for call in ("panelFindings('places')", "panelFindings('sources')",
+                     "panelFindings('devices')", "panelFindings('pages')",
+                     "panelFindings('campaigns')"):
+            self.assertIn(call, page, call)
+
+    def test_a_finding_with_no_action_does_not_render_one(self) -> None:
+        """Below MIN_SAMPLE the server sends no action at all.
+
+        The caveat takes the space the recommendation would have occupied, so a
+        thing to watch cannot be read as a thing to do.
+        """
+        page = self.text("/ceo")
+
+        self.assertIn("insight-hold", page)
+        self.assertIn("Too small a sample to act on.", page)
+
+    def test_the_unmeasurable_campaign_columns_say_so_rather_than_showing_zero(self) -> None:
+        """A zero in an impressions column reads as a post that reached nobody."""
+        page = self.text("/ceo")
+
+        self.assertIn('<td class="n absent">not measured</td>', page)
+        self.assertIn("td.n.absent{", page, "the column needs a style that is not a number")
+
     def test_the_three_removed_analytics_sections_are_gone_from_the_wire(self) -> None:
         """Removed means absent from the bytes, not hidden by a style rule.
 
@@ -753,6 +826,8 @@ class ServedPageTests(unittest.TestCase):
             "Worth writing about next", 'id="opportunity-list"', 'id="opportunities-pager"',
             "function renderOpportunities(",
             # Which pages were read
+            # The panel that replaced this one is deliberately named differently,
+            # so this tripwire keeps working rather than being relaxed.
             "Which pages were read", 'id="ga4-pages-panel"', "function renderGa4Pages(",
             # Which website do you want to replicate?
             "Which website do you want to replicate?", 'id="competitor-panel"',
