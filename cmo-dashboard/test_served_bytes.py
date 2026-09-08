@@ -674,7 +674,8 @@ class ServedPageTests(unittest.TestCase):
         # The shell.
         self.assertIn('<section id="panel-social" class="screen paper" hidden>', page)
         for anchor in ('id="social-list"', 'id="social-search"', 'id="social-filter"',
-                       'id="social-pager"', 'id="buffer-state"', 'data-badge="social"'):
+                       'id="social-pager"', 'id="buffer-state"', 'data-badge="social"',
+                       'id="social-expand"'):
             self.assertIn(anchor, page, anchor)
 
         # The renderer, and the three actions, wired to their routes.
@@ -686,13 +687,45 @@ class ServedPageTests(unittest.TestCase):
         for handler in ("if(data.socialGenerate)generateSocial(data.socialGenerate);",
                         "if(data.draftSave)saveSocialDraft(data.draftSave);",
                         "if(data.socialPrepare)prepareSocial(data.socialPrepare);",
-                        "if(data.socialSend)sendSocial(data.socialSend);"):
+                        "if(data.socialSend)sendSocial(data.socialSend);",
+                        "if(data.socialOpen)toggleSocial(data.socialOpen);",
+                        "if(data.socialExpand)expandSocial(data.socialExpand==='open');"):
             self.assertIn(handler, page, handler)
 
         # Sending goes through the one busy mechanism, like every other slow action.
         send = page.split("async function sendSocial(", 1)[1].split("\n}", 1)[0]
         self.assertIn("runAction(", send)
         self.assertIn("await refresh();", send)
+
+    def test_the_served_console_ships_the_expandable_row_and_its_styles(self) -> None:
+        """Markup, renderer and stylesheet are three files that can ship apart.
+
+        A grid whose CSS never shipped renders as four stacked divs, and every
+        row on the tab looks broken while every test on the renderer passes.
+        """
+        page = self.text("/ceo")
+
+        for rule in (".social-head{display:grid", ".social-toggle{grid-column:1 / span 2",
+                     ".social-marks{grid-column:3", ".social-body{",
+                     ".social-card.is-open .social-toggle .chev{"):
+            self.assertIn(rule, page, rule)
+        # The disclosure is a real one: state, a labelled control, and the body
+        # it names.
+        self.assertIn('aria-expanded="${open}"', page)
+        self.assertIn('aria-controls="social-body-', page)
+        self.assertIn('id="social-body-', page)
+        # And the card opens from persisted list state, not from the DOM -- a
+        # disclosure held in the DOM snaps shut on the next background repaint.
+        self.assertIn("open:[]", page)
+        self.assertIn("function socialOpen(", page)
+
+    def test_the_served_console_ships_numbered_pagination(self) -> None:
+        page = self.text("/ceo")
+
+        self.assertIn("function pageNumbers(", page)
+        self.assertIn('class="pager-numbers"', page)
+        self.assertIn(".page-number.is-current{", page)
+        self.assertIn('aria-current="page"', page)
 
     def test_the_send_button_is_never_the_first_press(self) -> None:
         """Posting to three networks is outward-facing, so the console shows the

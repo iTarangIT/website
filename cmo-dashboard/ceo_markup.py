@@ -161,10 +161,11 @@ BODY = '''<main id="app">
 
 <section id="panel-social" class="screen paper" hidden>
 <div class="section-head"><div><h2>Social</h2><p class="meta">Published articles, and the copy that promotes them on LinkedIn, X and Instagram. Approving here queues the post in Buffer, which publishes it in your own posting slots.</p></div><span id="buffer-state" class="meta"></span></div>
-<p class="meta">Only an article a reader can already open appears here. A social post is a link, and a link to something unpublished is a 404 for everyone who taps it.</p>
+<p class="meta">Every article the site publishes is here, newest first — read from <code>src/data/blog-posts.ts</code> and the pages beside it, not from the cards that wrote them. A row says whether a reader can open it today: a social post is a link, and a link to something unmerged is a 404 for everyone who taps it, so those are listed and refused rather than hidden. Open a row to read and edit its LinkedIn, X and Instagram copy.</p>
 <div class="toolbar">
 <label class="field search"><span class="visually-hidden">Search published articles</span><input id="social-search" type="search" placeholder="Search published articles" autocomplete="off"></label>
 <div class="chip-group"><span class="label">Show</span><div class="chips" id="social-filter"></div></div>
+<button id="social-expand" class="ghost small" type="button" data-social-expand="open" hidden>Expand all</button>
 <span class="count" id="social-count"></span>
 </div>
 <div id="social-pending" class="rows" aria-live="polite" hidden></div>

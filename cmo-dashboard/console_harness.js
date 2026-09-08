@@ -152,7 +152,7 @@ const globals = {
 Object.assign(globalThis, globals);
 
 const source = fs.readFileSync(scriptPath, 'utf8')
-  + '\n;globalThis.__console={renderAll,renderDetail,detailRead,editorHtml,figure,page,showView,'
+  + '\n;globalThis.__console={renderAll,renderDetail,detailRead,editorHtml,figure,page,pageNumbers,showView,'
   + 'get state(){return state},set state(value){state=value},get ui(){return ui},'
   + 'set editing(value){editing=value},set editorText(value){editorText=value},'
   + 'set openTask(value){openTask=value},setUi};';
@@ -207,6 +207,17 @@ setTimeout(() => {
     social: html('social-list'),
     socialCount: byId('social-count').textContent,
     socialFilter: html('social-filter'),
+    socialPager: html('social-pager'),
+    socialExpand: byId('social-expand').textContent + (byId('social-expand').hidden ? ' (hidden)' : ''),
+    // The pager's windowing is the one piece of real logic in pagination, and it
+    // only shows itself on a list longer than any fixture here. Executed rather
+    // than eyeballed.
+    pageWindows: {
+      short: api.pageNumbers(1, 3),
+      start: api.pageNumbers(2, 12),
+      middle: api.pageNumbers(6, 12),
+      end: api.pageNumbers(12, 12),
+    },
     bufferState: byId('buffer-state').textContent,
     queued: html('queued-list'),
     read: readHtml,

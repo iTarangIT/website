@@ -250,6 +250,13 @@ font-size:var(--f-sm)}
 .pager{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;
 padding-top:10px;border-top:1px solid var(--line-soft)}
 .pager-count{color:var(--muted);font-size:var(--f-sm)}
+.pager-numbers{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
+.page-number{min-width:30px;min-height:30px;padding:0 7px;border:1px solid var(--line);
+border-radius:var(--radius-xs);background:#fff;color:var(--ink);cursor:pointer;
+font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:var(--f-sm);line-height:1}
+.page-number:hover{border-color:var(--ink);}
+.page-number.is-current{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700}
+.pager-gap{color:var(--faint);padding:0 2px;font-size:var(--f-sm)}
 .pager .spacer{margin-left:auto}
 .pager select{width:auto;margin-top:0;padding:5px 8px;font-size:var(--f-sm)}
 .pager label{display:flex;align-items:center;gap:6px;font-size:var(--f-sm)}
@@ -527,12 +534,57 @@ tr.is-intent td.subject{font-weight:700;color:var(--green-deep)}
 
 .source-examples{color:var(--faint);font-size:var(--f-xs);font-family:var(--mono)}
 
+/* ---- social article rows -------------------------------------------------- */
+/* One grid per row, so that titles of wildly different lengths still leave the
+   platform marks and the two figures on the same vertical lines down the whole
+   list. Four columns: the chevron, the title, the marks, the figures -- and the
+   meta line starts under the title rather than under the chevron, because a
+   caption indented differently from the thing it captions reads as a mistake. */
+.social-card{padding:0}
+.social-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;
+align-items:center;column-gap:var(--pad);row-gap:1px;padding:var(--pad-tight) var(--pad)}
+/* The toggle is a real button box spanning the chevron and title columns, not a
+   `display:contents` wrapper. Contents-display drops the button's box, and with
+   it the hit area and -- in more than one shipping browser -- its button
+   semantics for a screen reader. The link to the article stays outside it: an
+   anchor inside a button is neither valid nor reliable, and the press would
+   toggle the card instead of opening the article. */
+.social-toggle{grid-column:1 / span 2;grid-row:1;display:flex;align-items:center;gap:10px;
+width:100%;min-height:34px;background:transparent;border:0;padding:0;margin:0;
+font:inherit;color:inherit;text-align:left;cursor:pointer}
+.social-toggle .chev{flex:0 0 12px;color:var(--faint);font-size:16px;line-height:1;
+text-align:center;transition:transform .16s ease;transform:rotate(0deg)}
+.social-card.is-open .social-toggle .chev{transform:rotate(90deg);color:var(--ink)}
+.social-title{flex:1 1 auto;min-width:0;font-size:var(--f-md);font-weight:700;
+letter-spacing:-.005em;line-height:1.35;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.social-toggle:hover .social-title{text-decoration:underline;
+text-decoration-color:var(--line);text-underline-offset:3px}
+/* The meta line starts under the title rather than under the chevron: a caption
+   indented differently from the thing it captions reads as a mistake. */
+.social-meta{grid-column:2 / -1;grid-row:2;min-width:0;padding-left:22px;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.social-head .card-figures{grid-column:4;grid-row:1;align-self:center}
+
+/* The three platforms on a collapsed row. Grey is nothing written, ink is a
+   draft waiting on him, green is in Buffer, red was refused -- so "is there
+   anything to do here" is answered without opening anything. */
+.social-marks{grid-column:3;grid-row:1;align-self:center;display:flex;gap:5px;flex:0 0 auto}
+.social-marks .mark{display:inline-flex}
+.social-marks .mark.is-none{opacity:.28;filter:grayscale(1)}
+.social-marks .mark.is-draft{opacity:1}
+.social-marks .mark.is-queued{box-shadow:0 0 0 2px var(--green-soft);border-radius:var(--radius-xs)}
+.social-marks .mark.is-failed{box-shadow:0 0 0 2px var(--red-soft);border-radius:var(--radius-xs)}
+
+.social-body{padding:0 var(--pad) var(--pad-tight);border-top:1px solid var(--line-soft)}
+.social-card .row-error{margin:0 var(--pad) var(--pad-tight)}
+
 /* ---- social drafts ------------------------------------------------------- */
 /* A draft is a card inside a card: it carries its own status pill, its own
    error strip and its own textarea, because the three platforms fail
    independently and a shared error line would say the wrong thing about two of
    them. Spacing and borders are the `.inline-form` grammar, not a new one. */
-.drafts{display:flex;flex-direction:column;gap:10px;margin-top:11px}
+.drafts{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .draft{border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;
 padding:11px 13px}
 .draft.is-queued{border-color:#cfe0d6;background:var(--green-soft)}
@@ -595,6 +647,13 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{flex:0 0 auto;min-height:40px;padding:8px 13px}
 .small{min-height:40px;padding:8px 12px}
 .card-row{display:block}
+.social-head{grid-template-columns:auto minmax(0,1fr);row-gap:6px}
+.social-title{white-space:normal}
+.social-meta{white-space:normal;grid-column:1 / -1}
+.social-toggle{grid-column:1 / span 2;grid-row:1}
+.social-marks{grid-column:1 / -1;grid-row:3;padding-left:22px}
+.social-head .card-figures{grid-column:1 / -1;grid-row:4;text-align:left;
+padding-left:22px;margin-top:2px}
 .card-figures{margin-top:9px;gap:18px;text-align:left}
 .card .actions button{flex:1 1 auto;min-width:calc(50% - 4px)}
 .tiles,.tiles.six,.tiles.four{grid-template-columns:1fr 1fr;gap:8px}

@@ -472,6 +472,7 @@ class ConsoleRenders(unittest.TestCase):
     def test_twenty_eight_proposals_render_one_page_of_ten(self) -> None:
         self.assertEqual(self.out["proposals"].count('class="card"'), 10)
         self.assertIn("1–10 of 28 candidates", self.out["topicsPager"])
+        self.assertIn('data-page="topics:2"', self.out["topicsPager"])
         self.assertIn("28 candidates", self.out["topicsCount"])
 
     def test_thirty_three_blogs_render_one_page_of_ten(self) -> None:
@@ -673,6 +674,20 @@ class ConsoleRenders(unittest.TestCase):
             self.assertTrue(request.startswith("/"), f"{request} leaves this host")
 
 
+def _opened(count: int = 2, **social) -> dict:
+    """Console UI state with the article cards expanded.
+
+    The cards collapse by default -- eleven articles times three textareas is a
+    wall nobody scrolls. Every assertion about a *draft* therefore has to open
+    the card first, exactly as a human does.
+    """
+    return {"social": {
+        "page": 1, "size": 10, "search": "", "filter": "all",
+        "open": [f"blog:published-article-{index}" for index in range(count)],
+        **social,
+    }}
+
+
 class SocialTabRenders(unittest.TestCase):
     """The Social tab, executed rather than grepped.
 
@@ -687,7 +702,7 @@ class SocialTabRenders(unittest.TestCase):
         return ConsoleRenders.run_console(fixture)
 
     def test_each_published_article_becomes_a_card_with_three_drafts(self):
-        report = self.render(_fixture())
+        report = self.render(_fixture(ui=_opened()))
         html = report["social"]
 
         self.assertIn("Published article 0", html)
@@ -698,30 +713,34 @@ class SocialTabRenders(unittest.TestCase):
     def test_a_thread_is_edited_as_one_box_with_a_separator(self):
         """One box per item would be a nicer form and a worse edit: reordering is
         the commonest change, and moving a line beats dragging boxes."""
-        html = self.render(_fixture())["social"]
+        html = self.render(_fixture(ui=_opened()))["social"]
         self.assertIn("first post\n---\nsecond post", html)
         self.assertIn("Separate thread posts with a line containing only ---", html)
 
     def test_every_draft_carries_a_live_character_count_against_its_own_limit(self):
-        html = self.render(_fixture())["social"]
+        html = self.render(_fixture(ui=_opened()))["social"]
         self.assertIn("/ 3,000", html, "LinkedIn's limit")
         self.assertIn("/ 280", html, "X's limit")
         self.assertIn("/ 2,200", html, "Instagram's limit")
 
     def test_the_send_button_appears_only_after_a_plan_is_prepared(self):
-        html = self.render(_fixture())["social"]
+        html = self.render(_fixture(ui=_opened()))["social"]
         self.assertIn("data-social-prepare=", html)
         self.assertNotIn("data-social-send=", html)
 
     def test_a_queued_post_is_read_only_and_says_where_to_edit_it(self):
-        html = self.render(_fixture(social=_social(articles=1, queued=True)))["social"]
+        html = self.render(
+            _fixture(social=_social(articles=1, queued=True), ui=_opened(1))
+        )["social"]
         self.assertIn("queued in Buffer", html)
         self.assertIn("Edit it in Buffer, not here.", html)
         self.assertNotIn("data-draft-body=", html)
         self.assertNotIn("data-social-prepare=", html, "nothing is left to send")
 
     def test_an_article_with_no_copy_offers_to_write_it_and_nothing_else(self):
-        html = self.render(_fixture(social=_social(articles=1, drafts=False)))["social"]
+        html = self.render(
+            _fixture(social=_social(articles=1, drafts=False), ui=_opened(1))
+        )["social"]
         self.assertIn("no copy written yet", html)
         self.assertIn("data-social-generate=", html)
         self.assertNotIn("data-social-prepare=", html)
@@ -759,7 +778,7 @@ class SocialTabRenders(unittest.TestCase):
         """
         fixture = _social(articles=1)
         fixture["articles"][0]["listed"] = False
-        html = self.render(_fixture(social=fixture))["social"]
+        html = self.render(_fixture(social=fixture, ui=_opened(1)))["social"]
         self.assertIn("not linked from /blog", html)
         self.assertIn("data-social-generate=", html, "still promotable")
 
@@ -775,10 +794,108 @@ class SocialTabRenders(unittest.TestCase):
         report = self.render(_fixture(social={"connected": False, "counts": {}, "articles": []}))
         self.assertIn("BUFFER_ACCESS_TOKEN", report["bufferState"])
 
+    def test_a_card_is_closed_until_it_is_opened_and_says_so_to_a_reader(self):
+        """Eleven articles times three textareas is a wall nobody scrolls."""
+        html = self.render(_fixture())["social"]
+
+        self.assertIn('aria-expanded="false"', html)
+        self.assertNotIn("data-draft-body=", html, "no editor on a closed card")
+        self.assertNotIn("data-social-generate=", html, "no actions on a closed card")
+        self.assertIn("Show the LinkedIn, X and Instagram copy", html)
+
+    def test_opening_a_card_reveals_that_article_and_no_other(self):
+        html = self.render(_fixture(ui=_opened(1)))["social"]
+
+        opened, closed = html.split('data-key="social-blog:published-article-1"')
+        self.assertIn("data-draft-body=", opened, "the opened article has its editors")
+        self.assertNotIn("data-draft-body=", closed, "the other article is untouched")
+        self.assertEqual(html.count('aria-expanded="true"'), 1)
+
+    def test_a_closed_card_still_says_where_all_three_platforms_stand(self):
+        """The point of the collapsed row: answer "anything to do here?" unopened."""
+        fixture = _social(articles=1)
+        fixture["articles"][0]["drafts"][1]["status"] = "queued"
+        fixture["articles"][0]["drafts"][2]["status"] = "failed"
+        html = self.render(_fixture(social=fixture))["social"]
+
+        self.assertIn('class="mark is-draft" title="LinkedIn: draft ready"', html)
+        self.assertIn('class="mark is-queued" title="X: queued in Buffer"', html)
+        self.assertIn('class="mark is-failed" title="Instagram: refused"', html)
+
+    def test_an_article_with_no_copy_marks_all_three_platforms_empty(self):
+        html = self.render(_fixture(social=_social(articles=1, drafts=False)))["social"]
+        self.assertEqual(html.count('class="mark is-none"'), 3)
+
+    def test_the_body_is_the_element_the_toggle_says_it_controls(self):
+        """A disclosure whose aria-controls points at nothing is a broken promise."""
+        html = self.render(_fixture(ui=_opened(1)))["social"]
+        self.assertIn('aria-controls="social-body-blog:published-article-0"', html)
+        self.assertIn('id="social-body-blog:published-article-0"', html)
+
+    def test_more_articles_than_a_page_are_paged_and_never_truncated(self):
+        """Eleven published articles, ten to a page, and page two is one press away."""
+        out = self.render(_fixture(social=_social(articles=11)))
+
+        self.assertEqual(out["socialCount"], "11 of 11")
+        self.assertEqual(out["social"].count('data-key="social-'), 10)
+        self.assertIn("1–10 of 11 articles", out["socialPager"])
+        self.assertIn('data-page="social:2"', out["socialPager"])
+
+    def test_the_expand_all_control_says_which_way_it_will_go(self):
+        closed = self.render(_fixture(social=_social(articles=2)))
+        self.assertEqual(closed["socialExpand"], "Expand all")
+
+        opened = self.render(_fixture(social=_social(articles=2), ui=_opened(2)))
+        self.assertEqual(opened["socialExpand"], "Collapse all")
+
+    def test_expand_all_answers_only_for_the_page_he_is_looking_at(self):
+        """Opening forty rows on eleven other pages is a different button."""
+        ui = _opened(10, size=10)
+        out = self.render(_fixture(social=_social(articles=11), ui=ui))
+        self.assertEqual(out["socialExpand"], "Collapse all", "every row on page one")
+
     def test_the_filter_chips_count_what_is_in_each_state(self):
         html = self.render(_fixture())["socialFilter"]
         for label in ("All", "Live on the site", "No copy yet", "Ready to send", "Queued", "Refused"):
             self.assertIn(f">{label}<", html)
+
+
+@unittest.skipUnless(NODE, "node is required to execute the console script")
+class ThePagerRenders(unittest.TestCase):
+    """Numbered pages, in the one pager every list on the console shares."""
+
+    maxDiff = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.out = ConsoleRenders.run_console(_fixture())
+
+    def test_every_page_is_one_press_away_on_a_short_list(self):
+        self.assertEqual(self.out["pageWindows"]["short"], [1, 2, 3])
+
+    def test_a_long_list_keeps_the_first_and_last_page_and_elides_the_middle(self):
+        """Forty pages of buttons is not pagination, it is the list again."""
+        self.assertEqual(
+            self.out["pageWindows"]["middle"], [1, "gap", 5, 6, 7, "gap", 12]
+        )
+
+    def test_the_window_never_leaves_a_gap_standing_in_for_one_page(self):
+        """`1 … 3 4` hides page 2 behind an ellipsis that is longer than the number."""
+        for name in ("start", "middle", "end"):
+            slots = self.out["pageWindows"][name]
+            numbers = [slot for slot in slots if slot != "gap"]
+            for index, slot in enumerate(slots):
+                if slot != "gap":
+                    continue
+                before, after = slots[index - 1], slots[index + 1]
+                self.assertGreater(after - before, 2, f"{name}: {slots}")
+            self.assertEqual(numbers, sorted(set(numbers)), f"{name}: {slots}")
+
+    def test_the_current_page_is_marked_for_a_reader_and_a_screen_reader(self):
+        html = self.out["topicsPager"]
+        self.assertIn('class="page-number is-current"', html)
+        self.assertIn('aria-current="page"', html)
+        self.assertIn('aria-label="Page 2"', html)
 
 
 @unittest.skipUnless(NODE, "node is required to execute the console script")

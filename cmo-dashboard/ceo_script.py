@@ -54,7 +54,10 @@ const UI_DEFAULTS={
  topics:{page:1,size:10,search:'',filter:'all'},
  blogs:{page:1,size:10,search:'',filter:'all'},
  archived:{page:1,size:10,search:'',filter:'all'},
- social:{page:1,size:10,search:'',filter:'all'},
+ /* `open` is which article cards are expanded. It lives here rather than in
+    the DOM because `patchRows` rebuilds a row whose markup changed, and a
+    disclosure held only in the DOM snaps shut on the next background repaint. */
+ social:{page:1,size:10,search:'',filter:'all',open:[]},
  trends:{page:1,size:10},
  queries:{page:1,size:25,sort:'impressions',dir:'desc'},
  pages:{page:1,size:25,sort:'impressions',dir:'desc'},
@@ -347,14 +350,35 @@ function page(items,key){
  const current=Math.min(Math.max(1,Number(config.page)||1),pages);
  return {items:items.slice((current-1)*size,current*size),total,pages,current,size};
 }
+/* Which page numbers to draw: the first, the last, and a window around where he
+   is. Ellipses stand in for the rest, so a forty-page list is still one row of
+   buttons and page 1 is always one press away. */
+function pageNumbers(current,pages){
+ if(pages<=7)return Array.from({length:pages},(_,index)=>index+1);
+ const window=new Set([1,pages,current,current-1,current+1]);
+ if(current<=3)for(const n of [2,3,4])window.add(n);
+ if(current>=pages-2)for(const n of [pages-3,pages-2,pages-1])window.add(n);
+ const kept=[...window].filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b);
+ const slots=[];
+ kept.forEach((number,index)=>{
+  if(index&&number-kept[index-1]>1)slots.push('gap');
+  slots.push(number);
+ });
+ return slots;
+}
 function renderPager(id,key,view,noun){
  const node=$(id);if(!node)return;
  if(view.total<=view.size&&view.current===1){setHtml(node,'');return;}
  const first=(view.current-1)*view.size+1;
  const last=Math.min(view.total,view.current*view.size);
+ const numbers=pageNumbers(view.current,view.pages).map(slot=>slot==='gap'
+  ?'<span class="pager-gap" aria-hidden="true">…</span>'
+  :`<button class="page-number${slot===view.current?' is-current':''}" data-page="${key}:${slot}" type="button"
+${slot===view.current?'aria-current="page"':''} aria-label="Page ${slot}">${grouped.format(slot)}</button>`).join('');
  setHtml(node,`<button class="ghost small" data-page="${key}:${view.current-1}" type="button" ${view.current<=1?'disabled':''}>‹ Previous</button>
-<span class="pager-count">${first}–${last} of ${grouped.format(view.total)} ${esc(noun)}</span>
+<span class="pager-numbers">${numbers}</span>
 <button class="ghost small" data-page="${key}:${view.current+1}" type="button" ${view.current>=view.pages?'disabled':''}>Next ›</button>
+<span class="pager-count">${first}–${last} of ${grouped.format(view.total)} ${esc(noun)}</span>
 <span class="spacer"></span>
 <label>Per page <select data-size="${key}">${[10,25,50].map(size=>`<option value="${size}" ${size===view.size?'selected':''}>${size}</option>`).join('')}</select></label>`);
 }
@@ -1704,11 +1728,25 @@ data-draft="${esc(article.task_id)}:${esc(platform)}">${head}
 ${draft.error?`<p class="draft-note">${esc(draft.error)}</p>`:''}
 ${tail}</div>`;
 }
+/* The three platforms, at a glance, on a collapsed row. The point of a summary
+   mark is that it answers "is there anything to do here" without opening
+   anything: grey is nothing written, ink is a draft waiting, green is in
+   Buffer, red was refused. */
+function platformMark(platform,draft){
+ const meta=PLATFORMS.find(item=>item.key===platform);
+ const status=!draft?'none':draft.status==='queued'?'queued':draft.status==='failed'?'failed':'draft';
+ const words={none:'no copy yet',draft:'draft ready',queued:'queued in Buffer',failed:'refused'};
+ return `<span class="mark is-${status}" title="${esc(meta.label)}: ${esc(words[status])}">
+<span class="draft-mark ${esc(platform)}" aria-hidden="true">${esc(meta.mark)}</span>
+<span class="visually-hidden">${esc(meta.label)}: ${esc(words[status])}</span></span>`;
+}
+function socialOpen(key){return (ui.social.open||[]).includes(key);}
 function socialCard(article){
  const drafts={};
  for(const draft of article.drafts||[])drafts[draft.platform]=draft;
  const written=Object.keys(drafts).length;
  const queued=(article.drafts||[]).filter(draft=>draft.status==='queued').length;
+ const open=socialOpen(article.task_id);
  /* What is left to send. A card whose three posts are all in Buffer has nothing
     to prepare, and offering it anyway is a button that can only ever fail. A
     refused draft still counts: retrying it is exactly what the button is for. */
@@ -1732,35 +1770,64 @@ ${(plan.notes||[]).map(note=>`<p class="meta">${esc(note)}</p>`).join('')}
   :article.state?pill('in_preview',article.state):'';
  const unlisted=article.listed===false
   ?` ${pill('held','not linked from /blog')}`:'';
- return `<article class="card" role="listitem" data-key="social-${esc(article.task_id)}" data-row="social-${esc(article.task_id)}">
-<div class="card-row"><div class="card-main">
-<h3>${esc(article.title||article.slug||article.task_id)}</h3>
-<p class="meta">${live}${unlisted}${article.date?` · ${esc(article.date)}`:''}${article.url?` · <a href="${esc(article.url)}" target="_blank" rel="noopener">${esc(String(article.url).replace(/^https?:\/\//,''))}</a>`:''}</p>
-</div><div class="card-figures">
-<span><span class="stat">${grouped.format(queued)}</span><span class="label">queued</span></span>
-<span><span class="stat">${grouped.format(written)}</span><span class="label">drafts</span></span>
-</div></div>
+ /* Head, meta and body sit in one grid so that titles of wildly different
+    lengths still line their marks and figures up down the column. The link is
+    outside the toggle on purpose: an anchor inside a button is neither a valid
+    control nor a reliable one -- the press would toggle the card instead of
+    opening the article. */
+ const body=`<div class="social-body" id="social-body-${esc(article.task_id)}">
 <div class="drafts">${PLATFORMS.map(meta=>draftBlock(article,meta.key,drafts[meta.key])).join('')}</div>
 ${planned}
 <div class="send-bar">
 <button class="ghost" data-social-generate="${esc(article.task_id)}" type="button">${written?'Rewrite the copy':'Write the copy'}</button>
 ${pending&&!plan?`<button data-social-prepare="${esc(article.task_id)}" type="button">Prepare send</button>`:''}
 <span class="meta">${queued===3?'Every platform has been queued.':'Nothing is sent until you approve it.'}</span>
+</div></div>`;
+ return `<article class="card social-card${open?' is-open':''}" role="listitem"
+data-key="social-${esc(article.task_id)}" data-row="social-${esc(article.task_id)}">
+<div class="social-head">
+<button class="social-toggle" data-social-open="${esc(article.task_id)}" type="button"
+aria-expanded="${open}" aria-controls="social-body-${esc(article.task_id)}">
+<span class="chev" aria-hidden="true">›</span>
+<span class="social-title">${esc(article.title||article.slug||article.task_id)}</span>
+<span class="visually-hidden">${open?'Hide':'Show'} the LinkedIn, X and Instagram copy</span>
+</button>
+<div class="social-marks">${PLATFORMS.map(meta=>platformMark(meta.key,drafts[meta.key])).join('')}</div>
+<div class="card-figures">
+<span><span class="stat">${grouped.format(queued)}</span><span class="label">queued</span></span>
+<span><span class="stat">${grouped.format(written)}</span><span class="label">drafts</span></span>
 </div>
+<p class="meta social-meta">${live}${unlisted}${article.date?` · ${esc(article.date)}`:''}${article.url?` · <a href="${esc(article.url)}" target="_blank" rel="noopener">${esc(String(article.url).replace(/^https?:\/\//,''))}</a>`:''}</p>
+</div>
+${open?body:''}
 <p class="row-error" data-card-error hidden></p></article>`;
+}
+/* Where an article's copy has got to, in one word. Shared by the filter chips,
+   the badge and the expand-all control, because three answers to one question is
+   how a count stops agreeing with the list under it. */
+function socialStatus(article){
+ const drafts=article.drafts||[];
+ if(!drafts.length)return 'none';
+ if(drafts.some(draft=>draft.status==='failed'))return 'failed';
+ if(drafts.every(draft=>draft.status==='queued'))return 'queued';
+ return 'ready';
+}
+/* The rows the current search and filter leave standing, before paging. */
+function socialMatched(){
+ const search=(ui.social.search||'').trim().toLowerCase();
+ const filter=ui.social.filter||'all';
+ return socialArticles().filter(article=>{
+  if(filter==='live'){if(!article.live)return false;}
+  else if(filter!=='all'&&socialStatus(article)!==filter)return false;
+  if(!search)return true;
+  return `${article.title} ${article.slug}`.toLowerCase().includes(search);
+ });
 }
 function renderSocial(){
  const social=state.social||{};
  const all=socialArticles();
- const search=(ui.social.search||'').trim().toLowerCase();
  const filter=ui.social.filter||'all';
- const status=article=>{
-  const drafts=article.drafts||[];
-  if(!drafts.length)return 'none';
-  if(drafts.some(draft=>draft.status==='failed'))return 'failed';
-  if(drafts.every(draft=>draft.status==='queued'))return 'queued';
-  return 'ready';
- };
+ const status=socialStatus;
  const counts={all:all.length,live:0,none:0,ready:0,queued:0,failed:0};
  for(const article of all){counts[status(article)]+=1;if(article.live)counts.live+=1;}
  /* "Live" is first because it is the question this tab is opened with: which of
@@ -1775,14 +1842,21 @@ function renderSocial(){
   {value:'queued',label:'Queued',count:counts.queued},
   {value:'failed',label:'Refused',count:counts.failed}
  ],filter,'social-filter');
- const matched=all.filter(article=>{
-  if(filter==='live'){if(!article.live)return false;}
-  else if(filter!=='all'&&status(article)!==filter)return false;
-  if(!search)return true;
-  return `${article.title} ${article.slug}`.toLowerCase().includes(search);
- });
+ const matched=socialMatched();
  const view=page(matched,'social');
  $('#social-count').textContent=`${grouped.format(matched.length)} of ${grouped.format(all.length)}`;
+ /* One control, and it says which way it will go. Whether every card on *this
+    page* is open is the only question it can honestly answer -- "expand all"
+    that silently opened forty rows on eleven other pages would be a different
+    button from the one he pressed. */
+ const keys=view.items.map(article=>article.task_id);
+ const allOpen=keys.length>0&&keys.every(socialOpen);
+ const toggleAll=$('#social-expand');
+ if(toggleAll){
+  toggleAll.hidden=!keys.length;
+  toggleAll.textContent=allOpen?'Collapse all':'Expand all';
+  toggleAll.dataset.socialExpand=allOpen?'close':'open';
+ }
  $('#buffer-state').textContent=social.connected
   ?'Buffer is connected.'
   :'Buffer is not connected — set BUFFER_ACCESS_TOKEN and BUFFER_ORGANIZATION_ID.';
@@ -1816,6 +1890,24 @@ function updateCounter(box){
  const measured=draftLength({platform},box.value);
  node.textContent=`${measured.note}${grouped.format(measured.count)} / ${grouped.format(meta.limit)}`;
  node.classList.toggle('over',measured.count>meta.limit);
+}
+/* Opening a card is list state, not DOM state -- see `UI_DEFAULTS.social.open`.
+   `resetPage` is false because expanding a row on page three must not send him
+   back to page one. */
+function setSocialOpen(keys){
+ setUi('social',{open:[...new Set(keys)]},false);
+}
+function toggleSocial(key){
+ const open=ui.social.open||[];
+ setSocialOpen(open.includes(key)?open.filter(item=>item!==key):[...open,key]);
+ renderSocial();
+}
+function expandSocial(wanted){
+ const shown=page(socialMatched(),'social').items.map(article=>article.task_id);
+ const open=new Set(ui.social.open||[]);
+ for(const key of shown){if(wanted)open.add(key);else open.delete(key);}
+ setSocialOpen([...open]);
+ renderSocial();
 }
 async function generateSocial(taskId){
  if(busy)return;
@@ -2557,6 +2649,8 @@ document.addEventListener('click',event=>{
  if(data.blogPublish)publishBlog(findTask(openTask));
  if(data.recheck)refreshBlogPublish(findTask(openTask));
  if(data.socialFilter){setUi('social',{filter:data.socialFilter});renderSocial();}
+ if(data.socialOpen)toggleSocial(data.socialOpen);
+ if(data.socialExpand)expandSocial(data.socialExpand==='open');
  if(data.socialGenerate)generateSocial(data.socialGenerate);
  if(data.draftSave)saveSocialDraft(data.draftSave);
  if(data.socialPrepare)prepareSocial(data.socialPrepare);
