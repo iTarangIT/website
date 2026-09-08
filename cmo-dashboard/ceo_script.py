@@ -1728,14 +1728,19 @@ data-draft="${esc(article.task_id)}:${esc(platform)}">${head}
 ${draft.error?`<p class="draft-note">${esc(draft.error)}</p>`:''}
 ${tail}</div>`;
 }
-/* The three platforms, at a glance, on a collapsed row. The point of a summary
-   mark is that it answers "is there anything to do here" without opening
-   anything: grey is nothing written, ink is a draft waiting, green is in
-   Buffer, red was refused. */
+/* The platforms that have copy, at a glance, on a collapsed row: ink is a draft
+   waiting, green is in Buffer, red was refused.
+
+   A platform with nothing written draws nothing. It used to draw a greyed-out
+   mark, and three of those on a fresh article read as three things in some
+   state rather than as an absence -- the eye has to stop and decide the grey is
+   not a status before it can move on. The "drafts" figure beside them already
+   counts what exists, so the absent mark is not information going missing. */
 function platformMark(platform,draft){
+ if(!draft)return '';
  const meta=PLATFORMS.find(item=>item.key===platform);
- const status=!draft?'none':draft.status==='queued'?'queued':draft.status==='failed'?'failed':'draft';
- const words={none:'no copy yet',draft:'draft ready',queued:'queued in Buffer',failed:'refused'};
+ const status=draft.status==='queued'?'queued':draft.status==='failed'?'failed':'draft';
+ const words={draft:'draft ready',queued:'queued in Buffer',failed:'refused'};
  return `<span class="mark is-${status}" title="${esc(meta.label)}: ${esc(words[status])}">
 <span class="draft-mark ${esc(platform)}" aria-hidden="true">${esc(meta.mark)}</span>
 <span class="visually-hidden">${esc(meta.label)}: ${esc(words[status])}</span></span>`;

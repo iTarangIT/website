@@ -566,13 +566,13 @@ text-decoration-color:var(--line);text-underline-offset:3px}
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .social-head .card-figures{grid-column:4;grid-row:1;align-self:center}
 
-/* The three platforms on a collapsed row. Grey is nothing written, ink is a
-   draft waiting on him, green is in Buffer, red was refused -- so "is there
-   anything to do here" is answered without opening anything. */
+/* The platforms that have copy, on a collapsed row: ink is a draft waiting on
+   him, green is in Buffer, red was refused -- so "is there anything to do here"
+   is answered without opening anything. A platform with nothing written draws
+   nothing at all, so an empty article is an empty column rather than three grey
+   marks the eye has to rule out. */
 .social-marks{grid-column:3;grid-row:1;align-self:center;display:flex;gap:5px;flex:0 0 auto}
 .social-marks .mark{display:inline-flex}
-.social-marks .mark.is-none{opacity:.28;filter:grayscale(1)}
-.social-marks .mark.is-draft{opacity:1}
 .social-marks .mark.is-queued{box-shadow:0 0 0 2px var(--green-soft);border-radius:var(--radius-xs)}
 .social-marks .mark.is-failed{box-shadow:0 0 0 2px var(--red-soft);border-radius:var(--radius-xs)}
 
