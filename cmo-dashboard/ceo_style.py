@@ -541,7 +541,7 @@ tr.is-intent td.subject{font-weight:700;color:var(--green-deep)}
    meta line starts under the title rather than under the chevron, because a
    caption indented differently from the thing it captions reads as a mistake. */
 .social-card{padding:0}
-.social-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;
+.social-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
 align-items:center;column-gap:var(--pad);row-gap:1px;padding:var(--pad-tight) var(--pad)}
 /* The toggle is a real button box spanning the chevron and title columns, not a
    `display:contents` wrapper. Contents-display drops the button's box, and with
@@ -564,17 +564,7 @@ text-decoration-color:var(--line);text-underline-offset:3px}
    indented differently from the thing it captions reads as a mistake. */
 .social-meta{grid-column:2 / -1;grid-row:2;min-width:0;padding-left:22px;
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.social-head .card-figures{grid-column:4;grid-row:1;align-self:center}
-
-/* The platforms that have copy, on a collapsed row: ink is a draft waiting on
-   him, green is in Buffer, red was refused -- so "is there anything to do here"
-   is answered without opening anything. A platform with nothing written draws
-   nothing at all, so an empty article is an empty column rather than three grey
-   marks the eye has to rule out. */
-.social-marks{grid-column:3;grid-row:1;align-self:center;display:flex;gap:5px;flex:0 0 auto}
-.social-marks .mark{display:inline-flex}
-.social-marks .mark.is-queued{box-shadow:0 0 0 2px var(--green-soft);border-radius:var(--radius-xs)}
-.social-marks .mark.is-failed{box-shadow:0 0 0 2px var(--red-soft);border-radius:var(--radius-xs)}
+.social-head .card-figures{grid-column:3;grid-row:1;align-self:center}
 
 .social-body{padding:0 var(--pad) var(--pad-tight);border-top:1px solid var(--line-soft)}
 .social-card .row-error{margin:0 var(--pad) var(--pad-tight)}
@@ -651,8 +641,7 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .social-title{white-space:normal}
 .social-meta{white-space:normal;grid-column:1 / -1}
 .social-toggle{grid-column:1 / span 2;grid-row:1}
-.social-marks{grid-column:1 / -1;grid-row:3;padding-left:22px}
-.social-head .card-figures{grid-column:1 / -1;grid-row:4;text-align:left;
+.social-head .card-figures{grid-column:1 / -1;grid-row:3;text-align:left;
 padding-left:22px;margin-top:2px}
 .card-figures{margin-top:9px;gap:18px;text-align:left}
 .card .actions button{flex:1 1 auto;min-width:calc(50% - 4px)}

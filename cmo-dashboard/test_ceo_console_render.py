@@ -811,36 +811,34 @@ class SocialTabRenders(unittest.TestCase):
         self.assertNotIn("data-draft-body=", closed, "the other article is untouched")
         self.assertEqual(html.count('aria-expanded="true"'), 1)
 
-    def test_a_closed_card_still_says_where_all_three_platforms_stand(self):
-        """The point of the collapsed row: answer "anything to do here?" unopened."""
+    def test_a_closed_row_carries_no_platform_tiles(self):
+        """A cluster of brand tiles beside a title is decoration to be decoded.
+
+        It was decoded as a status, though a mark said only that a draft existed.
+        The two figures say the same thing in words that need no key.
+        """
         fixture = _social(articles=1)
         fixture["articles"][0]["drafts"][1]["status"] = "queued"
-        fixture["articles"][0]["drafts"][2]["status"] = "failed"
         html = self.render(_fixture(social=fixture))["social"]
 
-        self.assertIn('class="mark is-draft" title="LinkedIn: draft ready"', html)
-        self.assertIn('class="mark is-queued" title="X: queued in Buffer"', html)
-        self.assertIn('class="mark is-failed" title="Instagram: refused"', html)
+        self.assertNotIn("social-marks", html)
+        self.assertNotIn("draft-mark", html, "no brand tile on a closed row")
 
-    def test_an_article_with_no_copy_draws_no_platform_marks_at_all(self):
-        """Three greyed-out marks read as three states, not as an absence.
-
-        The eye has to stop and rule the grey out before it can move on, and the
-        "drafts" figure beside them already counts what exists.
-        """
-        html = self.render(_fixture(social=_social(articles=1, drafts=False)))["social"]
-
-        self.assertNotIn('class="mark', html)
-        self.assertIn('<div class="social-marks"></div>', html, "the column still holds")
-        self.assertIn('<span class="stat">0</span><span class="label">drafts</span>', html)
-
-    def test_a_platform_that_has_copy_still_marks_itself_beside_ones_that_do_not(self):
+    def test_a_closed_row_still_counts_what_is_written_and_what_is_queued(self):
+        """Removing the tiles must not remove the answer they were standing in for."""
         fixture = _social(articles=1)
-        fixture["articles"][0]["drafts"] = [fixture["articles"][0]["drafts"][0]]
+        fixture["articles"][0]["drafts"][1]["status"] = "queued"
         html = self.render(_fixture(social=fixture))["social"]
 
-        self.assertEqual(html.count('class="mark'), 1)
-        self.assertIn('title="LinkedIn: draft ready"', html)
+        self.assertIn('<span class="stat">1</span><span class="label">queued</span>', html)
+        self.assertIn('<span class="stat">3</span><span class="label">drafts</span>', html)
+
+    def test_the_platform_is_named_in_full_once_the_row_is_open(self):
+        """Which textarea is which has to be answerable without decoding a tile."""
+        html = self.render(_fixture(ui=_opened(1)))["social"]
+
+        for label in ("LinkedIn", "X", "Instagram"):
+            self.assertIn(f">{label}</span>", html, label)
 
     def test_the_body_is_the_element_the_toggle_says_it_controls(self):
         """A disclosure whose aria-controls points at nothing is a broken promise."""

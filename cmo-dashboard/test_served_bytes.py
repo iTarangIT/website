@@ -706,7 +706,7 @@ class ServedPageTests(unittest.TestCase):
         page = self.text("/ceo")
 
         for rule in (".social-head{display:grid", ".social-toggle{grid-column:1 / span 2",
-                     ".social-marks{grid-column:3", ".social-body{",
+                     ".social-head .card-figures{grid-column:3", ".social-body{",
                      ".social-card.is-open .social-toggle .chev{"):
             self.assertIn(rule, page, rule)
         # The disclosure is a real one: state, a labelled control, and the body

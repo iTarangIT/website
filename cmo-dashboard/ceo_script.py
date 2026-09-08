@@ -1728,23 +1728,13 @@ data-draft="${esc(article.task_id)}:${esc(platform)}">${head}
 ${draft.error?`<p class="draft-note">${esc(draft.error)}</p>`:''}
 ${tail}</div>`;
 }
-/* The platforms that have copy, at a glance, on a collapsed row: ink is a draft
-   waiting, green is in Buffer, red was refused.
-
-   A platform with nothing written draws nothing. It used to draw a greyed-out
-   mark, and three of those on a fresh article read as three things in some
-   state rather than as an absence -- the eye has to stop and decide the grey is
-   not a status before it can move on. The "drafts" figure beside them already
-   counts what exists, so the absent mark is not information going missing. */
-function platformMark(platform,draft){
- if(!draft)return '';
- const meta=PLATFORMS.find(item=>item.key===platform);
- const status=draft.status==='queued'?'queued':draft.status==='failed'?'failed':'draft';
- const words={draft:'draft ready',queued:'queued in Buffer',failed:'refused'};
- return `<span class="mark is-${status}" title="${esc(meta.label)}: ${esc(words[status])}">
-<span class="draft-mark ${esc(platform)}" aria-hidden="true">${esc(meta.mark)}</span>
-<span class="visually-hidden">${esc(meta.label)}: ${esc(words[status])}</span></span>`;
-}
+/* The collapsed row carries no platform marks. It carried three, then only the
+   ones with copy, and neither read well: a cluster of brand tiles beside a title
+   is decoration that has to be decoded, and it was decoded as a status even
+   though a mark said only that a draft existed. The two figures on the right say
+   the same thing in words that need no key -- `0 queued`, `3 drafts` -- and the
+   platform each piece of copy belongs to is named in full once the row is open,
+   beside the box you edit. */
 function socialOpen(key){return (ui.social.open||[]).includes(key);}
 function socialCard(article){
  const drafts={};
@@ -1797,7 +1787,6 @@ aria-expanded="${open}" aria-controls="social-body-${esc(article.task_id)}">
 <span class="social-title">${esc(article.title||article.slug||article.task_id)}</span>
 <span class="visually-hidden">${open?'Hide':'Show'} the LinkedIn, X and Instagram copy</span>
 </button>
-<div class="social-marks">${PLATFORMS.map(meta=>platformMark(meta.key,drafts[meta.key])).join('')}</div>
 <div class="card-figures">
 <span><span class="stat">${grouped.format(queued)}</span><span class="label">queued</span></span>
 <span><span class="stat">${grouped.format(written)}</span><span class="label">drafts</span></span>
