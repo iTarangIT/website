@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Sequence
 
+import blog_registry
 import ceo_publish
 from ceo_publish import PublicationConflict, PublicationRefused
 from cmo_runtime import social_copy
@@ -128,6 +129,115 @@ def article_is_reachable(url: str, *, opener: Any | None = None) -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class ResolvedArticle:
+    """One article the console can promote, however it came to exist.
+
+    Two things produce an article here and they are not the same shape. A card
+    the writer ran carries an artifact with front matter, topic keywords and a
+    publish fingerprint. An article that was written by hand, or whose card has
+    long since scrolled off the board, carries none of that -- it carries a page
+    in the checkout and an entry in the site's registry.
+
+    Every caller below wants the same five things from either: the slug, the
+    words, whether a reader can open it, what to say when they cannot, and a
+    digest that changes when the article does. This is that, so the rest of the
+    module never asks which kind it got.
+    """
+
+    key: str
+    slug: str
+    title: str
+    markdown: str
+    fingerprint: str
+    published: bool
+    state_label: str
+    keywords: tuple[str, ...] = ()
+    cover_alt: str = ""
+    listed: bool = True
+    task: dict[str, Any] | None = None
+
+
+def _card_for_slug(board: dict[str, Any], profile_dir: Path, slug: str) -> dict[str, Any] | None:
+    """The card that wrote this article, when one did. Absence is normal."""
+    for task in board["tasks"]:
+        if _slug_for(task, profile_dir) == slug:
+            return task
+    return None
+
+
+def _resolve(
+    profile_dir: Path, key: str, *, website_root: Path
+) -> ResolvedArticle | None:
+    """The article a console row stands for, or None when the key names nothing."""
+    import console_board
+
+    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
+    slug = blog_registry.slug_of_key(key)
+
+    if slug:
+        post = blog_registry.find(website_root, slug)
+        if post is None:
+            return None
+        task = _card_for_slug(board, profile_dir, slug)
+        artifact = console_board.artifact_for(task, profile_dir) if task else None
+        # The writer's artifact when there is one -- it carries the audience line
+        # and the meta description the copy is actually better for. The page
+        # itself when there is not, which is every article published by hand.
+        markdown = (
+            artifact.read_text(encoding="utf-8")
+            if artifact is not None
+            else blog_registry.article_markdown(website_root, post)
+        )
+        return ResolvedArticle(
+            key=key,
+            slug=slug,
+            title=post.title,
+            markdown=markdown,
+            fingerprint=blog_registry.fingerprint(website_root, post),
+            published=post.live,
+            state_label="published on the site" if post.live else "not merged to main yet",
+            keywords=tuple(_keywords(task)) if task else (),
+            cover_alt=str(task.get("Cover alt", "") or task.get("cover_alt", "") or "").strip()
+            if task
+            else "",
+            listed=post.listed,
+            task=task,
+        )
+
+    task = next((item for item in board["tasks"] if item["id"] == key), None)
+    if task is None:
+        return None
+    slug = _slug_for(task, profile_dir)
+    state = console_board.blog_state(task)
+    return ResolvedArticle(
+        key=key,
+        slug=slug,
+        title=str(task.get("title", "")).strip(),
+        markdown="",
+        fingerprint=console_board.publish_fingerprint(task, profile_dir) if slug else "",
+        published=state["state"] == "published",
+        state_label=str(state["label"]),
+        keywords=tuple(_keywords(task)),
+        cover_alt=str(task.get("Cover alt", "") or task.get("cover_alt", "") or "").strip(),
+        task=task,
+    )
+
+
+def _article_markdown(profile_dir: Path, article: ResolvedArticle) -> str:
+    """The words the copy is written from, or a refusal naming what is missing."""
+    import console_board
+
+    if article.markdown:
+        return article.markdown
+    attachment = (
+        console_board.artifact_for(article.task, profile_dir) if article.task else None
+    )
+    if attachment is None:
+        raise PublicationRefused("this card has no article to write about")
+    return attachment.read_text(encoding="utf-8")
+
+
 def preflight(
     profile_dir: str | Path,
     task_id: str,
@@ -138,30 +248,26 @@ def preflight(
     opener: Any | None = None,
 ) -> SocialPreflight:
     """Report whether this article may be cross-posted, and why not when it may not."""
-    import console_board
-
     profile_dir = Path(profile_dir)
     website_root = Path(website_root)
-    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
-    task = next((item for item in board["tasks"] if item["id"] == task_id), None)
-    if task is None:
-        return SocialPreflight(task_id, False, [f"no such task: {task_id}"])
+    article = _resolve(profile_dir, task_id, website_root=website_root)
+    if article is None:
+        return SocialPreflight(task_id, False, [f"no such article: {task_id}"])
 
     blockers: list[str] = []
     notes: list[str] = []
 
-    state = console_board.blog_state(task)
-    slug = _slug_for(task, profile_dir)
-    title = str(task.get("title", "")).strip()
+    slug = article.slug
+    title = article.title
     origin = live_origin()
     url = f"{origin}/blog/{slug}" if slug else ""
 
     if not slug:
         blockers.append("this card has no article with a slug")
-    if state["state"] != "published":
+    if not article.published:
         blockers.append(
             "the article is not live yet — a social post is a link, and this one "
-            f"would 404 (the card says: {state['label']})"
+            f"would 404 ({article.state_label})"
         )
     elif check_live and url and not article_is_reachable(url, opener=opener):
         blockers.append(
@@ -205,7 +311,7 @@ def preflight(
     finally:
         database.close()
 
-    fingerprint = console_board.publish_fingerprint(task, profile_dir) if slug else ""
+    fingerprint = article.fingerprint
     connected = {row["platform"]: row for row in channels if row.get("usable")}
     by_platform = {str(row["platform"]): row for row in drafts}
 
@@ -248,6 +354,13 @@ def preflight(
 
     if not drafts:
         notes.append("No copy has been written for this article yet.")
+    if slug and not article.listed:
+        notes.append(
+            "This article has a page but no entry in src/data/blog-posts.ts, so "
+            "/blog and the sitemap do not link it. The URL still answers, so the "
+            "post is fine to send — but the article is easier to find once it is "
+            "back in the registry."
+        )
 
     return SocialPreflight(
         task_id=task_id,
@@ -287,30 +400,24 @@ def generate(
     writer: Any | None = None,
 ) -> dict[str, Any]:
     """Write one draft per platform and store them, replacing any that are not sent."""
-    import console_board
-
     profile_dir = Path(profile_dir)
+    website_root = Path(website_root)
     if not actor.strip():
         raise PublicationRefused("writing social copy requires an authenticated human")
 
-    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
-    task = next((item for item in board["tasks"] if item["id"] == task_id), None)
-    if task is None:
-        raise PublicationRefused(f"no such task: {task_id}")
-    article = console_board.artifact_for(task, profile_dir)
+    article = _resolve(profile_dir, task_id, website_root=website_root)
     if article is None:
-        raise PublicationRefused("this card has no article to write about")
-
-    slug = _slug_for(task, profile_dir)
-    if not slug:
+        raise PublicationRefused(f"no such article: {task_id}")
+    if not article.slug:
         raise PublicationRefused("this article has no slug, so it has no URL to share")
 
-    cover = _cover_path(Path(website_root), slug)
+    slug = article.slug
+    cover = _cover_path(website_root, slug)
     summary = social_copy.summarise_article(
-        article.read_text(encoding="utf-8"),
+        _article_markdown(profile_dir, article),
         url=f"{live_origin()}/blog/{slug}",
-        keywords=_keywords(task),
-        cover_alt=str(task.get("Cover alt", "") or task.get("cover_alt", "") or "").strip(),
+        keywords=list(article.keywords),
+        cover_alt=article.cover_alt,
     )
 
     skill_text = ""
@@ -327,7 +434,7 @@ def generate(
     drafts = social_copy.drafts_for(
         task_id=task_id, summary=summary, skill_text=skill_text, writer=writer
     )
-    fingerprint = console_board.publish_fingerprint(task, profile_dir)
+    fingerprint = article.fingerprint
 
     database = ConsoleDB(profile_dir)
     try:
@@ -362,9 +469,12 @@ def save_draft(
     thread: Sequence[str] = (),
     actor: str,
 ) -> dict[str, Any]:
-    """Store a human's edit of one draft, refusing what a network would reject."""
-    import console_board
+    """Store a human's edit of one draft, refusing what a network would reject.
 
+    Keyed on the row, not on a card: an edit is an edit of copy that already
+    exists, and requiring a card here would refuse a human editing the drafts of
+    an article that was written by hand.
+    """
     profile_dir = Path(profile_dir)
     if not actor.strip():
         raise PublicationRefused("editing social copy requires an authenticated human")
@@ -381,11 +491,6 @@ def save_draft(
         social_copy.validate({platform: draft})
     except social_copy.SocialCopyRefused as error:
         raise PublicationRefused(str(error)) from error
-
-    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
-    task = next((item for item in board["tasks"] if item["id"] == task_id), None)
-    if task is None:
-        raise PublicationRefused(f"no such task: {task_id}")
 
     database = ConsoleDB(profile_dir)
     try:
@@ -582,26 +687,21 @@ def plan_cards(
     Separated from `generate_cards` so the console can show a human exactly what
     would be drawn, and what it would cost, before a rupee is spent on it.
     """
-    import console_board
     from cmo_runtime import social_cards
 
     profile_dir = Path(profile_dir)
-    board = console_board.read_board(profile_dir / "tasks.md", profile_dir)
-    task = next((item for item in board["tasks"] if item["id"] == task_id), None)
-    if task is None:
-        raise PublicationRefused(f"no such task: {task_id}")
-    article = console_board.artifact_for(task, profile_dir)
+    article = _resolve(profile_dir, task_id, website_root=Path(website_root))
     if article is None:
-        raise PublicationRefused("this card has no article to make social cards from")
-    slug = _slug_for(task, profile_dir)
-    if not slug:
+        raise PublicationRefused(f"no such article: {task_id}")
+    if not article.slug:
         raise PublicationRefused("this article has no slug, so its cards have no URL")
 
+    slug = article.slug
     summary = social_copy.summarise_article(
-        article.read_text(encoding="utf-8"),
+        _article_markdown(profile_dir, article),
         url=f"{live_origin()}/blog/{slug}",
-        keywords=_keywords(task),
-        cover_alt=str(task.get("Cover alt", "") or task.get("cover_alt", "") or "").strip(),
+        keywords=list(article.keywords),
+        cover_alt=article.cover_alt,
     )
     try:
         return social_cards.plan_cards(summary), slug

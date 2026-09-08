@@ -129,11 +129,18 @@ def _social(articles: int = 2, *, drafts: bool = True, queued: bool = False) -> 
         "counts": {"draft": 3, "queued": 0, "failed": 0},
         "articles": [
             {
-                "task_id": f"TASK-{800 + index}",
+                # How the console addresses a published article: by its slug, in
+                # the registry, not by a task card that may never have existed.
+                "task_id": f"blog:published-article-{index}",
                 "title": f"Published article {index}",
                 "slug": f"published-article-{index}",
                 "url": f"https://www.itarang.com/blog/published-article-{index}",
-                "drafts": [draft(f"TASK-{800 + index}", platform)
+                "date": f"2026-08-{20 - index:02d}",
+                # The first is on the site, the rest are still on cmo-changes.
+                "live": index == 0,
+                "listed": True,
+                "state": "Live on the site" if index == 0 else "Not merged to main yet",
+                "drafts": [draft(f"blog:published-article-{index}", platform)
                            for platform in ("linkedin", "x", "instagram")] if drafts else [],
             }
             for index in range(articles)
@@ -719,11 +726,50 @@ class SocialTabRenders(unittest.TestCase):
         self.assertIn("data-social-generate=", html)
         self.assertNotIn("data-social-prepare=", html)
 
-    def test_no_live_article_is_an_empty_state_that_explains_the_gate(self):
+    def test_an_empty_list_names_the_registry_rather_than_the_merge_gate(self):
+        """An empty tab now means the checkout could not be read, not "wait for Gate 2".
+
+        The list is the site's own articles. There are nine of them and there has
+        been for months, so "no article is live yet" was never the reason this
+        tab could come back empty -- and it was the sentence a human was given.
+        """
         report = self.render(_fixture(social={"connected": True, "counts": {}, "articles": []}))
         html = report["social"]
-        self.assertIn("No article is live yet", html)
-        self.assertIn("Gate 2", html)
+        self.assertIn("No published articles found", html)
+        self.assertIn("blog-posts.ts", html)
+
+    def test_a_row_names_the_article_and_never_its_storage_key(self):
+        """`blog:the-slug` is how the drafts table addresses a post, not a caption."""
+        html = self.render(_fixture())["social"]
+        self.assertIn("Published article 0", html)
+        self.assertIn("blog/published-article-0", html, "the readable URL")
+        self.assertNotIn(">blog:published-article-0<", html)
+
+    def test_a_live_article_and_an_unmerged_one_are_told_apart_on_the_row(self):
+        """The one thing a human asks of this tab: which of these can I post now."""
+        html = self.render(_fixture())["social"]
+        self.assertIn("live on the site", html)
+        self.assertIn("Not merged to main yet", html)
+
+    def test_an_article_the_registry_forgot_says_so_on_its_row(self):
+        """Commit 430c3c6 dropped four posts whose pages still answer.
+
+        The page is reachable, so the article is promotable; /blog does not link
+        it, so somebody should put it back. Both facts belong on the row.
+        """
+        fixture = _social(articles=1)
+        fixture["articles"][0]["listed"] = False
+        html = self.render(_fixture(social=fixture))["social"]
+        self.assertIn("not linked from /blog", html)
+        self.assertIn("data-social-generate=", html, "still promotable")
+
+    def test_the_live_filter_hides_what_cannot_be_sent_yet(self):
+        html = self.render(_fixture(
+            social=_social(articles=2),
+            ui={"social": {"filter": "live", "page": 1, "size": 10, "search": ""}},
+        ))["social"]
+        self.assertIn("Published article 0", html)
+        self.assertNotIn("Published article 1", html)
 
     def test_the_tab_says_when_buffer_is_not_connected(self):
         report = self.render(_fixture(social={"connected": False, "counts": {}, "articles": []}))
@@ -731,7 +777,7 @@ class SocialTabRenders(unittest.TestCase):
 
     def test_the_filter_chips_count_what_is_in_each_state(self):
         html = self.render(_fixture())["socialFilter"]
-        for label in ("All", "No copy yet", "Ready to send", "Queued", "Refused"):
+        for label in ("All", "Live on the site", "No copy yet", "Ready to send", "Queued", "Refused"):
             self.assertIn(f">{label}<", html)
 
 

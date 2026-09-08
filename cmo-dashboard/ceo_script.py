@@ -1725,10 +1725,17 @@ ${(plan.notes||[]).map(note=>`<p class="meta">${esc(note)}</p>`).join('')}
     and the whole list disappears on the first background repaint. State does not
     belong here: patchRows already compares the markup byte for byte, which is
     what decides whether the row is rebuilt. */
+ /* The row names the article, not the key it is stored under. `blog:<slug>` is
+    how the drafts table addresses a published post and it is not a thing to show
+    a reader -- the slug, the date and whether the URL answers are. */
+ const live=article.live?pill('published','live on the site')
+  :article.state?pill('in_preview',article.state):'';
+ const unlisted=article.listed===false
+  ?` ${pill('held','not linked from /blog')}`:'';
  return `<article class="card" role="listitem" data-key="social-${esc(article.task_id)}" data-row="social-${esc(article.task_id)}">
 <div class="card-row"><div class="card-main">
-<h3>${esc(article.title||article.task_id)}</h3>
-<p class="meta">${esc(article.task_id)}${article.url?` · <a href="${esc(article.url)}" target="_blank" rel="noopener">${esc(String(article.url).replace(/^https?:\/\//,''))}</a>`:''}</p>
+<h3>${esc(article.title||article.slug||article.task_id)}</h3>
+<p class="meta">${live}${unlisted}${article.date?` · ${esc(article.date)}`:''}${article.url?` · <a href="${esc(article.url)}" target="_blank" rel="noopener">${esc(String(article.url).replace(/^https?:\/\//,''))}</a>`:''}</p>
 </div><div class="card-figures">
 <span><span class="stat">${grouped.format(queued)}</span><span class="label">queued</span></span>
 <span><span class="stat">${grouped.format(written)}</span><span class="label">drafts</span></span>
@@ -1754,19 +1761,25 @@ function renderSocial(){
   if(drafts.every(draft=>draft.status==='queued'))return 'queued';
   return 'ready';
  };
- const counts={all:all.length,none:0,ready:0,queued:0,failed:0};
- for(const article of all)counts[status(article)]+=1;
+ const counts={all:all.length,live:0,none:0,ready:0,queued:0,failed:0};
+ for(const article of all){counts[status(article)]+=1;if(article.live)counts.live+=1;}
+ /* "Live" is first because it is the question this tab is opened with: which of
+    our published articles can I promote right now. An article still on
+    cmo-changes is worth writing copy for and cannot be sent, and the send gate
+    says so on the row rather than hiding it from the list. */
  chipRow('#social-filter',[
   {value:'all',label:'All',count:counts.all},
+  {value:'live',label:'Live on the site',count:counts.live},
   {value:'none',label:'No copy yet',count:counts.none},
   {value:'ready',label:'Ready to send',count:counts.ready},
   {value:'queued',label:'Queued',count:counts.queued},
   {value:'failed',label:'Refused',count:counts.failed}
  ],filter,'social-filter');
  const matched=all.filter(article=>{
-  if(filter!=='all'&&status(article)!==filter)return false;
+  if(filter==='live'){if(!article.live)return false;}
+  else if(filter!=='all'&&status(article)!==filter)return false;
   if(!search)return true;
-  return `${article.title} ${article.task_id} ${article.slug}`.toLowerCase().includes(search);
+  return `${article.title} ${article.slug}`.toLowerCase().includes(search);
  });
  const view=page(matched,'social');
  $('#social-count').textContent=`${grouped.format(matched.length)} of ${grouped.format(all.length)}`;
@@ -1778,15 +1791,18 @@ function renderSocial(){
     them, because writing the copy is the outstanding thing. */
  const badge=document.querySelector('[data-badge="social"]');
  if(badge){
-  const waiting=counts.none+counts.ready+counts.failed;
+  /* Only live articles count as work waiting: copy for something still on
+     cmo-changes cannot be sent, so a badge counting it asks for a press that
+     the gate would refuse. */
+  const waiting=all.filter(article=>article.live&&status(article)!=='queued').length;
   badge.hidden=!waiting||currentView==='social';
   badge.textContent=waiting?String(waiting):'';
  }
  patchRows($('#social-list'),view.items.map(article=>({key:`social-${article.task_id}`,html:socialCard(article)})),
-  emptyState(all.length?'Nothing matches that':'No article is live yet',
+  emptyState(all.length?'Nothing matches that':'No published articles found',
    all.length
     ?'Clear the search or choose a different filter.'
-    :'An article appears here once Gate 2 merges it and a reader can open it. Until then a social post would link to a page that is not there.'));
+    :'Every post in src/data/blog-posts.ts, and every article page beside it, is listed here. An empty list means the website checkout could not be read.'));
  renderPager('#social-pager','social',view,'articles');
 }
 /* The live character count, updated as he types. It reads the same limits the

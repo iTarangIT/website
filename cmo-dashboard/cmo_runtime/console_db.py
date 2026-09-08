@@ -1017,6 +1017,24 @@ class ConsoleDB:
             )
         ]
 
+    def crosspost_article_keys(self) -> list[str]:
+        """Every article that has social copy stored against it, newest first.
+
+        The Social tab lists the site's published articles, which is the right
+        list and not the same list: copy written against something that is not a
+        published article -- an older card, a brief -- would simply stop being
+        shown, and a human's edits would be gone from the console with no way
+        back. These keys are added to the tab so nothing written disappears.
+        """
+        return [
+            str(row["task_id"])
+            for row in self._query(
+                "SELECT task_id, MAX(updated_at) AS latest FROM crosspost_drafts"
+                " WHERE task_id <> '' GROUP BY task_id ORDER BY latest DESC",
+                (),
+            )
+        ]
+
     def crosspost_summary(self) -> dict[str, int]:
         """How many drafts sit in each status, for the tab badge."""
         counts = {status: 0 for status in CROSSPOST_STATUSES}

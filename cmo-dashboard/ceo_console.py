@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 import ceo_actions
 import ceo_analytics
 import ceo_insights
+import blog_registry
 import ceo_social
 import console_auth
 import dashboard_server
@@ -290,25 +291,64 @@ def _blog_titles(blogs: list[dict[str, Any]]) -> dict[str, str]:
 def social_payload(blogs: list[dict[str, Any]]) -> dict[str, Any]:
     """What the Social tab renders: one row per published article, with its drafts.
 
+    The list is the *site's* articles, read from `src/data/blog-posts.ts` and the
+    blog pages beside it — not the task cards whose board state says `published`.
+    Those were never the same list. The board carried three cards that are not
+    articles at all (two end-to-end fixtures and a landing-page brief) and none of
+    the nine articles a reader can open, because the two that are live today were
+    written by hand and never had a card, and the rest sit on `cmo-changes` under
+    a card that still reads "in preview". A human looking for a published blog to
+    promote found neither.
+
+    Cards have not stopped mattering — `ceo_social` still reads the writer's
+    artifact and topic keywords through the one that matches a slug. They are
+    just no longer what decides whether an article is on this list.
+
     Read model only. Buffer is not called here — a page load must not depend on
     a third party being up, and the channel list is fetched by the preflight the
     Send button asks for, not by every three-second poll.
     """
     from cmo_runtime.console_db import ConsoleDB
 
-    published = [blog for blog in blogs if (blog.get("blog") or {}).get("state") == "published"]
+    origin = ceo_social.live_origin()
+    posts = blog_registry.posts(ceo_social.DEFAULT_WEBSITE_ROOT)
     database = ConsoleDB(PROFILE_DIR)
     try:
         articles = [
             {
-                "task_id": blog["id"],
-                "title": blog.get("title", ""),
-                "slug": _slug_of(blog),
-                "url": (blog.get("blog") or {}).get("url", ""),
-                "drafts": database.crosspost_drafts(str(blog["id"])),
+                "task_id": post.key,
+                "title": post.title,
+                "slug": post.slug,
+                "url": f"{origin}/blog/{post.slug}",
+                "date": post.date,
+                "live": post.live,
+                "listed": post.listed,
+                "state": "Live on the site" if post.live else "Not merged to main yet",
+                "drafts": database.crosspost_drafts(post.key),
             }
-            for blog in published
+            for post in posts
         ]
+        # Copy already written against something that is not one of those posts —
+        # an older card, a brief. Dropping the row would take a human's edits off
+        # the screen with no way back to them, so it stays, named for what it is.
+        known = {post.key for post in posts}
+        titles = {str(blog["id"]): str(blog.get("title", "")) for blog in blogs}
+        for key in database.crosspost_article_keys():
+            if key in known:
+                continue
+            articles.append(
+                {
+                    "task_id": key,
+                    "title": titles.get(key, key),
+                    "slug": "",
+                    "url": "",
+                    "date": "",
+                    "live": False,
+                    "listed": True,
+                    "state": "Not a published article — copy written earlier",
+                    "drafts": database.crosspost_drafts(key),
+                }
+            )
         counts = database.crosspost_summary()
     finally:
         database.close()
