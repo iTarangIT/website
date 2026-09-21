@@ -88,6 +88,18 @@ const partners = [
     // mark in the strip.
     logoHeight: "h-12",
   },
+  {
+    // Supplied on a white plate; stored un-matted to transparency and cropped to
+    // the lockup, like Bundela above.
+    name: "Credifin",
+    src: "/logos/credifin.png",
+    width: 215,
+    height: 58,
+    // Same 3.7:1 ratio as Bajaj, so the same h-9 (133px wide). h-10 ran the
+    // wordmark to within a few px of the card's content box and outweighed
+    // the row.
+    logoHeight: "h-9",
+  },
 ];
 
 const marqueeHalf = Array.from(
