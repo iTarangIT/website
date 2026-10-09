@@ -100,6 +100,16 @@ const partners = [
     // the row.
     logoHeight: "h-9",
   },
+  {
+    // Supplied as Illustrator art on a transparent artboard; rasterised and
+    // cropped to the lockup, no matting needed.
+    name: "LICO",
+    src: "/logos/lico.png",
+    width: 251,
+    height: 224,
+    // 1.12:1 stacked lockup, next to Taru's 1.06:1, so the same h-14 (63px wide).
+    logoHeight: "h-14",
+  },
 ];
 
 const marqueeHalf = Array.from(
