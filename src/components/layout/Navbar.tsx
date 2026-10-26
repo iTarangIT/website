@@ -84,7 +84,7 @@ export default function Navbar() {
   const solid = scrolled || !isHome;
 
   const linkClass = cn(
-    "text-sm font-medium transition-all px-4 py-2 rounded-lg font-sans",
+    "text-sm font-medium whitespace-nowrap transition-all px-2.5 xl:px-3.5 py-2 rounded-lg font-sans",
     solid
       ? "text-gray-600 hover:text-brand-600 hover:bg-brand-50"
       : "text-white/70 hover:text-white hover:bg-white/10"
@@ -156,7 +156,7 @@ export default function Navbar() {
                     <NavigationMenuItem key={item.href}>
                       <NavigationMenuTrigger
                         className={cn(
-                          "!bg-transparent !shadow-none text-sm font-medium font-sans px-4 py-2 rounded-lg transition-all",
+                          "!bg-transparent !shadow-none text-sm font-medium whitespace-nowrap font-sans px-2.5 xl:px-3.5 py-2 rounded-lg transition-all",
                           solid
                             ? "text-gray-600 hover:text-brand-600 hover:bg-brand-50 data-[state=open]:text-brand-600 data-[state=open]:bg-brand-50"
                             : "text-white/70 hover:text-white hover:bg-white/10 data-[state=open]:text-white data-[state=open]:bg-white/10"
@@ -292,10 +292,15 @@ export default function Navbar() {
                   )
                 )}
                 <NavigationMenuItem>
+                  <a href="https://shop.itarang.com" className={linkClass}>
+                    Shop
+                  </a>
+                </NavigationMenuItem>
+                <NavigationMenuItem>
                   <Link
                     href="/for-investors"
                     className={cn(
-                      "text-sm font-medium transition-colors px-3 py-2 font-sans",
+                      "text-sm font-medium whitespace-nowrap transition-colors px-2.5 xl:px-3.5 py-2 font-sans",
                       solid
                         ? "text-gray-400 hover:text-brand-600"
                         : "text-white/40 hover:text-white/70"
@@ -308,7 +313,7 @@ export default function Navbar() {
             </NavigationMenu>
 
             {/* CTA + Mobile toggle */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               <div className="hidden lg:flex items-center gap-2">
                 <LoginButton scrolled={solid} />
                 <Button href="/contact" size="sm" variant="outline" className={cn(
@@ -529,6 +534,13 @@ export default function Navbar() {
                     )}
                   </motion.div>
                 ))}
+                <a
+                  href="https://shop.itarang.com"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-3 text-base font-medium text-gray-700 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-colors font-sans"
+                >
+                  Shop
+                </a>
                 <div className="pt-4 border-t border-gray-100 mt-4 space-y-2">
                   <Link
                     href="/for-investors"
